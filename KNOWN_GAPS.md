@@ -16,6 +16,28 @@ Decisions where we deviated from an original spec or assumption, kept for instit
 
 - **Tailwind v4 with CSS-based `@theme`, not `tailwind.config.ts`.** The setup spec said "update `tailwind.config.ts`," but `create-next-app` now scaffolds Tailwind v4, which puts theme tokens in `globals.css` via the `@theme` directive. No `tailwind.config.ts` file exists. End result is the same — design tokens compile to Tailwind utilities and CSS variables.
 
+- **Prisma 7 architecture: schema has no datasource URLs; connection split between `prisma.config.ts` (CLI/migrations) and an adapter on `PrismaClient` (runtime).** The Phase 1.5 spec assumed Prisma 6's pattern of `url = env("DATABASE_URL")` and `directUrl = env("DIRECT_URL")` inside `schema.prisma`. Prisma 7 (installed v7.8.0) rejects both fields in the schema (error P1012). The new architecture: (a) `prisma.config.ts` declares `datasource.url = process.env.DIRECT_URL` for the CLI / migrations / studio (session pooler, port 5432, supports prepared statements); (b) `src/lib/prisma.ts` constructs a `@prisma/adapter-pg` adapter with `process.env.DATABASE_URL` (transaction pooler, port 6543 + `?pgbouncer=true&connection_limit=1`) and passes it to `new PrismaClient({ adapter })` for runtime queries. The two-URL pattern is preserved — just plumbed through two different files instead of one schema block. Adapter dependencies added: `@prisma/adapter-pg`, `pg`, `@types/pg`.
+
+- **Prisma 7 client barrel.** Prisma 7's `prisma-client` generator emits the client into `src/generated/prisma/` as separate files (`client.ts`, `models.ts`, `enums.ts`, etc.) with no `index.ts`. To make `import { PrismaClient } from '@/generated/prisma'` resolve canonically (the idiom that tutorials and AI assistants assume), `scripts/post-prisma-generate.mjs` writes a barrel that re-exports from `./client`. The `prisma:generate` npm script chains generation + barrel; `postinstall` delegates to it so fresh clones always have a working barrel.
+
+- **Public schema grants revoked from `anon` and `authenticated` roles.** Supabase's default setup grants table-level privileges on `public` to the `anon` (browser-exposed via `NEXT_PUBLIC_SUPABASE_ANON_KEY`) and `authenticated` roles. We don't use Supabase's REST/PostgREST endpoint at all — Prisma talks directly to Postgres through the pooler with the `postgres` role. So those grants were pure attack surface with zero benefit. Phase 1.5 ran:
+  ```sql
+  REVOKE ALL ON SCHEMA public FROM anon, authenticated;
+  REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+  REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+  REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES   FROM anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
+  ```
+  Verified via `has_table_privilege('anon', …, 'SELECT' | 'INSERT')` returning `false` for every check. **If we later want to use Supabase REST for any reason** (Supabase Auth client-side, Realtime, Storage public buckets, etc.), grants need to be re-applied per-table with appropriate RLS policies. Don't blindly `GRANT ALL`.
+
+## Resolved (one audit cycle)
+
+Items completed but kept here for one audit cycle for traceability, then pruned.
+
+- **Prisma + Supabase PgBouncer compatibility flag** — *[resolved on 2026-05-14]*. Applied `?pgbouncer=true&connection_limit=1` to `DATABASE_URL` only (via Phase 1.5 Task 1); `DIRECT_URL` kept clean for migrations (it goes through the session pooler which natively supports prepared statements). Plumbed through Prisma 7's adapter pattern: `DATABASE_URL` → `PrismaPg` adapter → `PrismaClient` runtime; `DIRECT_URL` → `prisma.config.ts` → Prisma CLI. Verified via throwaway `_connectivity_check` table + `/api/health` smoke test (both removed in Task 6 cleanup). No prepared-statement errors observed across migration apply, drop, and 2× runtime queries.
+
 ## Deferred items
 
 Work intentionally not done, with revisit triggers.
@@ -23,8 +45,6 @@ Work intentionally not done, with revisit triggers.
 - **`@hono/node-server <1.19.13` middleware bypass via repeated slashes** *(moderate, GHSA-92pp-h63x-v22m)*. Pulled transitively by `@prisma/dev → prisma`. `npm audit fix --force` would downgrade Prisma to 6.19.3 (breaking). Dev-time-only attack surface. **Revisit on next Prisma major bump** (post-7.x) — should drop automatically.
 
 - **`postcss <8.5.10` XSS in CSS stringify** *(moderate, GHSA-qx2v-qp2m-jg93)*. Pulled transitively by `next`. Fix would downgrade `next` to 9.3.3 (massive breaking change). Build-time-only attack surface for our internal app. **Revisit on next Next.js major bump** (post-16.x) — should drop automatically.
-
-- **Prisma + Supabase PgBouncer compatibility flag not yet applied.** Supabase's transaction pooler (port 6543) uses PgBouncer in transaction mode, which doesn't support prepared statements. Prisma needs `?pgbouncer=true&connection_limit=1` appended to **`DATABASE_URL` only** — NOT `DIRECT_URL` (which uses the session pooler on port 5432 and supports prepared statements natively). **Apply when Prisma is wired up** (Phase 1 wrap-up or Phase 2). Without this, Prisma queries will intermittently fail with prepared-statement errors against the pooler.
 
 - **Supabase Agent Skills package (`supabase/agent-skills`) not installed.** Deferred to avoid pulling Claude Code toward Supabase-native patterns (Edge Functions, RLS-first design, Supabase CLI migrations) when we've committed to Prisma + Postgres patterns instead. The Supabase MCP server alone provides enough context for read/write operations. **Revisit if MCP-only context proves insufficient** during database phases (Phase 2+).
 
@@ -47,3 +67,9 @@ Things that aren't gaps but trip up new sessions.
 - **Currency is stored as integer paise**, not rupees-with-decimals. `₹1,234.56` ↔ `123456` paise. Display formatters convert at the UI layer only. Never store, sum, or arithmetic-on currency as a float anywhere.
 
 - **Status is derived, not stored.** Don't add a `status` column to `Sale` or `Purchase`. See `CLAUDE.md` §5 for the full rationale and the TypeScript string-literal union pattern.
+
+- **`prisma generate` does NOT run automatically after `migrate dev` in Prisma 7.** The Prisma 6 behavior of chaining generation onto migration was dropped. Run `npm run prisma:generate` after any schema change — this also writes the barrel `src/generated/prisma/index.ts` that makes `@/generated/prisma` resolve. Fresh clones get this automatically via the `postinstall` hook in `package.json`.
+
+- **Postgres `anon` and `authenticated` roles have no privileges on the `public` schema.** New tables don't need RLS policies for security (the only roles that can access them are `postgres` / `service_role`, both of which `BYPASSRLS`). Adding RLS as defense-in-depth is fine. If you see "RLS disabled" advisories from Supabase, **the threat is mitigated by the grant revocation** — see decision lineage. Schema-level USAGE remains for the two roles (inherited from the `PUBLIC` role) but is harmless without table grants.
+
+- **Prisma client output lives at `src/generated/prisma/` (gitignored).** The directory is regenerated by `npm run prisma:generate`. Never edit files inside it directly. Importing pattern: `import { prisma } from '@/lib/prisma'` for the singleton; `import { PrismaClient, Prisma, $Enums } from '@/generated/prisma'` for type imports.

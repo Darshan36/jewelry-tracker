@@ -16,7 +16,7 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 - **Framework:** Next.js 16 with App Router, TypeScript (strict mode)
 - **Styling:** Tailwind CSS v4 + shadcn/ui (Radix-based, preset `radix-nova` — visual tokens fully overridden in `globals.css`)
 - **Database:** Supabase Postgres (Mumbai, `ap-south-1`)
-- **ORM:** Prisma
+- **ORM:** Prisma 7 — singleton at `src/lib/prisma.ts` (`import { prisma } from '@/lib/prisma'`). Connects via `@prisma/adapter-pg` using `DATABASE_URL` (transaction pooler + `?pgbouncer=true&connection_limit=1`). Migrations / CLI use `DIRECT_URL` via `prisma.config.ts` (NOT `schema.prisma` — Prisma 7 moved connection URLs out of the schema). Client is generated into `src/generated/prisma/` (gitignored); regenerate with `npm run prisma:generate` after schema changes.
 - **Auth:** Auth.js (NextAuth v5 beta) with email+password (Credentials provider)
 - **Tables/grids:** TanStack Table v8
 - **Charts:** Recharts
