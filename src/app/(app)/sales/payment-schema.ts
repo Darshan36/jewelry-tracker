@@ -17,6 +17,12 @@ export const salePaymentInputSchema = z.object({
 
   amount: z.number().positive("Amount must be greater than zero"),
 
+  // PAYMENT (default — money coming in) vs REFUND (money going back to
+  // customer). String literals to avoid pulling the Prisma enum value
+  // into client-reachable code — see KNOWN_GAPS server/client boundary
+  // discipline note.
+  type: z.enum(["PAYMENT", "REFUND"]).default("PAYMENT"),
+
   note: z
     .string()
     .trim()

@@ -37,8 +37,10 @@ function makeSale(overrides: Partial<SaleForClient> = {}): SaleForClient {
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
     paidAmount: 0,
+    returnTotal: 0,
     status: "pending",
     payments: [],
+    returns: [],
     ...overrides,
   };
 }
@@ -51,6 +53,7 @@ function makePayment(
     saleId: "s-1",
     date: new Date("2026-05-12T00:00:00Z"),
     amount: 50000,
+    type: "PAYMENT",
     note: null,
     createdAt: new Date("2026-05-12T12:00:00Z"),
     updatedAt: new Date("2026-05-12T12:00:00Z"),
@@ -214,10 +217,102 @@ describe("PaymentPanel", () => {
       const user = userEvent.setup();
       render(<PaymentPanel sale={makeSale()} payments={[]} />);
       await user.click(screen.getByRole("button", { name: /record payment/i }));
-      const form = screen.getByLabelText(/^amount/i).closest("form")!;
-      await user.click(within(form).getByRole("button", { name: /^cancel$/i }));
+      // Form's Cancel button has aria-label="Cancel recording payment" to
+      // disambiguate from the reverse-confirm Cancel ("Cancel reversing
+      // payment") — Phase 3.2 closeout pattern, extended here.
+      await user.click(
+        screen.getByRole("button", { name: /cancel recording payment/i }),
+      );
       expect(screen.queryByLabelText(/^amount/i)).not.toBeInTheDocument();
       expect(createSalePayment).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("refund mode (Phase 3.3)", () => {
+    function refundDueSale(overrides: Partial<SaleForClient> = {}) {
+      // total 240000, paid 240000, returnTotal 40000 → effective 200000.
+      // Status refund_due (paid 240000 > effective 200000 by ₹400).
+      return makeSale({
+        total: 240000,
+        paidAmount: 240000,
+        returnTotal: 40000,
+        status: "refund_due",
+        ...overrides,
+      });
+    }
+
+    it("button label switches to 'Issue refund' when status === refund_due", () => {
+      render(<PaymentPanel sale={refundDueSale()} payments={[]} />);
+      expect(
+        screen.getByRole("button", { name: /issue refund/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /^record payment$/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("indicator label = 'Refund owed' in text-error when refund_due", () => {
+      render(<PaymentPanel sale={refundDueSale()} payments={[]} />);
+      const indicator = screen.getByText(/refund owed:/i);
+      // ₹400.00 = 240000 paid − 200000 effective = 40000 paise owed back
+      expect(indicator.textContent).toMatch(/₹\s*400\.00/);
+      expect(indicator).toHaveClass("text-error");
+    });
+
+    it("'Refund full amount' autofill button label + fills with refund-owed rupees", async () => {
+      const user = userEvent.setup();
+      render(<PaymentPanel sale={refundDueSale()} payments={[]} />);
+      await user.click(screen.getByRole("button", { name: /issue refund/i }));
+      const autofillBtn = screen.getByRole("button", {
+        name: /refund full amount/i,
+      });
+      expect(autofillBtn).toBeInTheDocument();
+      await user.click(autofillBtn);
+      const amountInput = screen.getByLabelText(/^amount/i) as HTMLInputElement;
+      expect(Number(amountInput.value)).toBe(400);
+    });
+
+    it("submitting the refund form sends type=REFUND to createSalePayment", async () => {
+      const user = userEvent.setup();
+      vi.mocked(createSalePayment).mockResolvedValueOnce({
+        ok: true as const,
+        payment: makePayment({ type: "REFUND", amount: 40000 }),
+      });
+      render(<PaymentPanel sale={refundDueSale()} payments={[]} />);
+      await user.click(screen.getByRole("button", { name: /issue refund/i }));
+      await user.click(
+        screen.getByRole("button", { name: /refund full amount/i }),
+      );
+      const form = screen.getByLabelText(/^amount/i).closest("form")!;
+      await user.click(within(form).getByRole("button", { name: /^save$/i }));
+      expect(createSalePayment).toHaveBeenCalledOnce();
+      const arg = vi.mocked(createSalePayment).mock.calls[0][0];
+      expect(arg.type).toBe("REFUND");
+      expect(arg.amount).toBe(400);
+    });
+
+    it("REFUND-type payment row renders with red label + minus-prefixed amount", () => {
+      const sale = makeSale({
+        paidAmount: 200000, // net: 240000 PAYMENT - 40000 REFUND
+        status: "completed",
+      });
+      const payments = [
+        makePayment({ id: "p1", amount: 240000, type: "PAYMENT" }),
+        makePayment({ id: "p2", amount: 40000, type: "REFUND" }),
+      ];
+      render(<PaymentPanel sale={sale} payments={payments} />);
+      const list = screen.getByRole("list");
+      // "Refund" badge appears for the REFUND row
+      const refundBadge = within(list).getByText(/^Refund$/i);
+      expect(refundBadge).toHaveClass("text-error");
+      // The amount cell for the REFUND row has text-error class
+      const refundRow = refundBadge.closest("li")!;
+      const amountCell = within(refundRow).getByText(
+        (content) => /₹\s*400\.00/.test(content),
+      );
+      expect(amountCell).toHaveClass("text-error");
+      // Minus prefix present (U+2212 MINUS SIGN)
+      expect(amountCell.textContent).toMatch(/[-–—−]\s*₹/);
     });
   });
 

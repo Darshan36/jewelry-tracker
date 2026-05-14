@@ -100,18 +100,27 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - Soft delete via `deletedAt`; list queries filter `where: { deletedAt: null }`.
 - **Indexes:** `@@index([deletedAt])`, `@@index([date])` (for chronological queries), `@@index([customerId])` (for per-customer history).
 
-### SalePayment (built Phase 3.2)
-`id, saleId (FK → Sale, onDelete: Cascade), date, amount (BigInt paise), note, createdAt, updatedAt, deletedAt`
+### SalePayment (built Phase 3.2, extended Phase 3.3)
+`id, saleId (FK → Sale, onDelete: Cascade), date, amount (BigInt paise), type (PaymentType: PAYMENT | REFUND, default PAYMENT), note, createdAt, updatedAt, deletedAt`
 
-- **Per-payment audit trail.** Child table — one row per payment event. `paidAmount` is derived live via `SUM(amount) WHERE deletedAt IS NULL` aggregated per sale. No cached column on `Sale` (rejected to avoid drift risk; the aggregation is cheap at ~100 sales/month with single-digit payments each).
-- **Payments are immutable.** No `updateSalePayment` action exists — wrong payment is corrected by soft-deleting the bad entry and creating a new correct one. Both events stay in the history list; the soft-deleted one is filtered out of the aggregation. Preserves audit trail at the cost of slightly more UI work for corrections.
+- **Per-payment audit trail.** Child table — one row per payment event. Net `paidAmount` is derived live as `SUM(amount WHERE type=PAYMENT, deletedAt:null) − SUM(amount WHERE type=REFUND, deletedAt:null)` per sale. No cached column on `Sale` (rejected to avoid drift risk; the aggregation is cheap at ~100 sales/month).
+- **`PaymentType` enum (Phase 3.3).** `PAYMENT` = money coming in; `REFUND` = money going back to customer. Same table, same form (date + amount + note), same workflow — just opposite direction in the aggregation. Refunds are recorded via `SalePayment` with `type=REFUND` rather than a separate `SaleRefund` table — see KNOWN_GAPS decision lineage.
+- **Payments are immutable.** No `updateSalePayment` action exists — wrong payment (including a refund) is corrected by soft-deleting the bad entry and creating a new correct one. Both events stay in the history list; the soft-deleted one is filtered out of the aggregation. Preserves audit trail at the cost of slightly more UI work for corrections.
 - **Currency pipeline** identical to Sale/Employee — `amount` is `BigInt` paise in Prisma, `serializeSalePayment()` converts to `Number` at the action return for client JSON safety.
 - **`onDelete: Cascade`** on the Sale FK is defensive — if a sale is ever hard-deleted (currently soft-only), its payment children go too. Soft-delete of a sale doesn't trigger cascade (`deletedAt` filter in queries, not actual delete).
-- **Overpayment blocked at action layer.** `createSalePayment` rejects if `amount > total − sum(active payments)` with `errors.amount = ["Exceeds remaining balance. Outstanding: ₹X"]` — formatted outstanding helps the user identify intent (data error vs. customer-overpaid-and-refund-owed, the latter being a Phase 3.3 return-driven concern).
-- **Indexes:** `@@index([saleId])` for aggregation queries, `@@index([deletedAt])` for soft-delete filtering.
+- **Overpayment blocked at action layer.** `createSalePayment` rejects PAYMENT entries where `amount > effectiveTotal − netPaid` with `errors.amount = ["Exceeds remaining balance. Outstanding: ₹X"]`. Rejects REFUND entries where `amount > netPaid` with `errors.amount = ["Refund exceeds amount paid. Maximum: ₹X"]` — the customer never gave us that money, can't refund it.
+- **Indexes:** `@@index([saleId])` for aggregation queries, `@@index([saleId, type])` for type-discriminated aggregation (`SUM WHERE type=PAYMENT`), `@@index([deletedAt])` for soft-delete filtering.
 
-### SaleReturn
-`id, sale_id, date, item_description, qty_returned, rate, discount, total, reason, receipt_url, created_at`
+### SaleReturn (built Phase 3.3)
+`id, saleId (FK → Sale, onDelete: Cascade), date, qtyReturned (Int, positive), refundAmount (BigInt paise, non-negative), note, createdAt, updatedAt, deletedAt`
+
+- **Discrete return events.** Child table — one row per return event. `returnTotal` is derived live via `SUM(refundAmount) WHERE deletedAt IS NULL` per sale; reduces the sale's `effectiveTotal = total − returnTotal` used in status computation. No cached column on `Sale`.
+- **Returns are immutable** — same pattern as payments. No `updateSaleReturn`; wrong return → soft-delete + create new. Soft-deleting a return drops it out of `returnTotal` aggregation and triggers status recomputation (e.g., `refund_due → completed` if the refund hadn't been issued yet, `completed → partial` if undoing a return raises the effective total above what's been paid).
+- **Cumulative validation at action layer.** `createSaleReturn` rejects `newQtyReturned + existingReturnedQty > sale.qty` with `errors.qtyReturned = ["Cannot return more than the original quantity. Already returned: N of M"]`. Rejects `newRefundAmount + existingReturnTotal > sale.total` with `errors.refundAmount = ["Refund exceeds remaining returnable value. Maximum: ₹X"]`. Can't return more items than were sold; can't refund more total than was originally invoiced.
+- **Separate from `SalePayment`** by design — returns are "product back," payments are "money flow." Mixing them would have required `type` discrimination on every query and lost the audit-category distinction. See KNOWN_GAPS decision lineage.
+- **Currency pipeline** identical to others — `refundAmount` is `BigInt` paise in Prisma, `serializeSaleReturn()` converts to `Number` at the action return.
+- **`onDelete: Cascade`** on the Sale FK — defensive consistency with SalePayment.
+- **Indexes:** `@@index([saleId])` for aggregation, `@@index([deletedAt])` for soft-delete filtering.
 
 ### Purchase / PurchasePayment / PurchaseReturn
 Mirror Sale exactly — same fields, same derived columns, same status logic. Joined to `Supplier` instead of `Customer`.
@@ -134,23 +143,32 @@ Karigar balance (computed): `sum(WorkEntry.total) − sum(WorkPayment.amount) �
 
 **Statuses are derived, never stored.** Computed at query time from the payment / return children.
 
-For a Sale or Purchase:
-1. Sum `*Payment.amount` where `type=PAYMENT`, subtract `type=REFUND` → `paid_amount`
-2. Sum `*Return.total` → returns subtract from `effective_total`
-3. Compute `balance = effective_total − paid_amount`
-4. Map to label:
-   - `pending` — no payments yet, `balance = effective_total`
-   - `partial` — `paid_amount > 0` and `balance > 0`
-   - `completed` — `balance = 0`
-   - `refund_due` — `balance < 0` (overpaid or refund pending after returns)
+For a Sale, status is computed by `computeSaleStatus({ total, paidAmount?, returnTotal? })` in `src/lib/sale-status.ts`:
 
-The **"Completed transactions"** view (Phase 5) is just a filter where `balance = 0` across Sales and Purchases.
+```
+effectiveTotal = total − returnTotal
+- paidAmount === 0n AND returnTotal === 0n  → pending
+- paidAmount === 0n AND returnTotal > 0n
+    AND effectiveTotal <= 0n                → completed  (edge: full return,
+                                              nothing was ever owed back)
+- paidAmount > effectiveTotal               → refund_due (overpaid relative to
+                                              reduced effective total)
+- paidAmount === effectiveTotal AND
+    effectiveTotal > 0n                     → completed
+- 0n < paidAmount < effectiveTotal          → partial
+```
 
-Karigar balance follows the same pattern — derived from `WorkEntry` (debits), `WorkPayment` (credits), `WorkReversal` (credits for defective work).
+`paidAmount` here is the **net** of `SUM(SalePayment.amount WHERE type=PAYMENT, deletedAt:null) − SUM(... WHERE type=REFUND, deletedAt:null)`. `returnTotal` is `SUM(SaleReturn.refundAmount WHERE deletedAt:null)`.
 
-**Why derived:** lets returns and refunds amend history without manual status syncing. Source of truth is the payment children.
+`serializeSale()` is the single call site that computes both aggregates and invokes `computeSaleStatus`. The page-level query (`prisma.sale.findMany({ include: { payments: { where: { deletedAt: null } }, returns: { where: { deletedAt: null } } } })`) fetches the rows that feed it.
 
-**Forward-compatible helper signature.** `computeSaleStatus(sale)` lives at `src/lib/sale-status.ts` and accepts `{ total: bigint, paidAmount?: bigint, returnTotal?: bigint }`. **Phase 3.2 active:** payment-aware computation now plugs `paidAmount` in via `serializeSale()` — `SUM(SalePayment.amount WHERE deletedAt IS NULL)` per sale, fetched in `page.tsx` via `include: { payments: { where: { deletedAt: null } } }`. Status thresholds active: `paidAmount === 0n → pending`, `0n < paidAmount < total → partial`, `paidAmount >= total → completed` (the action layer blocks overpayment so `> total` only happens transiently via payment soft-deletes). **Phase 3.3 pending:** will populate `returnTotal` from `SUM(SaleReturn.total)` to activate the `refund_due` branch (fires when `(total − returnTotal) − paidAmount < 0` — return-driven only, never payment-driven, since overpayment is action-blocked). The signature is the forward-compatibility contract — phase additions populate more arguments without breaking the API. `serializeSale()` is the single place that calls `computeSaleStatus`, so when the aggregates land they're computed once per row and attached to the client-facing `SaleForClient` shape.
+The **"Completed transactions"** view (Phase 5) is just a filter where status is `completed` across Sales and Purchases.
+
+Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − sum(WorkPayment.amount) − sum(WorkReversal.total)`, see §4.
+
+**Why derived:** lets returns and refunds amend history without manual status syncing. Source of truth is the payment + return children.
+
+**Phase 3.3 active.** `refund_due` is now a live state, fires when a return reduces effectiveTotal below paidAmount. The full-return-no-payment edge (`returnTotal === total, paidAmount === 0n`) resolves to `completed` because the case is unreachable in production (action layer blocks `cumulative returns > sale.total`), but the function handles it gracefully if it ever arises via direct API access. **Refunds are recorded via `SalePayment` with `type=REFUND`** rather than a separate `SaleRefund` table — same form, same workflow, opposite sign in the aggregation. The Sales transaction model is structurally complete; only **Phase 3.4 (receipts)** remains.
 
 > **Type-level note for Phase 2 codegen.** The four computed states (`pending` | `partial` | `completed` | `refund_due`) are **TypeScript string-literal union types** computed at the API / UI layer — they are NOT Prisma database enums. The database stores only the underlying numeric fields (`Sale.total`, `SalePayment.amount`, `SaleReturn.total`, etc.); the status label is derived on read by the layer that returns rows to the client. Do not create a Prisma `enum Status { … }` or a `status` column on `Sale`/`Purchase`. Define the union as `type SaleStatus = 'pending' | 'partial' | 'completed' | 'refund_due'` in a shared `types.ts` and compute it in the query / serializer.
 

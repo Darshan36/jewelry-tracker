@@ -103,6 +103,33 @@ describe("salePaymentInputSchema", () => {
     });
   });
 
+  describe("type (Phase 3.3 PaymentType enum)", () => {
+    it("defaults to PAYMENT when omitted", () => {
+      const input = validInput() as Partial<ReturnType<typeof validInput>>;
+      delete (input as { type?: unknown }).type; // simulate form omitting `type`
+      const result = salePaymentInputSchema.safeParse(input);
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.type).toBe("PAYMENT");
+    });
+
+    it("accepts an explicit REFUND value", () => {
+      const result = salePaymentInputSchema.safeParse({
+        ...validInput(),
+        type: "REFUND",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.type).toBe("REFUND");
+    });
+
+    it("rejects unknown type values", () => {
+      const result = salePaymentInputSchema.safeParse({
+        ...validInput(),
+        type: "INVALID",
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe("note — empty-string-to-null", () => {
     it("transforms empty string to null", () => {
       const result = salePaymentInputSchema.safeParse({

@@ -102,6 +102,7 @@ model Sale {
   deletedAt       DateTime?
 
   payments SalePayment[]
+  returns  SaleReturn[]
 
   @@index([deletedAt])
   @@index([date])
@@ -109,18 +110,42 @@ model Sale {
   @@map("sales")
 }
 
+enum PaymentType {
+  PAYMENT
+  REFUND
+}
+
 model SalePayment {
-  id        String    @id @default(cuid())
+  id        String      @id @default(cuid())
   saleId    String
-  sale      Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale      Sale        @relation(fields: [saleId], references: [id], onDelete: Cascade)
   date      DateTime
   amount    BigInt
+  type      PaymentType @default(PAYMENT)
   note      String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   deletedAt DateTime?
 
   @@index([saleId])
+  @@index([saleId, type])
   @@index([deletedAt])
   @@map("sale_payments")
+}
+
+model SaleReturn {
+  id           String    @id @default(cuid())
+  saleId       String
+  sale         Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  date         DateTime
+  qtyReturned  Int
+  refundAmount BigInt
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([saleId])
+  @@index([deletedAt])
+  @@map("sale_returns")
 }

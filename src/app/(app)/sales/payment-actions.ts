@@ -9,8 +9,9 @@ import { salePaymentInputSchema, type SalePaymentInput } from "./payment-schema"
 import { serializeSalePayment } from "./sale-helpers";
 
 // Format paise BigInt → "₹1,234.56" for the action's user-facing error
-// message. Mirrors `formatCurrency` in `src/lib/format.ts` but kept local
-// to avoid pulling a client-targeted helper into the server-action module.
+// message. Kept local to this server-action module (vs. importing from
+// @/lib/format) to avoid pulling client-targeted helpers into a 'use
+// server' file.
 function formatPaiseAsRupees(paise: bigint): string {
   const rupees = Number(paise) / 100;
   return new Intl.NumberFormat("en-IN", {
@@ -18,6 +19,23 @@ function formatPaiseAsRupees(paise: bigint): string {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(rupees);
+}
+
+// Net paid: SUM(PAYMENT) − SUM(REFUND) over non-deleted.
+function computeNetPaid(
+  payments: { amount: bigint; type: "PAYMENT" | "REFUND"; deletedAt: Date | null }[],
+): bigint {
+  return payments
+    .filter((p) => p.deletedAt === null)
+    .reduce((sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount), 0n);
+}
+
+function computeReturnTotal(
+  returns: { refundAmount: bigint; deletedAt: Date | null }[],
+): bigint {
+  return returns
+    .filter((r) => r.deletedAt === null)
+    .reduce((sum, r) => sum + r.refundAmount, 0n);
 }
 
 export async function createSalePayment(input: SalePaymentInput) {
@@ -32,12 +50,14 @@ export async function createSalePayment(input: SalePaymentInput) {
   }
   const data = parsed.data;
 
-  // Look up the sale + its non-deleted payments in one round-trip so we can
-  // compute the remaining balance accurately. Soft-deleted sale → "not
-  // found" (same convention as the customer lookup in createSale).
+  // Look up sale + both children in one round-trip so we can compute
+  // remaining-payment OR refundable-amount accurately based on the type.
   const sale = await prisma.sale.findUnique({
     where: { id: data.saleId, deletedAt: null },
-    include: { payments: { where: { deletedAt: null } } },
+    include: {
+      payments: { where: { deletedAt: null } },
+      returns: { where: { deletedAt: null } },
+    },
   });
 
   if (!sale) {
@@ -47,19 +67,39 @@ export async function createSalePayment(input: SalePaymentInput) {
     };
   }
 
-  const paidSoFar = sale.payments.reduce((sum, p) => sum + p.amount, 0n);
-  const remaining = sale.total - paidSoFar;
+  const netPaid = computeNetPaid(sale.payments);
+  const returnTotal = computeReturnTotal(sale.returns);
+  const effectiveTotal = sale.total - returnTotal;
   const amountPaise = BigInt(Math.round(data.amount * 100));
 
-  if (amountPaise > remaining) {
-    return {
-      ok: false as const,
-      errors: {
-        amount: [
-          `Exceeds remaining balance. Outstanding: ${formatPaiseAsRupees(remaining)}`,
-        ],
-      },
-    };
+  if (data.type === "PAYMENT") {
+    // PAYMENT check: can't exceed what's still owed against the effective
+    // total (which may already be reduced by returns).
+    const remaining = effectiveTotal - netPaid;
+    if (amountPaise > remaining) {
+      return {
+        ok: false as const,
+        errors: {
+          amount: [
+            `Exceeds remaining balance. Outstanding: ${formatPaiseAsRupees(remaining)}`,
+          ],
+        },
+      };
+    }
+  } else {
+    // REFUND check: can't refund more than has been paid net so far.
+    // (Refunding ₹500 from a ₹100 paid sale doesn't make business sense —
+    // the customer never gave us that money.)
+    if (amountPaise > netPaid) {
+      return {
+        ok: false as const,
+        errors: {
+          amount: [
+            `Refund exceeds amount paid. Maximum: ${formatPaiseAsRupees(netPaid)}`,
+          ],
+        },
+      };
+    }
   }
 
   const created = await prisma.salePayment.create({
@@ -67,6 +107,7 @@ export async function createSalePayment(input: SalePaymentInput) {
       saleId: data.saleId,
       date: data.date,
       amount: amountPaise,
+      type: data.type,
       note: data.note,
     },
   });

@@ -49,6 +49,19 @@ type RawPayment = {
   saleId: string;
   date: Date;
   amount: bigint;
+  type: "PAYMENT" | "REFUND";
+  note: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+};
+
+type RawReturn = {
+  id: string;
+  saleId: string;
+  date: Date;
+  qtyReturned: number;
+  refundAmount: bigint;
   note: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -58,7 +71,8 @@ type RawPayment = {
 function makeSaleRow(
   overrides: Partial<RawSale> = {},
   payments: RawPayment[] = [],
-): RawSale & { payments: RawPayment[] } {
+  returns: RawReturn[] = [],
+): RawSale & { payments: RawPayment[]; returns: RawReturn[] } {
   return {
     id: "cuid-sale-test",
     date: new Date("2026-05-14T00:00:00Z"),
@@ -76,6 +90,7 @@ function makeSaleRow(
     deletedAt: null,
     ...overrides,
     payments,
+    returns,
   };
 }
 
@@ -85,6 +100,7 @@ function makePaymentRow(overrides: Partial<RawPayment> = {}): RawPayment {
     saleId: "cuid-sale-test",
     date: new Date("2026-05-14T00:00:00Z"),
     amount: 50000n,
+    type: "PAYMENT",
     note: null,
     createdAt: new Date("2026-05-14T12:00:00Z"),
     updatedAt: new Date("2026-05-14T12:00:00Z"),
@@ -99,6 +115,7 @@ function validInput(overrides: Partial<ReturnType<typeof base>> = {}) {
       saleId: "cuid-sale-test",
       date: new Date("2026-05-14T00:00:00Z"),
       amount: 500,
+      type: "PAYMENT" as "PAYMENT" | "REFUND",
       note: null as string | null,
     };
   }
@@ -200,10 +217,10 @@ describe("createSalePayment", () => {
     });
   });
 
-  it("excludes already-soft-deleted payments from the aggregation via include filter", async () => {
-    // Test the *intent* — the action passes `where: { deletedAt: null }` to
-    // the include, so Prisma returns only active payments. We verify the
-    // shape of the include argument.
+  it("excludes already-soft-deleted payments AND returns from the aggregation via include filter", async () => {
+    // The action passes `where: { deletedAt: null }` to BOTH the payments
+    // and returns includes (Phase 3.3 adds returns), so Prisma returns only
+    // active children in either category. Verify the shape of the include.
     vi.mocked(prisma.sale.findUnique).mockResolvedValue(makeSaleRow());
     vi.mocked(prisma.salePayment.create).mockResolvedValue(makePaymentRow());
 
@@ -212,6 +229,7 @@ describe("createSalePayment", () => {
     const findCall = vi.mocked(prisma.sale.findUnique).mock.calls[0][0];
     expect(findCall.include).toEqual({
       payments: { where: { deletedAt: null } },
+      returns: { where: { deletedAt: null } },
     });
   });
 
@@ -249,6 +267,135 @@ describe("createSalePayment", () => {
     );
 
     expect(prisma.salePayment.create).not.toHaveBeenCalled();
+  });
+
+  // Phase 3.3: REFUND-type payment behavior + net paidAmount aggregation.
+
+  it("REFUND happy path — type=REFUND persisted, amount as BigInt paise", async () => {
+    // total 240000, paid PAYMENT 240000, then return creates refund_due.
+    // User issues a REFUND of 40000 paise (₹400).
+    vi.mocked(prisma.sale.findUnique).mockResolvedValue(
+      makeSaleRow(
+        {},
+        [makePaymentRow({ id: "p1", amount: 240000n, type: "PAYMENT" })],
+        [{ id: "r1", saleId: "cuid-sale-test", date: new Date(), qtyReturned: 2, refundAmount: 40000n, note: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null }],
+      ),
+    );
+    vi.mocked(prisma.salePayment.create).mockResolvedValue(
+      makePaymentRow({ id: "r-pmt", amount: 40000n, type: "REFUND" }),
+    );
+
+    const result = await createSalePayment(
+      validInput({ amount: 400, type: "REFUND" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.salePayment.create).toHaveBeenCalledOnce();
+    const call = vi.mocked(prisma.salePayment.create).mock.calls[0][0];
+    expect(call.data.type).toBe("REFUND");
+    expect(call.data.amount).toBe(40000n);
+  });
+
+  it("REFUND rejects when amount > net paidAmount", async () => {
+    // total 240000, paid PAYMENT 50000 (₹500), no returns. Net paid = 50000.
+    // Refund 1000 rupees = 100000 paise > 50000 → reject.
+    vi.mocked(prisma.sale.findUnique).mockResolvedValue(
+      makeSaleRow({}, [
+        makePaymentRow({ id: "p1", amount: 50000n, type: "PAYMENT" }),
+      ]),
+    );
+
+    const result = await createSalePayment(
+      validInput({ amount: 1000, type: "REFUND" }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.amount).toBeDefined();
+      const msg = result.errors.amount?.[0] ?? "";
+      expect(msg).toContain("Refund exceeds amount paid");
+      // Maximum is ₹500.00 (50000 paise net)
+      expect(msg).toMatch(/₹\s*500\.00/);
+    }
+    expect(prisma.salePayment.create).not.toHaveBeenCalled();
+  });
+
+  it("PAYMENT check uses effective total (subtracts returnTotal)", async () => {
+    // total 240000, return 40000 → effective 200000.
+    // No payments yet → remaining = 200000 - 0 = 200000.
+    // Payment of 2500 rupees = 250000 paise > 200000 → reject.
+    vi.mocked(prisma.sale.findUnique).mockResolvedValue(
+      makeSaleRow(
+        {},
+        [],
+        [{ id: "r1", saleId: "cuid-sale-test", date: new Date(), qtyReturned: 2, refundAmount: 40000n, note: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null }],
+      ),
+    );
+
+    const result = await createSalePayment(
+      validInput({ amount: 2500, type: "PAYMENT" }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const msg = result.errors.amount?.[0] ?? "";
+      expect(msg).toContain("Exceeds remaining balance");
+      // Outstanding should be ₹2,000.00 (effective 200000 − paid 0)
+      expect(msg).toMatch(/₹\s*2,000\.00/);
+    }
+  });
+
+  it("aggregates PAYMENT minus REFUND for net paidAmount on PAYMENT check", async () => {
+    // total 240000. Payments: PAYMENT 100000, REFUND 30000 → net 70000.
+    // Remaining for new PAYMENT = 240000 - 70000 = 170000.
+    // New PAYMENT of 1500 rupees = 150000 paise < 170000 → accept.
+    vi.mocked(prisma.sale.findUnique).mockResolvedValue(
+      makeSaleRow({}, [
+        makePaymentRow({ id: "p1", amount: 100000n, type: "PAYMENT" }),
+        makePaymentRow({ id: "p2", amount: 30000n, type: "REFUND" }),
+      ]),
+    );
+    vi.mocked(prisma.salePayment.create).mockResolvedValue(
+      makePaymentRow({ id: "p-new", amount: 150000n, type: "PAYMENT" }),
+    );
+
+    const result = await createSalePayment(
+      validInput({ amount: 1500, type: "PAYMENT" }),
+    );
+
+    expect(result.ok).toBe(true);
+    const call = vi.mocked(prisma.salePayment.create).mock.calls[0][0];
+    expect(call.data.amount).toBe(150000n);
+  });
+
+  it("excludes soft-deleted refunds AND payments from net paidAmount", async () => {
+    // Active PAYMENT 100000 + deleted REFUND 30000 (ignored) → net 100000.
+    // Remaining = 240000 - 100000 = 140000.
+    // New PAYMENT of 1300 = 130000 < 140000 → accept.
+    vi.mocked(prisma.sale.findUnique).mockResolvedValue(
+      makeSaleRow({}, [
+        makePaymentRow({ id: "p1", amount: 100000n, type: "PAYMENT" }),
+        // This REFUND is soft-deleted, but the Prisma include's `where:
+        // { deletedAt: null }` filter would normally strip it. We test
+        // defensively: even if a soft-deleted row leaks through, our
+        // helper's own .filter() should ignore it.
+        makePaymentRow({
+          id: "p2",
+          amount: 30000n,
+          type: "REFUND",
+          deletedAt: new Date(),
+        }),
+      ]),
+    );
+    vi.mocked(prisma.salePayment.create).mockResolvedValue(
+      makePaymentRow({ amount: 130000n }),
+    );
+
+    const result = await createSalePayment(
+      validInput({ amount: 1300, type: "PAYMENT" }),
+    );
+
+    expect(result.ok).toBe(true);
   });
 });
 

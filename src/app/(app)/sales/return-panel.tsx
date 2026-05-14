@@ -14,22 +14,19 @@ import {
 } from "@/components/form-controls";
 import { formatCurrency, formatDate } from "@/lib/format";
 
-import {
-  createSalePayment,
-  softDeleteSalePayment,
-} from "./payment-actions";
-import { salePaymentInputSchema } from "./payment-schema";
+import { createSaleReturn, softDeleteSaleReturn } from "./return-actions";
+import { saleReturnInputSchema } from "./return-schema";
 import type {
   SaleForClient,
-  SalePaymentForClient,
+  SaleReturnForClient,
 } from "./sale-helpers";
 
-type FormInputT = z.input<typeof salePaymentInputSchema>;
-type FormOutput = z.output<typeof salePaymentInputSchema>;
+type FormInputT = z.input<typeof saleReturnInputSchema>;
+type FormOutput = z.output<typeof saleReturnInputSchema>;
 
 type Props = {
   sale: SaleForClient;
-  payments: SalePaymentForClient[];
+  returns: SaleReturnForClient[];
 };
 
 function todayISO(): string {
@@ -40,20 +37,25 @@ function todayISO(): string {
   return `${y}-${m}-${day}`;
 }
 
-export function PaymentPanel({ sale, payments }: Props) {
+export function ReturnPanel({ sale, returns }: Props) {
   const router = useRouter();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [reversingId, setReversingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
 
-  // Effective total: original sale total minus what's been returned.
-  // Outstanding: positive = customer owes us; negative = we owe customer.
-  const effectiveTotalPaise = sale.total - sale.returnTotal;
-  const outstandingPaise = effectiveTotalPaise - sale.paidAmount;
-  const isRefundMode = sale.status === "refund_due";
-  // In refund mode, the magnitude of what's owed back to the customer.
-  const refundOwedPaise = isRefundMode ? -outstandingPaise : 0;
+  // Aggregate already-returned qty and refund (client-side from props) to
+  // show inline hints under the form inputs. Server validates authoritatively.
+  const existingReturnedQty = returns.reduce(
+    (sum, r) => sum + r.qtyReturned,
+    0,
+  );
+  const existingReturnTotalPaise = returns.reduce(
+    (sum, r) => sum + r.refundAmount,
+    0,
+  );
+  const remainingReturnableQty = sale.qty - existingReturnedQty;
+  const remainingReturnableValuePaise = sale.total - existingReturnTotalPaise;
 
   const {
     register,
@@ -61,27 +63,21 @@ export function PaymentPanel({ sale, payments }: Props) {
     formState: { errors, isSubmitting },
     reset,
     setError,
-    setValue,
   } = useForm<FormInputT, unknown, FormOutput>({
-    resolver: zodResolver(salePaymentInputSchema),
-    defaultValues: emptyDefaults(sale.id, isRefundMode),
+    resolver: zodResolver(saleReturnInputSchema),
+    defaultValues: emptyDefaults(sale.id),
   });
 
-  // Re-seed defaults whenever the form (re-)opens or the refund/payment
-  // direction flips. This ensures the hidden `type` field tracks current
-  // status (e.g., the user closes the form, soft-deletes a payment that
-  // flips status pending→refund_due, then re-opens the form: type should
-  // now be REFUND).
   useEffect(() => {
     if (isFormOpen) {
-      reset(emptyDefaults(sale.id, isRefundMode));
+      reset(emptyDefaults(sale.id));
       setServerError(null);
     }
-  }, [isFormOpen, sale.id, isRefundMode, reset]);
+  }, [isFormOpen, sale.id, reset]);
 
   const onSubmit = async (data: FormOutput) => {
     setServerError(null);
-    const result = await createSalePayment(data);
+    const result = await createSaleReturn(data);
     if (!result.ok) {
       const flat = result.errors;
       let surfaced = false;
@@ -89,10 +85,10 @@ export function PaymentPanel({ sale, payments }: Props) {
         const messages = flat[key as keyof typeof flat];
         if (messages && messages.length > 0) {
           if (
-            key === "amount" ||
+            key === "qtyReturned" ||
+            key === "refundAmount" ||
             key === "date" ||
-            key === "note" ||
-            key === "type"
+            key === "note"
           ) {
             setError(key, { message: messages[0] });
             surfaced = true;
@@ -109,89 +105,57 @@ export function PaymentPanel({ sale, payments }: Props) {
     router.refresh();
   };
 
-  const handleConfirmReverse = (paymentId: string) => {
+  const handleConfirmReverse = (returnId: string) => {
     startTransition(async () => {
-      await softDeleteSalePayment(paymentId);
+      await softDeleteSaleReturn(returnId);
       setReversingId(null);
       router.refresh();
     });
   };
 
-  const handleAutofillAmount = () => {
-    const fillRupees = isRefundMode
-      ? refundOwedPaise / 100
-      : outstandingPaise / 100;
-    setValue("amount", fillRupees, { shouldValidate: false });
-  };
-
-  // Show button when there's money to move in either direction. Hidden only
-  // for completed sales with no return-driven refund.
-  const showActionButton = isRefundMode || outstandingPaise > 0;
-  const triggerLabel = isRefundMode ? "Issue refund" : "Record payment";
-  const autofillLabel = isRefundMode ? "Refund full amount" : "Pay full balance";
-
-  // Status label + color for the indicator on the right of the section
-  // header.
-  let indicatorLabel: string;
-  let indicatorColor: string;
-  let indicatorValuePaise: number;
-  if (isRefundMode) {
-    indicatorLabel = "Refund owed";
-    indicatorColor = "text-error";
-    indicatorValuePaise = refundOwedPaise;
-  } else if (outstandingPaise === 0) {
-    indicatorLabel = "Outstanding";
-    indicatorColor = "text-secondary";
-    indicatorValuePaise = 0;
-  } else {
-    indicatorLabel = "Outstanding";
-    indicatorColor = "text-primary";
-    indicatorValuePaise = outstandingPaise;
-  }
+  // Hide "Record return" button once nothing further is returnable.
+  const canRecordMore =
+    remainingReturnableQty > 0 && remainingReturnableValuePaise > 0;
 
   return (
     <div className="mt-6 pt-6 border-t border-outline-variant">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-display text-xs uppercase tracking-wider text-on-surface-variant">
-          Payment history
+          Returns
         </h3>
-        <span
-          className={`font-display text-sm tabular-nums ${indicatorColor}`}
-        >
-          {indicatorLabel}: {formatCurrency(indicatorValuePaise)}
-        </span>
+        {existingReturnTotalPaise > 0 && (
+          <span className="font-display text-sm tabular-nums text-primary">
+            Returned: {formatCurrency(existingReturnTotalPaise)}
+          </span>
+        )}
       </div>
 
-      {payments.length === 0 ? (
-        <p className="text-sm text-on-surface-variant mb-3">No payments yet.</p>
+      {returns.length === 0 ? (
+        <p className="text-sm text-on-surface-variant mb-3">No returns recorded.</p>
       ) : (
         <ul className="space-y-1 mb-3">
-          {payments.map((p) => (
-            <PaymentRow
-              key={p.id}
-              payment={p}
-              isConfirming={reversingId === p.id}
+          {returns.map((r) => (
+            <ReturnRow
+              key={r.id}
+              saleReturn={r}
+              isConfirming={reversingId === r.id}
               isPending={isPending}
-              onRequestReverse={() => setReversingId(p.id)}
+              onRequestReverse={() => setReversingId(r.id)}
               onCancelReverse={() => setReversingId(null)}
-              onConfirmReverse={() => handleConfirmReverse(p.id)}
+              onConfirmReverse={() => handleConfirmReverse(r.id)}
             />
           ))}
         </ul>
       )}
 
-      {!isFormOpen && showActionButton && (
+      {!isFormOpen && canRecordMore && (
         <button
           type="button"
           onClick={() => setIsFormOpen(true)}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm border border-outline-variant transition-colors ${
-            isRefundMode
-              ? "bg-surface-container-high text-error hover:bg-surface-container"
-              : "bg-secondary-container text-on-secondary-container hover:bg-secondary-container/90"
-          }`}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm bg-surface-container-high text-on-surface hover:bg-surface-container border border-outline-variant transition-colors"
         >
           <Plus className="size-4" />
-          {triggerLabel}
+          Record return
         </button>
       )}
 
@@ -208,14 +172,13 @@ export function PaymentPanel({ sale, payments }: Props) {
           )}
 
           <input type="hidden" {...register("saleId")} value={sale.id} readOnly />
-          <input type="hidden" {...register("type")} />
 
           <div>
-            <FormLabel htmlFor="payment-date" required>
+            <FormLabel htmlFor="return-date" required>
               Date
             </FormLabel>
             <FormInput
-              id="payment-date"
+              id="return-date"
               type="date"
               aria-invalid={!!errors.date}
               {...register("date")}
@@ -226,40 +189,58 @@ export function PaymentPanel({ sale, payments }: Props) {
           </div>
 
           <div>
-            <FormLabel htmlFor="payment-amount" required>
-              Amount (₹)
+            <FormLabel htmlFor="return-qty" required>
+              Quantity returned
             </FormLabel>
-            <div className="flex gap-2 items-start">
-              <div className="flex-1">
-                <FormInput
-                  id="payment-amount"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  inputMode="decimal"
-                  autoFocus
-                  aria-invalid={!!errors.amount}
-                  {...register("amount", {
-                    setValueAs: (v) =>
-                      v === "" || v === null || v === undefined ? 0 : Number(v),
-                  })}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleAutofillAmount}
-                className="shrink-0 h-10 px-3 text-xs font-display uppercase tracking-wider bg-surface-container-high text-on-surface hover:bg-surface-container border border-outline-variant transition-colors"
-              >
-                {autofillLabel}
-              </button>
-            </div>
-            <FormError>{errors.amount?.message}</FormError>
+            <FormInput
+              id="return-qty"
+              type="number"
+              min="1"
+              step="1"
+              max={String(remainingReturnableQty)}
+              inputMode="numeric"
+              autoFocus
+              aria-invalid={!!errors.qtyReturned}
+              {...register("qtyReturned", {
+                setValueAs: (v) =>
+                  v === "" || v === null || v === undefined ? 0 : Number(v),
+              })}
+            />
+            <p className="text-xs text-on-surface-variant mt-1">
+              Up to {remainingReturnableQty} available to return
+              {existingReturnedQty > 0
+                ? ` (already returned: ${existingReturnedQty} of ${sale.qty})`
+                : ""}
+            </p>
+            <FormError>{errors.qtyReturned?.message}</FormError>
           </div>
 
           <div>
-            <FormLabel htmlFor="payment-note">Note (optional)</FormLabel>
+            <FormLabel htmlFor="return-refund" required>
+              Refund amount (₹)
+            </FormLabel>
             <FormInput
-              id="payment-note"
+              id="return-refund"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              aria-invalid={!!errors.refundAmount}
+              {...register("refundAmount", {
+                setValueAs: (v) =>
+                  v === "" || v === null || v === undefined ? 0 : Number(v),
+              })}
+            />
+            <p className="text-xs text-on-surface-variant mt-1">
+              Max refund value: {formatCurrency(remainingReturnableValuePaise)}
+            </p>
+            <FormError>{errors.refundAmount?.message}</FormError>
+          </div>
+
+          <div>
+            <FormLabel htmlFor="return-note">Note (optional)</FormLabel>
+            <FormInput
+              id="return-note"
               type="text"
               autoComplete="off"
               aria-invalid={!!errors.note}
@@ -273,7 +254,7 @@ export function PaymentPanel({ sale, payments }: Props) {
               type="button"
               onClick={() => setIsFormOpen(false)}
               disabled={isSubmitting}
-              aria-label="Cancel recording payment"
+              aria-label="Cancel recording return"
               className="px-3 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
             >
               Cancel
@@ -299,61 +280,47 @@ export function PaymentPanel({ sale, payments }: Props) {
   );
 }
 
-function emptyDefaults(saleId: string, isRefundMode: boolean): FormInputT {
+function emptyDefaults(saleId: string): FormInputT {
   return {
     saleId,
     date: todayISO() as unknown as Date,
-    amount: 0,
-    type: isRefundMode ? "REFUND" : "PAYMENT",
+    qtyReturned: 1,
+    refundAmount: 0,
     note: "",
   };
 }
 
-function PaymentRow({
-  payment,
+function ReturnRow({
+  saleReturn,
   isConfirming,
   isPending,
   onRequestReverse,
   onCancelReverse,
   onConfirmReverse,
 }: {
-  payment: SalePaymentForClient;
+  saleReturn: SaleReturnForClient;
   isConfirming: boolean;
   isPending: boolean;
   onRequestReverse: () => void;
   onCancelReverse: () => void;
   onConfirmReverse: () => void;
 }) {
-  const isRefund = payment.type === "REFUND";
-  const amountColor = isRefund ? "text-error" : "text-on-surface";
-  // Refund entries show a negative-style display: "-₹500.00" so the
-  // direction is unambiguous in the history scroll.
-  const amountDisplay = isRefund
-    ? `−${formatCurrency(payment.amount)}`
-    : formatCurrency(payment.amount);
-
   return (
     <li className="group flex items-center gap-3 px-3 py-2 text-sm bg-surface-container-low border border-outline-variant">
       <span className="text-on-surface-variant tabular-nums shrink-0 w-24">
-        {formatDate(payment.date)}
+        {formatDate(saleReturn.date)}
       </span>
-      <span
-        className={`shrink-0 w-16 text-[10px] font-display uppercase tracking-wider ${
-          isRefund ? "text-error" : "text-on-surface-variant"
-        }`}
-      >
-        {isRefund ? "Refund" : "Payment"}
+      <span className="text-on-surface tabular-nums shrink-0 w-16 text-right">
+        {saleReturn.qtyReturned} qty
       </span>
-      <span
-        className={`tabular-nums font-mono shrink-0 w-28 text-right ${amountColor}`}
-      >
-        {amountDisplay}
+      <span className="text-on-surface tabular-nums font-mono shrink-0 w-28 text-right">
+        {formatCurrency(saleReturn.refundAmount)}
       </span>
       <span
         className="flex-1 min-w-0 text-on-surface-variant truncate"
-        title={payment.note ?? undefined}
+        title={saleReturn.note ?? undefined}
       >
-        {payment.note ?? "—"}
+        {saleReturn.note ?? "—"}
       </span>
       {isConfirming ? (
         <div className="flex items-center gap-1.5 shrink-0">
@@ -364,7 +331,7 @@ function PaymentRow({
             type="button"
             onClick={onCancelReverse}
             disabled={isPending}
-            aria-label="Cancel reversing payment"
+            aria-label="Cancel reversing return"
             className="px-2 py-1 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
           >
             Cancel
@@ -382,7 +349,7 @@ function PaymentRow({
         <button
           type="button"
           onClick={onRequestReverse}
-          aria-label="Reverse payment"
+          aria-label="Reverse return"
           className="shrink-0 p-1.5 opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-error hover:bg-surface-container transition-all"
         >
           <X className="size-4" />

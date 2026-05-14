@@ -390,6 +390,66 @@ handler doesn't run — reach for `fireEvent.<eventName>(element)` first.
 Discovered Phase 3.1 — five party-picker tests failed because the
 dropdown-opening `onFocus` handler never fired from `input.focus()`.
 
+### Unicode minus-sign regex gotcha
+
+When asserting on negative-amount strings (e.g. `−₹400.00` in refund
+history), the naive character class `[−-]` is an **invalid regex range**
+because `−` (U+2212 MINUS SIGN) is a higher codepoint than `-` (U+002D
+HYPHEN-MINUS). JS rejects with `SyntaxError: Invalid regular expression:
+Range out of order in character class`. Fix by putting the literal `-`
+first — a leading dash in a character class is always literal, never a
+range start:
+
+```typescript
+// ❌ SyntaxError: range out of order
+expect(text).toMatch(/[−-]\s*₹/);
+
+// ✓ Valid: leading `-` is literal; the other minus codepoints follow
+expect(text).toMatch(/[-–—−]\s*₹/);
+```
+
+The four characters above are hyphen-minus (U+002D), en-dash (U+2013),
+em-dash (U+2014), and math minus (U+2212). `formatCurrency()` prepended
+with U+2212 in `payment-panel.tsx` produces this case in the refund
+display path; the same trap is in the Phase 3.3 walkthrough script for
+the same reason. **Rule**: if you write `[X-Y]` in a character class
+where either X or Y is a codepoint above U+00FF, double-check the
+order and prefer the leading-`-`-as-literal idiom.
+
+### Component tests vs Playwright walkthroughs — `router.refresh()` timing
+
+The two test layers differ in how they handle Next.js's
+`router.refresh()` async re-fetch:
+
+- **Component tests** mock `next/navigation` so `useRouter().refresh()`
+  is a synchronous `vi.fn()`. After a mutation calls refresh, there's
+  nothing to wait for — the next render reads from the same in-memory
+  props the test set up. Assertions run immediately.
+- **Playwright walkthroughs** run against a real dev server. A real
+  `router.refresh()` triggers an RSC re-fetch → server re-renders the
+  page → Flight payload streams to client → React reconciles. This is
+  meaningfully async (tens to hundreds of ms). After Save, the form
+  closes synchronously but the new entity row appears only after the
+  re-fetch completes. Tests must `waitForFunction(...)` for the
+  expected post-refresh state rather than asserting immediately.
+
+```javascript
+// Playwright — after a mutation that triggers router.refresh:
+await page.click('form button[type="submit"]:has-text("Save")');
+// Don't assert here — refresh hasn't run yet.
+await page.waitForFunction(() => {
+  const dialog = document.querySelector('[role="dialog"]');
+  return /Expected new state/.test(dialog?.textContent || "");
+}, null, { timeout: 8000 });
+// Now assert.
+```
+
+Both layers have value. Component tests give fast behavior coverage;
+walkthroughs verify end-to-end timing realism. **Walkthrough scripts
+in `scripts/walkthrough-*.mjs` are NOT part of `npm run test:run`** —
+invoke them directly (`node scripts/walkthrough-<name>.mjs`) to verify
+a sub-phase build against a running dev server.
+
 ### Asserting sort order in a table
 
 For sortable tables, after clicking a header, assert the row order by

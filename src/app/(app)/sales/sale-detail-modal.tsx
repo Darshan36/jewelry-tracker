@@ -15,6 +15,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 
 import { softDeleteSale } from "./actions";
 import { PaymentPanel } from "./payment-panel";
+import { ReturnPanel } from "./return-panel";
 import { SaleStatusChip } from "./sale-status-chip";
 import type { SaleForClient } from "./sale-helpers";
 
@@ -104,6 +105,7 @@ export function SaleDetailModal({
           )}
 
           <PaymentPanel sale={sale} payments={sale.payments} />
+          <ReturnPanel sale={sale} returns={sale.returns} />
         </div>
 
         <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant">
