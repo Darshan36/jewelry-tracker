@@ -50,3 +50,7 @@ next-env.d.ts
 
 # Generated code — Prisma client (and any other future generators) outputs here
 src/generated/
+
+# Playwright walkthrough screenshots — verification artifacts, not source.
+# Each walkthrough run regenerates them; keep the scripts but not the PNGs.
+scripts/walkthrough*out/

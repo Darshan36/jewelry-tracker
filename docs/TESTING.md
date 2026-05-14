@@ -196,6 +196,40 @@ implementations in place from the top-level `vi.mock(...)` factory.
 
 Both work for their case. Don't mix the two reset approaches in one file.
 
+**Test inputs match `z.output<schema>`, not the raw form-input shape.**
+Server actions take `z.infer<typeof schema>` as their parameter type,
+which is the schema's **OUTPUT** type after every transform / coercion
+runs. Tests bypass the form layer, so the fixture you hand to the action
+must already be in the post-coercion shape.
+
+Concrete example from Phase 3.1: the Sale schema has
+`date: z.coerce.date()`. `z.input` is `unknown` (anything that can be
+coerced); `z.output` is `Date`. The action's signature has `date: Date`.
+A test that passes `date: "2026-05-14"` (the form's string shape) will
+fail `tsc --noEmit` with *"Argument of type 'string' is not assignable
+to parameter of type 'Date'"*. Fix is the helper, not a cast:
+
+```typescript
+function validInput(overrides = {}) {
+  return {
+    date: new Date("2026-05-14T00:00:00Z"), // ← z.output shape
+    customerId: null,
+    partyName: "Test Walkin",
+    // ...
+    ...overrides,
+  };
+}
+```
+
+The schema's coercion path itself is exercised separately in
+`schema.test.ts` — that's where strings like `"2026-05-14"` belong.
+
+Inverse case for currency: rate/discount stay as `number` rupees in
+the schema output (no `.transform` to BigInt — see KNOWN_GAPS), so
+tests pass `rate: 250` (rupees number), not `25000n` (paise BigInt).
+The BigInt conversion happens inside the action, and the action *test*
+asserts on `prisma.sale.create.mock.calls[0][0].data.rate === 25000n`.
+
 **`vi.mock` is hoisted above imports.** Vitest moves `vi.mock(...)` calls
 to the top of the file at parse time, so they run **before** any import
 statements. Consequence:
@@ -319,6 +353,42 @@ Pick the smallest stable container that uniquely contains the target —
 `getByRole('table')`, `getByRole('radiogroup', { name })`, `getByRole('dialog')`.
 Phase 2.3 caught this when an "all 'Fixed' count = 2" assertion fired
 with 3 matches because the filter pills also said "Fixed."
+
+### Triggering React synthetic events in jsdom
+
+**Programmatic `element.focus()` does NOT trigger React's synthetic
+`onFocus` handler in jsdom.** It dispatches a native focus event, but
+React's synthetic event system doesn't reliably pick it up. Tests that
+depend on `onFocus` running (e.g., a dropdown that opens on input focus,
+an "active" style toggled by focus) need explicit React-event dispatch:
+
+```typescript
+import { fireEvent } from "@testing-library/react";
+
+// ❌ DOES NOT fire React's onFocus in jsdom
+const input = screen.getByPlaceholderText(/customer name/i);
+input.focus();
+expect(screen.getByText(/dropdown is open/i)).toBeInTheDocument(); // fails
+
+// ✓ Fires React's synthetic onFocus
+fireEvent.focus(input);
+expect(screen.getByText(/dropdown is open/i)).toBeInTheDocument();
+```
+
+`userEvent.click(input)` is the user-flow alternative — it dispatches
+the full `mousedown → focus → mouseup → click` sequence through React,
+which includes a synthetic focus event. Use `userEvent.click` when the
+test is simulating realistic user behavior; use `fireEvent.focus` when
+the test cares specifically about the focus event in isolation.
+
+**Same gotcha applies to other synthetic-only events**: `onBlur`,
+`onMouseEnter`, `onMouseLeave`, and any handler React intercepts and
+re-dispatches through its event system. If a test sets up an element,
+calls a programmatic method that "should" trigger a handler, and the
+handler doesn't run — reach for `fireEvent.<eventName>(element)` first.
+
+Discovered Phase 3.1 — five party-picker tests failed because the
+dropdown-opening `onFocus` handler never fired from `input.focus()`.
 
 ### Asserting sort order in a table
 

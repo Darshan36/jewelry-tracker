@@ -89,14 +89,16 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - Soft delete via `deletedAt` (matches Customer / Supplier convention).
 - **Indexes:** `@@index([deletedAt])`, `@@index([name])`, `@@index([type])` (the third supports the FIXED / LABOUR / ALL filter pills on the list page).
 
-### Sale
-`id, date, customer_id, item_description, qty, rate, discount, total, receipt_url, created_at`
+### Sale (built Phase 3.1)
+`id, date, customerId (FK → Customer, nullable, onDelete: SetNull), partyName, partyPhone, itemDescription, qty, rate (BigInt paise), discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, createdAt, updatedAt, deletedAt`
 
-Derived (computed at query time, **not stored**):
-- `effective_total = total − sum(SaleReturn.total)`
-- `paid_amount = sum(SalePayment.amount where type=PAYMENT) − sum(where type=REFUND)`
-- `balance = effective_total − paid_amount`
-- `status` (computed): `pending` | `partial` | `completed` | `refund_due`
+- **Dual-path party model.** Each sale either links to a `Customer` (FK `customerId` set; `partyName`/`partyPhone` are server-side snapshots of `Customer.name`/`Customer.phone` at sale time) OR is a walk-in (`customerId` null; the two strings are the only identity). Snapshot pattern preserves historical sale display correctness regardless of later customer rename or soft-delete. `onDelete: SetNull` is defensive — if a customer is ever hard-deleted, sales lose only the link, not their party data. See KNOWN_GAPS.md decision lineage.
+- **Date is date-only.** Stored as DateTime in Prisma (midnight UTC by convention); rendered via `formatDate` (not `formatDateTime`). Form input is `<input type="date">` emitting "YYYY-MM-DD"; the schema's `z.coerce.date()` accepts both that string and Date instances (symmetric wire format).
+- **`total` is stored, not derived.** Computed at write time in the action's `buildSaleData()` helper as `BigInt(qty) × ratePaise − discountPaise` and persisted on the row. Trade-off vs. computing on read: enables straightforward `SUM(total)` aggregates AND preserves audit history (if discount logic ever changes, historical totals don't shift). Must be recomputed on every `updateSale`. See KNOWN_GAPS.md decision lineage.
+- **`status` is derived on read.** Computed by `computeSaleStatus(sale)` in `src/lib/sale-status.ts` and attached by `serializeSale()` before the row reaches the client. Phase 3.1 always returns `'pending'` (no payments/returns yet); Phase 3.2/3.3 plug into the same function's forward-compatible signature. See §5.
+- **Currency pipeline** identical to Employee — schema validates rupees as `z.number().nonnegative()`, action's `buildSaleData()` converts to BigInt paise at the Prisma boundary, `serializeSale()` converts back to Number at the action return for JSON safety. Three BigInt columns per sale (`rate`, `discount`, `total`).
+- Soft delete via `deletedAt`; list queries filter `where: { deletedAt: null }`.
+- **Indexes:** `@@index([deletedAt])`, `@@index([date])` (for chronological queries), `@@index([customerId])` (for per-customer history).
 
 ### SalePayment
 `id, sale_id, date, amount, type (PAYMENT | REFUND), note, created_at`
@@ -140,6 +142,8 @@ The **"Completed transactions"** view (Phase 5) is just a filter where `balance 
 Karigar balance follows the same pattern — derived from `WorkEntry` (debits), `WorkPayment` (credits), `WorkReversal` (credits for defective work).
 
 **Why derived:** lets returns and refunds amend history without manual status syncing. Source of truth is the payment children.
+
+**Forward-compatible helper signature.** `computeSaleStatus(sale)` lives at `src/lib/sale-status.ts` and accepts `{ total: bigint, paidAmount?: bigint, returnTotal?: bigint }`. Phase 3.1 only passes `total` and the function always returns `'pending'` (payments and returns don't exist yet). Phase 3.2 (Sales payments) plugs in `paidAmount` from a `SUM(SalePayment.amount where type=PAYMENT) − SUM(... where type=REFUND)` aggregate; Phase 3.3 (Sales returns) plugs in `returnTotal` from `SUM(SaleReturn.total)`. The signature is the forward-compatibility contract — phase additions populate more arguments without breaking the API. `serializeSale()` is the single place that calls `computeSaleStatus`, so when the aggregates land they're computed once per row and attached to the client-facing `SaleForClient` shape.
 
 > **Type-level note for Phase 2 codegen.** The four computed states (`pending` | `partial` | `completed` | `refund_due`) are **TypeScript string-literal union types** computed at the API / UI layer — they are NOT Prisma database enums. The database stores only the underlying numeric fields (`Sale.total`, `SalePayment.amount`, `SaleReturn.total`, etc.); the status label is derived on read by the layer that returns rows to the client. Do not create a Prisma `enum Status { … }` or a `status` column on `Sale`/`Purchase`. Define the union as `type SaleStatus = 'pending' | 'partial' | 'completed' | 'refund_due'` in a shared `types.ts` and compute it in the query / serializer.
 

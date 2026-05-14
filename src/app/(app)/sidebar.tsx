@@ -30,7 +30,7 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
-  { href: "/sales", label: "Sales", icon: TrendingUp, enabled: false },
+  { href: "/sales", label: "Sales", icon: TrendingUp, enabled: true },
   { href: "/purchases", label: "Purchases", icon: TrendingDown, enabled: false },
   { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: false },
   { href: "/customers", label: "Customers", icon: Users, enabled: true },

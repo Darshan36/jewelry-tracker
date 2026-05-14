@@ -38,6 +38,8 @@ model Customer {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  sales Sale[]
+
   @@index([deletedAt])
   @@index([name])
   @@map("customers")
@@ -80,4 +82,27 @@ model Employee {
   @@index([name])
   @@index([type])
   @@map("employees")
+}
+
+model Sale {
+  id              String    @id @default(cuid())
+  date            DateTime
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  partyName       String
+  partyPhone      String?
+  itemDescription String
+  qty             Int
+  rate            BigInt
+  discount        BigInt    @default(0)
+  total           BigInt
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@index([deletedAt])
+  @@index([date])
+  @@index([customerId])
+  @@map("sales")
 }
