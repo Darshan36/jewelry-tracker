@@ -233,6 +233,17 @@ Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − s
 - Accounting integrations (Tally, Zoho Books)
 - Inventory tracking (separate concern, deferred)
 
+## 9. Deployment (Phase 4.5)
+
+Hosted on Vercel; production fed from `main`. Operational reference lives in `docs/HANDOFF.md` — read that before changing prod env, rotating secrets, applying migrations, or rolling back a deploy.
+
+- **Vercel project:** `jewlerytracker` (org: `darshan-somaiyas-projects`). Framework auto-detected as Next.js; node 24.x; Fluid Compute (Node serverless), region `iad1`.
+- **Repository:** `Darshan36/jewelry-tracker`. Push to `main` auto-deploys; no PR gate yet.
+- **Production database:** Supabase project `cseqdcrfnvgsalsyhjsz` (Mumbai, ap-south-1). Independent from the dev project — schemas synchronized via `prisma migrate deploy`, never via data copy.
+- **Auth gate:** Auth.js JWT cookie sessions only. Vercel's project-level SSO Deployment Protection is disabled (the app does its own auth). Re-enable only if you also wire up a way for staff to bypass it.
+- **Prisma client construction is lazy.** `src/lib/prisma.ts` uses a Proxy so `DATABASE_URL` is only read on first query, not at module load. This is required so Next.js 16's build-time page-data collection can import route modules without crashing when env-resolution timing differs from runtime. Do NOT revert to eager construction.
+- **The `authorize()` callback in `src/lib/auth.ts` console.errors any thrown exception** before rethrowing. Auth.js v5 otherwise hides the underlying cause as a generic `Configuration` error. Keep this wrapper — it's the only diagnostic path for prod auth failures until proper observability is wired in.
+
 ---
 
 ## Known gaps and deferred decisions

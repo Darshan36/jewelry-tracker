@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "prisma:generate": "prisma generate && node scripts/post-prisma-generate.mjs",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "postinstall": "npm run prisma:generate",
     "test": "vitest",
     "test:run": "vitest run",

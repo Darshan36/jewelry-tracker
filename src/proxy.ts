@@ -15,11 +15,10 @@ export default auth((req) => {
 
   const isAuthRoute = path.startsWith("/auth");
   const isApiAuthRoute = path.startsWith("/api/auth");
-  const isDebugRoute = path.startsWith("/api/debug-env"); // TEMP: remove after diag
   const isPublicAsset =
     path.startsWith("/_next") || path.startsWith("/favicon");
 
-  if (isApiAuthRoute || isDebugRoute || isPublicAsset) return;
+  if (isApiAuthRoute || isPublicAsset) return;
 
   if (isAuthRoute) {
     if (isLoggedIn) {
