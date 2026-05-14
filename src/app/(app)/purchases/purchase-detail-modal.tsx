@@ -13,23 +13,23 @@ import {
 import { LabeledField } from "@/components/labeled-field";
 import { formatCurrency, formatDate } from "@/lib/format";
 
-import { softDeleteSale } from "./actions";
+import { softDeletePurchase } from "./actions";
 import { PaymentPanel } from "./payment-panel";
 import { ReturnPanel } from "./return-panel";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
-import type { SaleForClient } from "./sale-helpers";
+import type { PurchaseForClient } from "./purchase-helpers";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sale: SaleForClient | null;
+  purchase: PurchaseForClient | null;
   onEdit: () => void;
 };
 
-export function SaleDetailModal({
+export function PurchaseDetailModal({
   open,
   onOpenChange,
-  sale,
+  purchase,
   onEdit,
 }: Props) {
   const router = useRouter();
@@ -38,13 +38,13 @@ export function SaleDetailModal({
 
   useEffect(() => {
     if (!open) setConfirmingDelete(false);
-  }, [open, sale?.id]);
+  }, [open, purchase?.id]);
 
-  if (!sale) return null;
+  if (!purchase) return null;
 
   const handleDelete = () => {
     startTransition(async () => {
-      await softDeleteSale(sale.id);
+      await softDeletePurchase(purchase.id);
       setConfirmingDelete(false);
       onOpenChange(false);
       router.refresh();
@@ -57,62 +57,61 @@ export function SaleDetailModal({
         <DialogHeader className="mb-6">
           <DialogTitle className="text-lg font-semibold tracking-tight text-on-surface flex items-center gap-3 flex-wrap">
             <span className="flex items-center gap-2">
-              {sale.customerId !== null && (
+              {purchase.supplierId !== null && (
                 <LinkIcon
                   className="size-4 text-secondary"
-                  aria-label="Linked customer"
+                  aria-label="Linked supplier"
                 />
               )}
-              <span>{sale.partyName}</span>
+              <span>{purchase.partyName}</span>
             </span>
-            <TransactionStatusChip status={sale.status} />
+            <TransactionStatusChip status={purchase.status} />
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-5">
-            <LabeledField label="Date" value={formatDate(sale.date)} />
-            <LabeledField label="Phone" value={sale.partyPhone} />
+            <LabeledField label="Date" value={formatDate(purchase.date)} />
+            <LabeledField label="Phone" value={purchase.partyPhone} />
           </div>
 
           <LabeledField
             label="Item"
-            value={sale.itemDescription}
+            value={purchase.itemDescription}
             multiline
           />
 
           <div className="grid grid-cols-3 gap-5">
-            <LabeledField label="Qty" value={String(sale.qty)} />
-            <LabeledField label="Rate" value={formatCurrency(sale.rate)} />
+            <LabeledField label="Qty" value={String(purchase.qty)} />
+            <LabeledField label="Rate" value={formatCurrency(purchase.rate)} />
             <LabeledField
               label="Discount"
-              value={formatCurrency(sale.discount)}
+              value={formatCurrency(purchase.discount)}
             />
           </div>
 
-          {/* Total emphasized */}
           <div className="border-t border-outline-variant pt-4">
             <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-1">
               Total
             </p>
             <p className="text-2xl font-display tabular-nums text-on-surface">
-              {formatCurrency(sale.total)}
+              {formatCurrency(purchase.total)}
             </p>
           </div>
 
-          {sale.notes && (
-            <LabeledField label="Notes" value={sale.notes} multiline />
+          {purchase.notes && (
+            <LabeledField label="Notes" value={purchase.notes} multiline />
           )}
 
-          <PaymentPanel sale={sale} payments={sale.payments} />
-          <ReturnPanel sale={sale} returns={sale.returns} />
+          <PaymentPanel purchase={purchase} payments={purchase.payments} />
+          <ReturnPanel purchase={purchase} returns={purchase.returns} />
         </div>
 
         <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant">
           {confirmingDelete ? (
             <div className="flex items-center gap-3">
               <p className="flex-1 text-sm text-on-surface">
-                Delete sale? This can be undone by an admin.
+                Delete purchase? This can be undone by an admin.
               </p>
               <button
                 type="button"

@@ -56,6 +56,8 @@ model Supplier {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  purchases Purchase[]
+
   @@index([deletedAt])
   @@index([name])
   @@map("suppliers")
@@ -148,4 +150,65 @@ model SaleReturn {
   @@index([saleId])
   @@index([deletedAt])
   @@map("sale_returns")
+}
+
+model Purchase {
+  id              String    @id @default(cuid())
+  date            DateTime
+  supplierId      String?
+  supplier        Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  partyName       String
+  partyPhone      String?
+  itemDescription String
+  qty             Int
+  rate            BigInt
+  discount        BigInt    @default(0)
+  total           BigInt
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  payments PurchasePayment[]
+  returns  PurchaseReturn[]
+
+  @@index([deletedAt])
+  @@index([date])
+  @@index([supplierId])
+  @@map("purchases")
+}
+
+model PurchasePayment {
+  id         String      @id @default(cuid())
+  purchaseId String
+  purchase   Purchase    @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  date       DateTime
+  amount     BigInt
+  type       PaymentType @default(PAYMENT)
+  note       String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  deletedAt  DateTime?
+
+  @@index([purchaseId])
+  @@index([purchaseId, type])
+  @@index([deletedAt])
+  @@map("purchase_payments")
+}
+
+model PurchaseReturn {
+  id           String    @id @default(cuid())
+  purchaseId   String
+  purchase     Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  date         DateTime
+  qtyReturned  Int
+  refundAmount BigInt
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([purchaseId])
+  @@index([deletedAt])
+  @@map("purchase_returns")
 }

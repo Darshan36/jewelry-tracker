@@ -1,20 +1,19 @@
-// Sale status chip — small uppercase label with a leading colored dot.
-// Shared between sales-table (column cell) and sale-detail-modal (title chip).
+// Transaction status chip — shared between Sales and Purchases.
 //
-// Phase 3.3: all four statuses now live.
+// Small uppercase label with a leading colored dot:
 //   - pending     → amber (primary)
 //   - partial     → blue (secondary)
 //   - completed   → muted blue (secondary-container) — pending green token
 //   - refund_due  → red dot + red label text (text-error) — distinct from
-//     the three blue-ish states so the customer-owes-customer state is
+//     the three blue-ish states so the "money still in motion" state is
 //     unmistakable at a glance.
 
-import type { SaleStatus } from "@/lib/sale-status";
+import type { TransactionStatus } from "@/lib/transaction-status";
 
-type Props = { status: SaleStatus };
+type Props = { status: TransactionStatus };
 
 const STATUS_META: Record<
-  SaleStatus,
+  TransactionStatus,
   { label: string; dot: string; text: string }
 > = {
   pending: {
@@ -39,7 +38,7 @@ const STATUS_META: Record<
   },
 };
 
-export function SaleStatusChip({ status }: Props) {
+export function TransactionStatusChip({ status }: Props) {
   const { label, dot, text } = STATUS_META[status];
   return (
     <span

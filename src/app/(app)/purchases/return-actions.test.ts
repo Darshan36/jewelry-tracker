@@ -1,0 +1,312 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/prisma");
+vi.mock("@/lib/auth-guards", () => ({
+  requireSession: vi.fn(),
+}));
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+}));
+
+import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth-guards";
+import { revalidatePath } from "next/cache";
+
+import {
+  createPurchaseReturn,
+  softDeletePurchaseReturn,
+} from "./return-actions";
+
+const fakeSession = {
+  user: {
+    id: "user-1",
+    email: "admin@example.com",
+    name: "Test Admin",
+    role: "ADMIN" as const,
+  },
+  expires: "2099-12-31T00:00:00.000Z",
+};
+
+type RawPurchase = {
+  id: string;
+  date: Date;
+  supplierId: string | null;
+  partyName: string;
+  partyPhone: string | null;
+  itemDescription: string;
+  qty: number;
+  rate: bigint;
+  discount: bigint;
+  total: bigint;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+};
+
+type RawReturn = {
+  id: string;
+  purchaseId: string;
+  date: Date;
+  qtyReturned: number;
+  refundAmount: bigint;
+  note: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+};
+
+function makePurchaseRow(
+  overrides: Partial<RawPurchase> = {},
+  returns: RawReturn[] = [],
+): RawPurchase & { returns: RawReturn[] } {
+  return {
+    id: "cuid-purchase-test",
+    date: new Date("2026-05-14T00:00:00Z"),
+    supplierId: null,
+    partyName: "Test Walkin Vendor",
+    partyPhone: null,
+    itemDescription: "Test item",
+    qty: 10,
+    rate: 25000n,
+    discount: 10000n,
+    total: 240000n,
+    notes: null,
+    createdAt: new Date("2026-05-14T12:00:00Z"),
+    updatedAt: new Date("2026-05-14T12:00:00Z"),
+    deletedAt: null,
+    ...overrides,
+    returns,
+  };
+}
+
+function makeReturnRow(overrides: Partial<RawReturn> = {}): RawReturn {
+  return {
+    id: "cuid-ret-default",
+    purchaseId: "cuid-purchase-test",
+    date: new Date("2026-05-14T00:00:00Z"),
+    qtyReturned: 1,
+    refundAmount: 10000n,
+    note: null,
+    createdAt: new Date("2026-05-14T12:00:00Z"),
+    updatedAt: new Date("2026-05-14T12:00:00Z"),
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+function validInput(overrides: Partial<ReturnType<typeof base>> = {}) {
+  function base() {
+    return {
+      purchaseId: "cuid-purchase-test",
+      date: new Date("2026-05-14T00:00:00Z"),
+      qtyReturned: 2,
+      refundAmount: 400,
+      note: null as string | null,
+    };
+  }
+  return { ...base(), ...overrides };
+}
+
+beforeEach(() => {
+  vi.mocked(requireSession).mockReset();
+  vi.mocked(requireSession).mockResolvedValue(fakeSession);
+  vi.mocked(revalidatePath).mockClear();
+});
+
+describe("createPurchaseReturn", () => {
+  it("happy path — converts refundAmount rupees to BigInt paise at Prisma boundary", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(makePurchaseRow());
+    vi.mocked(prisma.purchaseReturn.create).mockResolvedValue(
+      makeReturnRow({ qtyReturned: 2, refundAmount: 40000n }),
+    );
+
+    await createPurchaseReturn(validInput({ qtyReturned: 2, refundAmount: 400 }));
+
+    expect(prisma.purchaseReturn.create).toHaveBeenCalledOnce();
+    const call = vi.mocked(prisma.purchaseReturn.create).mock.calls[0][0];
+    expect(call.data.qtyReturned).toBe(2);
+    expect(call.data.refundAmount).toBe(40000n);
+    expect(typeof call.data.refundAmount).toBe("bigint");
+    expect(revalidatePath).toHaveBeenCalledWith("/purchases");
+  });
+
+  it("rejects single return where qtyReturned > purchase.qty", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(makePurchaseRow());
+
+    const result = await createPurchaseReturn(validInput({ qtyReturned: 11 }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.qtyReturned).toBeDefined();
+      const msg = result.errors.qtyReturned?.[0] ?? "";
+      expect(msg).toContain("Cannot return more than the original quantity");
+      expect(msg).toContain("Already returned: 0 of 10");
+    }
+    expect(prisma.purchaseReturn.create).not.toHaveBeenCalled();
+  });
+
+  it("aggregates existing returned qty for the cumulative check", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(
+      makePurchaseRow({}, [
+        makeReturnRow({ id: "r1", qtyReturned: 3 }),
+        makeReturnRow({ id: "r2", qtyReturned: 4 }),
+      ]),
+    );
+
+    const result = await createPurchaseReturn(validInput({ qtyReturned: 4 }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.qtyReturned?.[0]).toContain("Already returned: 7 of 10");
+    }
+    expect(prisma.purchaseReturn.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts return that exactly hits the cumulative qty boundary", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(
+      makePurchaseRow({}, [makeReturnRow({ id: "r1", qtyReturned: 7 })]),
+    );
+    vi.mocked(prisma.purchaseReturn.create).mockResolvedValue(
+      makeReturnRow({ qtyReturned: 3 }),
+    );
+
+    const result = await createPurchaseReturn(
+      validInput({ qtyReturned: 3, refundAmount: 100 }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.purchaseReturn.create).toHaveBeenCalledOnce();
+  });
+
+  it("rejects refundAmount > purchase.total - existingReturnTotal", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(
+      makePurchaseRow({}, [
+        makeReturnRow({ id: "r1", qtyReturned: 1, refundAmount: 100000n }),
+      ]),
+    );
+
+    const result = await createPurchaseReturn(
+      validInput({ qtyReturned: 1, refundAmount: 2000 }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.refundAmount).toBeDefined();
+      const msg = result.errors.refundAmount?.[0] ?? "";
+      expect(msg).toContain("Refund exceeds remaining returnable value");
+      expect(msg).toMatch(/₹\s*1,400\.00/);
+    }
+    expect(prisma.purchaseReturn.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects when purchase is not found", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(null);
+
+    const result = await createPurchaseReturn(
+      validInput({ purchaseId: "nonexistent" }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.purchaseId).toContain("Purchase not found");
+    }
+  });
+
+  it("treats a soft-deleted purchase as not found (deletedAt:null guard)", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(null);
+
+    const result = await createPurchaseReturn(
+      validInput({ purchaseId: "soft-deleted-id" }),
+    );
+
+    expect(result.ok).toBe(false);
+    const call = vi.mocked(prisma.purchase.findUnique).mock.calls[0][0];
+    expect(call.where).toEqual({
+      id: "soft-deleted-id",
+      deletedAt: null,
+    });
+  });
+
+  it("schema rejection (negative qty) without touching DB", async () => {
+    const result = await createPurchaseReturn(validInput({ qtyReturned: -1 }));
+
+    expect(result.ok).toBe(false);
+    expect(prisma.purchase.findUnique).not.toHaveBeenCalled();
+    expect(prisma.purchaseReturn.create).not.toHaveBeenCalled();
+  });
+
+  it("returned return.refundAmount is Number (paise), not BigInt", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(makePurchaseRow());
+    vi.mocked(prisma.purchaseReturn.create).mockResolvedValue(
+      makeReturnRow({ refundAmount: 40000n }),
+    );
+
+    const result = await createPurchaseReturn(
+      validInput({ qtyReturned: 1, refundAmount: 400 }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(typeof result.return.refundAmount).toBe("number");
+      expect(result.return.refundAmount).toBe(40000);
+    }
+  });
+
+  it("includes returns where deletedAt:null filter on the lookup query", async () => {
+    vi.mocked(prisma.purchase.findUnique).mockResolvedValue(makePurchaseRow());
+    vi.mocked(prisma.purchaseReturn.create).mockResolvedValue(makeReturnRow());
+
+    await createPurchaseReturn(validInput());
+
+    const call = vi.mocked(prisma.purchase.findUnique).mock.calls[0][0];
+    expect(call.include).toEqual({
+      returns: { where: { deletedAt: null } },
+    });
+  });
+
+  it("propagates auth failure", async () => {
+    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+
+    await expect(createPurchaseReturn(validInput())).rejects.toThrow("Unauthorized");
+
+    expect(prisma.purchaseReturn.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("softDeletePurchaseReturn", () => {
+  it("happy path — Prisma update with where.deletedAt:null + data.deletedAt:<Date>", async () => {
+    vi.mocked(prisma.purchaseReturn.update).mockResolvedValue(
+      makeReturnRow({ deletedAt: new Date() }),
+    );
+
+    const result = await softDeletePurchaseReturn("cuid-ret-1");
+
+    expect(result.ok).toBe(true);
+    expect(prisma.purchaseReturn.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "cuid-ret-1", deletedAt: null },
+      }),
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/purchases");
+  });
+
+  it("deletedAt set on update is a Date instance", async () => {
+    vi.mocked(prisma.purchaseReturn.update).mockResolvedValue(makeReturnRow());
+
+    await softDeletePurchaseReturn("cuid-ret-1");
+
+    const call = vi.mocked(prisma.purchaseReturn.update).mock.calls[0][0];
+    expect(call.data.deletedAt).toBeInstanceOf(Date);
+  });
+
+  it("propagates auth failure", async () => {
+    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+
+    await expect(softDeletePurchaseReturn("cuid-ret-1")).rejects.toThrow(
+      "Unauthorized",
+    );
+
+    expect(prisma.purchaseReturn.update).not.toHaveBeenCalled();
+  });
+});

@@ -122,8 +122,33 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - **`onDelete: Cascade`** on the Sale FK — defensive consistency with SalePayment.
 - **Indexes:** `@@index([saleId])` for aggregation, `@@index([deletedAt])` for soft-delete filtering.
 
-### Purchase / PurchasePayment / PurchaseReturn
-Mirror Sale exactly — same fields, same derived columns, same status logic. Joined to `Supplier` instead of `Customer`.
+### Purchase (built Phase 4)
+`id, date, supplierId (FK → Supplier, nullable, onDelete: SetNull), partyName, partyPhone, itemDescription, qty, rate (BigInt paise), discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, createdAt, updatedAt, deletedAt`
+
+- **Structural mirror of `Sale`** — same schema shape, same dual-path party model, same currency pipeline, same stored-total convention, same `viewingPurchaseId` live-updating modal pattern. The FK is to `Supplier` (instead of `Customer`); everything else is identical.
+- **Status meaning is semantically inverted** vs. Sales — derived from the same `computeTransactionStatus` (see §5) but interpreted from the shop's perspective on the OPPOSITE side of the transaction:
+  - `pending` = shop owes supplier money (no payment to supplier yet)
+  - `partial` = partial payment made to supplier
+  - `completed` = shop fully paid the supplier (or fully resolved through returns)
+  - `refund_due` = supplier owes the shop money back (a return reduced the effective total below what the shop paid)
+- **UI label inversions** (see KNOWN_GAPS decision lineage): "Outstanding" → "Owed to supplier"; "Refund owed" → "Refund expected"; "+ Issue refund" → "+ Record refund received"; REFUND-row styling flips from red `text-error` + `−` prefix (Sales: money OUT) to blue `text-secondary` + `+` prefix (Purchases: money IN). Mental model: red = money out of shop, blue = money in to shop, regardless of which entity owns the row.
+- **Indexes:** `@@index([deletedAt])`, `@@index([date])`, `@@index([supplierId])`.
+
+### PurchasePayment (built Phase 4)
+`id, purchaseId (FK → Purchase, onDelete: Cascade), date, amount (BigInt paise), type (PaymentType: PAYMENT | REFUND, default PAYMENT), note, createdAt, updatedAt, deletedAt`
+
+- **Reuses the `PaymentType` enum from `SalePayment`** — single enum definition, two payment models. Net `paidAmount = SUM(amount WHERE type=PAYMENT, deletedAt:null) − SUM(amount WHERE type=REFUND, deletedAt:null)` per purchase. Same aggregation pattern as Sales.
+- **REFUND-type semantic inversion**: for Purchases, REFUND = supplier credited money back to the shop (money IN). Same form, same workflow as Sales — opposite money direction.
+- **Action-layer validation** mirrors Sales: PAYMENT entries rejected if `amount > effectiveTotal − netPaid` with `errors.amount = ["Exceeds remaining balance. Owed to supplier: ₹X"]` (the "Owed to supplier" copy is the Purchases-direction inversion). REFUND entries rejected if `amount > netPaid` with `errors.amount = ["Refund exceeds amount paid. Maximum: ₹X"]`.
+- **Indexes:** `@@index([purchaseId])`, `@@index([purchaseId, type])`, `@@index([deletedAt])`.
+
+### PurchaseReturn (built Phase 4)
+`id, purchaseId (FK → Purchase, onDelete: Cascade), date, qtyReturned (Int, positive), refundAmount (BigInt paise, non-negative), note, createdAt, updatedAt, deletedAt`
+
+- **Semantically**: the shop returning items to the supplier (defective goods, oversupply, wrong order). `refundAmount` = what the supplier is expected to credit back.
+- **Same shape as `SaleReturn`** — same immutability convention (no `updateSaleReturn`/`updatePurchaseReturn`; wrong return → soft-delete + create new), same cumulative qty + refundAmount validation at the action layer.
+- **`returnTotal` aggregation** = `SUM(refundAmount) WHERE deletedAt IS NULL`. Feeds into `computeTransactionStatus({ total, paidAmount, returnTotal })` exactly like Sales — the supplier-direction interpretation is purely a UI concern.
+- **Indexes:** `@@index([purchaseId])`, `@@index([deletedAt])`.
 
 ### WorkEntry  (debit on karigar's balance)
 `id, employee_id, date, description, pieces, rate_per_piece, total, created_at`
@@ -169,6 +194,8 @@ Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − s
 **Why derived:** lets returns and refunds amend history without manual status syncing. Source of truth is the payment + return children.
 
 **Phase 3.3 active.** `refund_due` is now a live state, fires when a return reduces effectiveTotal below paidAmount. The full-return-no-payment edge (`returnTotal === total, paidAmount === 0n`) resolves to `completed` because the case is unreachable in production (action layer blocks `cumulative returns > sale.total`), but the function handles it gracefully if it ever arises via direct API access. **Refunds are recorded via `SalePayment` with `type=REFUND`** rather than a separate `SaleRefund` table — same form, same workflow, opposite sign in the aggregation. The Sales transaction model is structurally complete; only **Phase 3.4 (receipts)** remains.
+
+**Phase 4 unified helper.** `computeTransactionStatus({ total, paidAmount?, returnTotal? })` in `src/lib/transaction-status.ts` serves both Sales and Purchases — same math, same four branches, no entity-specific divergence. Type aliases `SaleStatus` (in `sales/sale-helpers.ts`) and `PurchaseStatus` (in `purchases/purchase-helpers.ts`) preserve readability at the call site ("a SaleStatus is what a Sale has") without code duplication. The Purchases-direction interpretation of `refund_due` (supplier owes shop money back) and `pending` (shop owes supplier money) is purely a UI concern — see `purchases/payment-panel.tsx` for the label inversions. If business rules ever diverge between Sales and Purchases (different thresholds, different boundary behavior), `transaction-status.ts` is the natural extension point with predictable refactor cost. Same applies to the unified `<TransactionStatusChip>` in `src/components/` — single component, both folders import it.
 
 > **Type-level note for Phase 2 codegen.** The four computed states (`pending` | `partial` | `completed` | `refund_due`) are **TypeScript string-literal union types** computed at the API / UI layer — they are NOT Prisma database enums. The database stores only the underlying numeric fields (`Sale.total`, `SalePayment.amount`, `SaleReturn.total`, etc.); the status label is derived on read by the layer that returns rows to the client. Do not create a Prisma `enum Status { … }` or a `status` column on `Sale`/`Purchase`. Define the union as `type SaleStatus = 'pending' | 'partial' | 'completed' | 'refund_due'` in a shared `types.ts` and compute it in the query / serializer.
 

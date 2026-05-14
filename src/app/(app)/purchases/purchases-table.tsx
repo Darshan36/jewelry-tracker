@@ -25,35 +25,31 @@ import {
 
 import { formatCurrency, formatDate } from "@/lib/format";
 
-import { softDeleteSale } from "./actions";
-import { SaleDetailModal } from "./sale-detail-modal";
-import { SaleFormModal } from "./sale-form-modal";
+import { softDeletePurchase } from "./actions";
+import { PurchaseDetailModal } from "./purchase-detail-modal";
+import { PurchaseFormModal } from "./purchase-form-modal";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
-import type { CustomerOption } from "./party-picker";
-import type { SaleForClient } from "./sale-helpers";
+import type { SupplierOption } from "./party-picker";
+import type { PurchaseForClient } from "./purchase-helpers";
 
 type Props = {
-  sales: SaleForClient[];
-  customers: CustomerOption[];
+  purchases: PurchaseForClient[];
+  suppliers: SupplierOption[];
 };
 
-export function SalesTable({ sales, customers }: Props) {
+export function PurchasesTable({ purchases, suppliers }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editingSale, setEditingSale] = useState<SaleForClient | null>(null);
-  // Derive the currently-viewed sale from the sales array using just an id,
-  // not a snapshot copy. After PaymentPanel's `router.refresh()` re-fetches
-  // the page, the parent passes fresh `sales` here, the .find lookup yields
-  // the updated row, and the detail modal re-renders with new status /
-  // paidAmount / payments without needing the user to close and reopen.
-  // If the sale is soft-deleted while the modal is open (e.g. via the
-  // modal's own Delete button), .find returns undefined → viewingSale
-  // becomes null → modal auto-closes. Desired.
-  const [viewingSaleId, setViewingSaleId] = useState<string | null>(null);
-  const viewingSale = viewingSaleId
-    ? (sales.find((s) => s.id === viewingSaleId) ?? null)
+  const [editingPurchase, setEditingPurchase] =
+    useState<PurchaseForClient | null>(null);
+  // Derive viewing purchase from id + array — Phase 3.2 live-update pattern.
+  const [viewingPurchaseId, setViewingPurchaseId] = useState<string | null>(
+    null,
+  );
+  const viewingPurchase = viewingPurchaseId
+    ? (purchases.find((p) => p.id === viewingPurchaseId) ?? null)
     : null;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -62,7 +58,7 @@ export function SalesTable({ sales, customers }: Props) {
   ]);
   const [globalFilter, setGlobalFilter] = useState("");
 
-  const columns: ColumnDef<SaleForClient>[] = [
+  const columns: ColumnDef<PurchaseForClient>[] = [
     {
       accessorKey: "date",
       header: "Date",
@@ -79,10 +75,10 @@ export function SalesTable({ sales, customers }: Props) {
       enableSorting: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          {row.original.customerId !== null && (
+          {row.original.supplierId !== null && (
             <LinkIcon
               className="size-3 text-secondary shrink-0"
-              aria-label="Linked customer"
+              aria-label="Linked supplier"
             />
           )}
           <div className="min-w-0">
@@ -135,7 +131,7 @@ export function SalesTable({ sales, customers }: Props) {
         <ActionCell
           isConfirming={confirmDeleteId === row.original.id}
           isPending={isPending}
-          onEdit={() => setEditingSale(row.original)}
+          onEdit={() => setEditingPurchase(row.original)}
           onRequestDelete={() => setConfirmDeleteId(row.original.id)}
           onCancelDelete={() => setConfirmDeleteId(null)}
           onConfirmDelete={() => handleDelete(row.original.id)}
@@ -145,7 +141,7 @@ export function SalesTable({ sales, customers }: Props) {
   ];
 
   const table = useReactTable({
-    data: sales,
+    data: purchases,
     columns,
     state: { sorting, globalFilter },
     onSortingChange: setSorting,
@@ -167,14 +163,14 @@ export function SalesTable({ sales, customers }: Props) {
 
   function handleDelete(id: string) {
     startTransition(async () => {
-      await softDeleteSale(id);
+      await softDeletePurchase(id);
       setConfirmDeleteId(null);
       router.refresh();
     });
   }
 
   const rows = table.getRowModel().rows;
-  const hasSales = sales.length > 0;
+  const hasPurchases = purchases.length > 0;
   const hasMatches = rows.length > 0;
 
   return (
@@ -193,12 +189,12 @@ export function SalesTable({ sales, customers }: Props) {
           className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
         >
           <Plus className="size-4" />
-          <span>Add sale</span>
+          <span>Add purchase</span>
         </button>
       </div>
 
       <div className="border border-outline-variant bg-surface-container-low">
-        {hasSales && (
+        {hasPurchases && (
           <table className="w-full text-sm">
             <thead className="bg-surface-container-high sticky top-0">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -237,53 +233,53 @@ export function SalesTable({ sales, customers }: Props) {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <SaleRow
+                <PurchaseRow
                   key={row.id}
                   row={row}
-                  onRowClick={(s) => setViewingSaleId(s.id)}
+                  onRowClick={(p) => setViewingPurchaseId(p.id)}
                 />
               ))}
             </tbody>
           </table>
         )}
 
-        {!hasSales && (
+        {!hasPurchases && (
           <div className="p-12 text-center">
             <p className="text-on-surface-variant text-sm">
-              No sales yet. Add your first sale to get started.
+              No purchases yet. Add your first purchase to get started.
             </p>
           </div>
         )}
-        {hasSales && !hasMatches && (
+        {hasPurchases && !hasMatches && (
           <div className="p-12 text-center">
             <p className="text-on-surface-variant text-sm">
-              No sales match your search.
+              No purchases match your search.
             </p>
           </div>
         )}
       </div>
 
-      <SaleFormModal
+      <PurchaseFormModal
         open={isAddOpen}
         onOpenChange={setIsAddOpen}
-        sale={undefined}
-        customers={customers}
+        purchase={undefined}
+        suppliers={suppliers}
       />
-      <SaleFormModal
-        open={editingSale !== null}
-        onOpenChange={(open) => !open && setEditingSale(null)}
-        sale={editingSale ?? undefined}
-        customers={customers}
+      <PurchaseFormModal
+        open={editingPurchase !== null}
+        onOpenChange={(open) => !open && setEditingPurchase(null)}
+        purchase={editingPurchase ?? undefined}
+        suppliers={suppliers}
       />
 
-      <SaleDetailModal
-        open={viewingSale !== null}
-        onOpenChange={(open) => !open && setViewingSaleId(null)}
-        sale={viewingSale}
+      <PurchaseDetailModal
+        open={viewingPurchase !== null}
+        onOpenChange={(open) => !open && setViewingPurchaseId(null)}
+        purchase={viewingPurchase}
         onEdit={() => {
-          const target = viewingSale;
-          setViewingSaleId(null);
-          setEditingSale(target);
+          const target = viewingPurchase;
+          setViewingPurchaseId(null);
+          setEditingPurchase(target);
         }}
       />
     </>
@@ -296,12 +292,12 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   return <ArrowUpDown className="size-3 opacity-40" />;
 }
 
-function SaleRow({
+function PurchaseRow({
   row,
   onRowClick,
 }: {
-  row: Row<SaleForClient>;
-  onRowClick?: (sale: SaleForClient) => void;
+  row: Row<PurchaseForClient>;
+  onRowClick?: (purchase: PurchaseForClient) => void;
 }) {
   return (
     <tr
@@ -376,7 +372,7 @@ function ActionCell({
       <button
         type="button"
         onClick={onEdit}
-        aria-label="Edit sale"
+        aria-label="Edit purchase"
         className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
       >
         <Edit3 className="size-4" />
@@ -384,7 +380,7 @@ function ActionCell({
       <button
         type="button"
         onClick={onRequestDelete}
-        aria-label="Delete sale"
+        aria-label="Delete purchase"
         className="p-1.5 text-on-surface-variant hover:text-error hover:bg-surface-container transition-colors"
       >
         <Trash2 className="size-4" />

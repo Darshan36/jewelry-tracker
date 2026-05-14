@@ -354,6 +354,49 @@ Pick the smallest stable container that uniquely contains the target —
 Phase 2.3 caught this when an "all 'Fixed' count = 2" assertion fired
 with 3 matches because the filter pills also said "Fixed."
 
+### Inversion tests: assert both presence and absence
+
+When testing UI changes that **flip semantics** — Sales↔Purchases label
+inversions ("Outstanding" ↔ "Owed to supplier"), REFUND-direction color
+flips (`text-error` ↔ `text-secondary`), or any other inversion where
+the old and new states use related-but-not-identical wording — include
+**both** a positive assertion (the new label IS rendered) and a
+negative assertion (the old label is NOT).
+
+Without the negative assertion, a copy-paste regression that leaves the
+original label still rendering would silently pass: the new label IS
+present, the test asserts that, and the leaked old label sits
+invisibly alongside it.
+
+```typescript
+// Positive: the Purchases-direction label is rendered
+expect(screen.getByText(/owed to supplier:/i)).toBeInTheDocument();
+
+// Negative: the Sales-direction label is NOT rendered
+expect(screen.queryByText(/^outstanding:/i)).not.toBeInTheDocument();
+```
+
+Same pattern for class assertions where the inversion is purely
+visual:
+
+```typescript
+const indicator = screen.getByText(/refund expected:/i);
+// Positive: Purchases uses text-secondary (blue) for the "money in"
+// direction
+expect(indicator).toHaveClass("text-secondary");
+// Negative: Purchases must NOT use text-error (the Sales convention
+// for refund-direction)
+expect(indicator).not.toHaveClass("text-error");
+```
+
+The dual assertion catches incomplete clones at the test layer.
+**Apply by default for any inversion test** — the cost is almost
+nothing, but it catches the class of regression that's hardest to
+spot during code review (the leaked-old-label kind, where the rendered
+output still "kind of works" because the inverted label happens to be
+true in both directions). Phase 4 (Sales→Purchases) used this
+extensively in `purchases/payment-panel.test.tsx`.
+
 ### Triggering React synthetic events in jsdom
 
 **Programmatic `element.focus()` does NOT trigger React's synthetic

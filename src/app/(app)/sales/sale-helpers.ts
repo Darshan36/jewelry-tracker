@@ -9,7 +9,16 @@
 
 import type { Sale, SalePayment, SaleReturn } from "@/generated/prisma";
 
-import { computeSaleStatus, type SaleStatus } from "@/lib/sale-status";
+import {
+  computeTransactionStatus,
+  type TransactionStatus,
+} from "@/lib/transaction-status";
+
+// Re-export under the historical name so consumers that imported
+// `SaleStatus` from this module don't have to re-route — the union is
+// shared between Sales and Purchases but Sales-side typing keeps the
+// familiar name at the call site.
+export type SaleStatus = TransactionStatus;
 
 export type SalePaymentForClient = Omit<SalePayment, "amount"> & {
   amount: number;
@@ -88,7 +97,7 @@ export function serializeSale(
     total: Number(sale.total),
     paidAmount: Number(paidAmountBigInt),
     returnTotal: Number(returnTotalBigInt_),
-    status: computeSaleStatus({
+    status: computeTransactionStatus({
       total: sale.total,
       paidAmount: paidAmountBigInt,
       returnTotal: returnTotalBigInt_,

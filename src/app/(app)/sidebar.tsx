@@ -31,7 +31,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { href: "/sales", label: "Sales", icon: TrendingUp, enabled: true },
-  { href: "/purchases", label: "Purchases", icon: TrendingDown, enabled: false },
+  { href: "/purchases", label: "Purchases", icon: TrendingDown, enabled: true },
   { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: false },
   { href: "/customers", label: "Customers", icon: Users, enabled: true },
   { href: "/suppliers", label: "Suppliers", icon: Building2, enabled: true },
