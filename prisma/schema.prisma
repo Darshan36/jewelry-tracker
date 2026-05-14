@@ -58,3 +58,26 @@ model Supplier {
   @@index([name])
   @@map("suppliers")
 }
+
+enum EmployeeType {
+  FIXED
+  LABOUR
+}
+
+model Employee {
+  id            String       @id @default(cuid())
+  name          String
+  phone         String?
+  type          EmployeeType @default(LABOUR)
+  monthlySalary BigInt?
+  address       String?
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  @@index([deletedAt])
+  @@index([name])
+  @@index([type])
+  @@map("employees")
+}

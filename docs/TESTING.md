@@ -298,6 +298,28 @@ screen.getByRole("button", { name: /^name/i });
 
 Save the diagnostic time: anchor your regex when you know the structure.
 
+**Scope queries with `within(container)` when text appears in multiple
+regions.** Companion to the anchored-regex pattern — both disambiguate
+queries. When the same string exists in two parts of the UI (e.g. the
+filter pills above an Employees table render "Fixed" / "Labour" as
+radio labels, AND each row's Type chip renders the same words), an
+unscoped `screen.getAllByText("Fixed")` returns *both* sources. Scope
+to the relevant container:
+
+```typescript
+const table = screen.getByRole("table");
+expect(within(table).getAllByText("Fixed")).toHaveLength(2); // chips only
+
+// And for inputs in a specific subtree:
+const filterGroup = screen.getByRole("radiogroup", { name: /filter by type/i });
+await user.click(within(filterGroup).getByRole("radio", { name: /^fixed$/i }));
+```
+
+Pick the smallest stable container that uniquely contains the target —
+`getByRole('table')`, `getByRole('radiogroup', { name })`, `getByRole('dialog')`.
+Phase 2.3 caught this when an "all 'Fixed' count = 2" assertion fired
+with 3 matches because the filter pills also said "Fixed."
+
 ### Asserting sort order in a table
 
 For sortable tables, after clicking a header, assert the row order by
@@ -348,6 +370,52 @@ Radix Dialog renders into a portal at `document.body`, but
 `screen.getByRole("dialog")` searches the entire document — so the
 count is accurate regardless of where the dialog's JSX is mounted in
 the component tree.
+
+### Factory helpers for entity test data — always spread overrides
+
+Both action tests and component tests use factory helpers to build
+entity rows for setup. The shape is consistent across entities:
+
+```typescript
+function makeEmployee(
+  overrides: Partial<EmployeeForClient> = {},
+): EmployeeForClient {
+  return {
+    id: "emp-1",
+    name: "Default Employee",
+    phone: "9876543210",
+    type: "LABOUR",
+    monthlySalary: null,
+    // ...other defaults
+    ...overrides, // ← MANDATORY; without this every "different" row is identical
+  };
+}
+```
+
+**The trailing `...overrides` spread is mandatory.** Without it, callers
+that pass per-test overrides (`makeEmployee({ name: "Alice", type: "FIXED" })`)
+get the defaults back, and every row looks the same. Symptoms: tests
+that should filter or sort by name produce identical results, asserts
+that look like they should pass at glance somehow find duplicated rows.
+Phase 2.3 hit this exactly — a copy-paste-adapted factory dropped the
+spread; 10 component tests failed silently with identical row data.
+
+Pair the factory with a `mixedFixture()` builder when several distinct
+rows are needed for filter / sort / search tests:
+
+```typescript
+function mixedEmployees(): EmployeeForClient[] {
+  return [
+    makeEmployee({ id: "1", name: "Alice Karigar", type: "LABOUR" }),
+    makeEmployee({ id: "2", name: "Bob Salaried", type: "FIXED",  monthlySalary: 1800000 }),
+    makeEmployee({ id: "3", name: "Cara Karigar", type: "LABOUR" }),
+    makeEmployee({ id: "4", name: "Dan Salaried", type: "FIXED",  monthlySalary: 2500000 }),
+  ];
+}
+```
+
+Factories live alongside the test file for now; shared extraction is
+deferred until a generic shape is visible (see `KNOWN_GAPS.md`).
 
 ## What NOT to test
 

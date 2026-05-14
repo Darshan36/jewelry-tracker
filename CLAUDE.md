@@ -79,11 +79,15 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - **Indexes:** `@@index([deletedAt])` for fast list filtering, `@@index([name])` for search.
 - **"Regulars only."** Master tables hold customers/suppliers you transact with repeatedly. Walk-in / one-time parties are handled directly on Sale and Purchase rows via the dual-path party model (existing customer FK OR free-text `partyName` + `partyPhone`). See KNOWN_GAPS.md decision lineage.
 
-### Employee
-`id, name, phone, type (FIXED | LABOUR), monthly_salary (nullable), notes, created_at`
+### Employee (built Phase 2.3)
+`id, name, phone, type (FIXED | LABOUR), monthlySalary (BigInt paise, nullable), address, notes, createdAt, updatedAt, deletedAt`
 
-- `FIXED` — monthly-salary employees (accountant, helper)
-- `LABOUR` — per-piece karigars (artisans paid by piece)
+- `FIXED` — monthly-salary employees (accountant, helper). `monthlySalary` may be set (paise).
+- `LABOUR` — per-piece karigars (artisans paid by piece). `monthlySalary` must be `null` (enforced by zod `.superRefine` — see `src/app/(app)/employees/schema.ts`).
+- **Conditional schema:** if `type = LABOUR` and `monthlySalary !== null`, validation fails with "Monthly salary applies only to fixed-salary employees." Switching `FIXED → LABOUR` on the edit form clears the salary field (a `useEffect` on the watched type).
+- **Currency pipeline:** stored as `BigInt?` in Prisma for paise-precision integer math; serialized to `Number` at the action's return because JSON cannot encode BigInt; displayed via `formatCurrency(paise)` from `src/lib/format.ts`. Form inputs accept rupees as `number`; conversion to BigInt paise happens in the action's `toPrismaData()` helper at the Prisma boundary (NOT in the zod schema — see KNOWN_GAPS decision lineage for the wire-format reason).
+- Soft delete via `deletedAt` (matches Customer / Supplier convention).
+- **Indexes:** `@@index([deletedAt])`, `@@index([name])`, `@@index([type])` (the third supports the FIXED / LABOUR / ALL filter pills on the list page).
 
 ### Sale
 `id, date, customer_id, item_description, qty, rate, discount, total, receipt_url, created_at`
@@ -146,7 +150,7 @@ Karigar balance follows the same pattern — derived from `WorkEntry` (debits), 
 - **All forms = react-hook-form + zod.** Define the schema in a `schema.ts` next to the route; bind with `zodResolver(schema)`.
 - **Per-entity scaffolding (Customers / Suppliers / Employees / Sales / Purchases):** use the folder structure documented in `KNOWN_GAPS.md` onboarding notes. Schemas live in `schema.ts` separate from `'use server'` files (Next.js compiles non-function exports from server-action files into client-reference stubs, which breaks Zod). Forms use the RHF triple-generic pattern `useForm<FormInput, unknown, FormOutput>` when the schema has transforms.
 - **Every new feature ships with tests.** Schemas → schema tests covering validation + transforms. Server actions → action tests with mocked Prisma + `auth-guards` + `next/cache`. Interactive components → component tests with RTL + mocked navigation + mocked actions. Don't test third-party library internals or pure styling. See `docs/TESTING.md` for the canonical patterns. Per-entity test scaffolding (one `schema.test.ts`, one `actions.test.ts`, one table component test) is mandatory from Phase 2.3 onward.
-- **Currency = paise (integer) at every layer below the UI.** Display formatters live in `src/lib/format.ts`. Never multiply/divide currency in components — call `formatCurrency(paise)` for display.
+- **Currency = paise (integer) at every layer below the UI.** Stored as `BigInt?` in Prisma (paise-precision integer math, safe even for large amounts); serialized to `Number` at the server-action boundary because JSON cannot encode BigInt; displayed via `formatCurrency(paise)` from `src/lib/format.ts`. Form inputs accept rupees as `number`; the zod schema keeps that shape, and the action's `toPrismaData()` helper converts rupees → BigInt paise at the Prisma boundary (NOT in the schema's `.transform()` — that would mismatch the client-send / server-re-parse wire format). Never multiply/divide currency as float in components. Pattern established in Phase 2.3 (`Employee.monthlySalary`); reused for every monetary field in Phase 3+.
 - **Dates: store UTC, display `Asia/Kolkata`.** Format helpers in the same `src/lib/format.ts`: `formatDate(value)` for date-only display, `formatDateTime(value)` for date+time.
 - **File naming:** kebab-case for files, PascalCase for component exports. Schema files: `schema.ts`. Action files: `actions.ts`. Page: `page.tsx`. Layout: `layout.tsx`.
 - **API surface:** prefer **Server Actions** for mutations. Use route handlers (`/api/…`) only for webhooks, file downloads (Excel exports), and Auth.js callbacks.

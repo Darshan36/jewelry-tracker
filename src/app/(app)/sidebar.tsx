@@ -35,7 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: false },
   { href: "/customers", label: "Customers", icon: Users, enabled: true },
   { href: "/suppliers", label: "Suppliers", icon: Building2, enabled: true },
-  { href: "/employees", label: "Employees", icon: UserCog, enabled: false },
+  { href: "/employees", label: "Employees", icon: UserCog, enabled: true },
   { href: "/reports", label: "Reports", icon: BarChart3, enabled: false },
   {
     href: "/users",
