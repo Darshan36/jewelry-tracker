@@ -84,12 +84,20 @@
   --color-on-tertiary-fixed: #111c2d;
   --color-on-tertiary-fixed-variant: #3c475a;
 
-  /* === Spacing scale (xs/sm/md/lg/xl per design tokens) === */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 40px;
+  /* DESIGN.md spacing scale lives in the Tailwind numeric scale.
+   * Equivalents (multiplied against the base --spacing unit = 0.25rem):
+   *   xs  = 4px  → `p-1`  / `gap-1`  / `space-y-1`
+   *   sm  = 8px  → `p-2`  / `gap-2`  / `space-y-2`
+   *   md  = 16px → `p-4`  / `gap-4`  / `space-y-4`
+   *   lg  = 24px → `p-6`  / `gap-6`  / `space-y-6`
+   *   xl  = 40px → `p-10` / `gap-10` / `space-y-10`
+   *
+   * Named --spacing-xs … --spacing-xl tokens were intentionally removed:
+   * Tailwind v4's size-keyword utilities (max-w-md, max-w-lg, max-h-xl, etc.)
+   * read from the same --spacing-* namespace and would resolve to OUR values
+   * instead of the framework defaults (max-w-md should be 28rem, not 16px).
+   * Discovered Phase 1.6 Task 5 — login card was 16px wide. See KNOWN_GAPS.md.
+   */
 
   /* === shadcn compat — map shadcn-component token names onto our palette === */
   --color-foreground: var(--color-on-surface);

@@ -17,7 +17,7 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 - **Styling:** Tailwind CSS v4 + shadcn/ui (Radix-based, preset `radix-nova` — visual tokens fully overridden in `globals.css`)
 - **Database:** Supabase Postgres (Mumbai, `ap-south-1`)
 - **ORM:** Prisma 7 — singleton at `src/lib/prisma.ts` (`import { prisma } from '@/lib/prisma'`). Connects via `@prisma/adapter-pg` using `DATABASE_URL` (transaction pooler + `?pgbouncer=true&connection_limit=1`). Migrations / CLI use `DIRECT_URL` via `prisma.config.ts` (NOT `schema.prisma` — Prisma 7 moved connection URLs out of the schema). Client is generated into `src/generated/prisma/` (gitignored); regenerate with `npm run prisma:generate` after schema changes.
-- **Auth:** Auth.js (NextAuth v5 beta) with email+password (Credentials provider)
+- **Auth:** Auth.js v5 beta with Credentials provider, **JWT strategy** (no session table — sessions are stateless JWE cookies, 30-day expiry), **bcrypt** password hashing (cost 12), `Role` enum (`ADMIN | STAFF`) in Prisma schema. Auth.js entry point: `src/lib/auth.ts` exporting `{ auth, handlers, signIn, signOut }`. Route protection lives in `src/proxy.ts` (Next.js 16 — see KNOWN_GAPS.md, was previously called `middleware.ts`).
 - **Tables/grids:** TanStack Table v8
 - **Charts:** Recharts
 - **Excel:** ExcelJS for both export and import
@@ -141,6 +141,7 @@ Karigar balance follows the same pattern — derived from `WorkEntry` (debits), 
 - **Dates: store UTC, display `Asia/Kolkata`.** Format helpers in the same `format.ts` *[planned, Phase 2]*.
 - **File naming:** kebab-case for files, PascalCase for component exports. Schema files: `schema.ts`. Action files: `actions.ts`. Page: `page.tsx`. Layout: `layout.tsx`.
 - **API surface:** prefer **Server Actions** for mutations. Use route handlers (`/api/…`) only for webhooks, file downloads (Excel exports), and Auth.js callbacks.
+- **Session access:** server components fetch the session via `await auth()` imported from `@/lib/auth`. Client components use `useSession()` from `next-auth/react` **only when reactivity is needed** (e.g. UI that updates as the session changes); prefer passing user data down as props from server components.
 - **Path alias:** `@/*` → `src/*`. No relative `../../` imports across feature boundaries.
 
 ## 7. Phase Plan
