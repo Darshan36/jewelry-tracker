@@ -14,6 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  FormError,
+  FormInput,
+  FormLabel,
+  FormTextarea,
+} from "@/components/form-controls";
 import type { Customer } from "@/generated/prisma";
 
 import { createCustomer, updateCustomer } from "./actions";
@@ -23,7 +29,7 @@ import { customerInputSchema } from "./schema";
 // the resolver runs the schema and hands handleSubmit the post-transform
 // shape (`"" → null`). FormInput is what we register/reset against;
 // FormOutput is what onSubmit receives.
-type FormInput = z.input<typeof customerInputSchema>;
+type FormInputT = z.input<typeof customerInputSchema>;
 type FormOutput = z.output<typeof customerInputSchema>;
 
 type Props = {
@@ -31,14 +37,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   customer?: Customer;
 };
-
-const FIELD_LABEL =
-  "block font-display text-xs uppercase tracking-wider text-on-surface-variant";
-const FIELD_INPUT =
-  "w-full bg-transparent border-0 border-b border-outline-variant focus:border-secondary focus:outline-none py-2 text-on-surface placeholder:text-on-surface-variant/40 transition-colors";
-const FIELD_TEXTAREA =
-  "w-full bg-transparent border border-outline-variant focus:border-secondary focus:outline-none p-3 text-on-surface placeholder:text-on-surface-variant/40 transition-colors resize-none";
-const FIELD_ERROR = "text-error text-xs mt-1";
 
 export function CustomerFormModal({ open, onOpenChange, customer }: Props) {
   const router = useRouter();
@@ -50,7 +48,7 @@ export function CustomerFormModal({ open, onOpenChange, customer }: Props) {
     formState: { errors, isSubmitting },
     reset,
     setError,
-  } = useForm<FormInput, unknown, FormOutput>({
+  } = useForm<FormInputT, unknown, FormOutput>({
     resolver: zodResolver(customerInputSchema),
     defaultValues: emptyDefaults(),
   });
@@ -115,87 +113,64 @@ export function CustomerFormModal({ open, onOpenChange, customer }: Props) {
           )}
 
           <div>
-            <label htmlFor="customer-name" className={FIELD_LABEL}>
-              Name <span className="text-error" aria-hidden>*</span>
-            </label>
-            <input
+            <FormLabel htmlFor="customer-name" required>
+              Name
+            </FormLabel>
+            <FormInput
               id="customer-name"
               type="text"
               autoComplete="off"
               autoFocus
-              {...register("name")}
               aria-invalid={!!errors.name}
-              className={FIELD_INPUT}
+              {...register("name")}
             />
-            {errors.name && (
-              <p className={FIELD_ERROR}>{errors.name.message}</p>
-            )}
+            <FormError>{errors.name?.message}</FormError>
           </div>
 
           <div>
-            <label htmlFor="customer-phone" className={FIELD_LABEL}>
-              Phone
-            </label>
-            <input
+            <FormLabel htmlFor="customer-phone">Phone</FormLabel>
+            <FormInput
               id="customer-phone"
               type="tel"
               autoComplete="off"
-              {...register("phone")}
               aria-invalid={!!errors.phone}
-              className={FIELD_INPUT}
+              {...register("phone")}
             />
-            {errors.phone && (
-              <p className={FIELD_ERROR}>{errors.phone.message}</p>
-            )}
+            <FormError>{errors.phone?.message}</FormError>
           </div>
 
           <div>
-            <label htmlFor="customer-email" className={FIELD_LABEL}>
-              Email
-            </label>
-            <input
+            <FormLabel htmlFor="customer-email">Email</FormLabel>
+            <FormInput
               id="customer-email"
               type="email"
               autoComplete="off"
-              {...register("email")}
               aria-invalid={!!errors.email}
-              className={FIELD_INPUT}
+              {...register("email")}
             />
-            {errors.email && (
-              <p className={FIELD_ERROR}>{errors.email.message}</p>
-            )}
+            <FormError>{errors.email?.message}</FormError>
           </div>
 
           <div>
-            <label htmlFor="customer-address" className={FIELD_LABEL}>
-              Address
-            </label>
-            <textarea
+            <FormLabel htmlFor="customer-address">Address</FormLabel>
+            <FormTextarea
               id="customer-address"
               rows={3}
-              {...register("address")}
               aria-invalid={!!errors.address}
-              className={FIELD_TEXTAREA}
+              {...register("address")}
             />
-            {errors.address && (
-              <p className={FIELD_ERROR}>{errors.address.message}</p>
-            )}
+            <FormError>{errors.address?.message}</FormError>
           </div>
 
           <div>
-            <label htmlFor="customer-notes" className={FIELD_LABEL}>
-              Notes
-            </label>
-            <textarea
+            <FormLabel htmlFor="customer-notes">Notes</FormLabel>
+            <FormTextarea
               id="customer-notes"
               rows={3}
-              {...register("notes")}
               aria-invalid={!!errors.notes}
-              className={FIELD_TEXTAREA}
+              {...register("notes")}
             />
-            {errors.notes && (
-              <p className={FIELD_ERROR}>{errors.notes.message}</p>
-            )}
+            <FormError>{errors.notes?.message}</FormError>
           </div>
 
           <DialogFooter className="mt-6 -mx-6 -mb-6 px-6 py-4 bg-transparent border-t border-outline-variant flex flex-row justify-end gap-3">
@@ -228,7 +203,7 @@ export function CustomerFormModal({ open, onOpenChange, customer }: Props) {
   );
 }
 
-function emptyDefaults(): FormInput {
+function emptyDefaults(): FormInputT {
   return { name: "", phone: "", email: "", address: "", notes: "" };
 }
 

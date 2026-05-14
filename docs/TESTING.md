@@ -1,0 +1,387 @@
+# Testing
+
+Quick reference for writing tests in this codebase. **Read this before
+adding tests to a new feature.** The patterns here are stable; deviating
+without reason creates inconsistency for future contributors.
+
+## Runner
+
+[Vitest](https://vitest.dev) with `jsdom`. `@testing-library/react` for
+component rendering, `@testing-library/user-event` for realistic
+interaction simulation, `vitest-mock-extended` for type-safe Prisma mocks.
+
+No e2e (Playwright) yet — deferred to Phase 8 polish.
+
+## Where tests live
+
+**Colocated** next to the file under test, with the `.test` suffix:
+
+```
+src/app/(app)/customers/
+  schema.ts
+  schema.test.ts              ← tests for schema.ts
+  actions.ts
+  actions.test.ts             ← tests for actions.ts
+  customers-table.tsx
+  customers-table.test.tsx    ← tests for customers-table.tsx
+```
+
+Vitest's default discovery glob is `**/*.{test,spec}.?(c|m)[jt]s?(x)`,
+so any `.test.ts` or `.test.tsx` is picked up automatically. No central
+`__tests__/` directory.
+
+## How to run
+
+```bash
+npm test          # watch mode — re-runs on file save during development
+npm run test:run  # one-shot — used by CI and pre-commit hooks
+```
+
+Run a single file: `npx vitest run path/to/file.test.ts`
+Run with coverage: `npx vitest run --coverage` (requires `@vitest/coverage-v8`,
+not installed by default)
+
+## Three test categories
+
+### 1. Schema tests — pure zod, no React, no DB
+
+Fast, deterministic, no mocks needed. Test the validator's behavior at
+the boundary: what inputs pass, what fail, and what the transform output
+shape is.
+
+**Example** (`src/app/(app)/customers/schema.test.ts`):
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { customerInputSchema } from "./schema";
+
+describe("customerInputSchema", () => {
+  it("accepts a valid input with all fields", () => {
+    const result = customerInputSchema.safeParse({
+      name: "Test Customer",
+      phone: "9876543210",
+      email: "test@example.com",
+      address: "123 Main St",
+      notes: "Regular client",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("transforms empty-string phone to null (NOT undefined)", () => {
+    const result = customerInputSchema.safeParse({
+      name: "Test",
+      phone: "",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.phone).toBeNull();
+  });
+
+  it("rejects missing name with 'Name is required'", () => {
+    const result = customerInputSchema.safeParse({ name: "" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.name).toContain(
+        "Name is required",
+      );
+    }
+  });
+});
+```
+
+**Coverage target for schema tests:** every code path through `.transform`,
+`.pipe`, and any `.refine`. Boundary cases for `.min` / `.max` / `.email`.
+
+### 2. Action tests — server actions with mocked Prisma
+
+The action layer is where validation meets the database. Mock Prisma so
+tests are fast and deterministic. Mock the `requireSession()` guard so
+the auth dependency is explicit per test.
+
+**Setup** — `src/lib/__mocks__/prisma.ts` provides the shared deep mock:
+
+```typescript
+import { PrismaClient } from "@/generated/prisma";
+import { mockDeep, type DeepMockProxy } from "vitest-mock-extended";
+import { beforeEach, vi } from "vitest";
+
+export const prisma: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+```
+
+Test files opt in with `vi.mock("@/lib/prisma")` at the top — Vitest
+auto-resolves `__mocks__/prisma.ts` as the replacement.
+
+**Example** (`src/app/(app)/customers/actions.test.ts`):
+
+```typescript
+import { describe, it, expect, vi } from "vitest";
+import { prisma } from "@/lib/prisma";
+import { createCustomer } from "./actions";
+
+vi.mock("@/lib/prisma");
+vi.mock("@/lib/auth-guards", () => ({
+  requireSession: vi
+    .fn()
+    .mockResolvedValue({ user: { id: "user-1", role: "ADMIN" } }),
+}));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+describe("createCustomer", () => {
+  it("happy path — returns ok with the created row", async () => {
+    vi.mocked(prisma.customer.create).mockResolvedValue({
+      id: "cuid-1",
+      name: "Test Customer",
+      phone: null,
+      email: null,
+      address: null,
+      notes: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    });
+
+    const result = await createCustomer({
+      name: "Test Customer",
+      phone: null,
+      email: null,
+      address: null,
+      notes: null,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.customer.id).toBe("cuid-1");
+    expect(prisma.customer.create).toHaveBeenCalledOnce();
+  });
+
+  it("returns ok=false with field errors when name is empty", async () => {
+    const result = await createCustomer({
+      name: "",
+      phone: null,
+      email: null,
+      address: null,
+      notes: null,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.name).toBeDefined();
+    expect(prisma.customer.create).not.toHaveBeenCalled();
+  });
+});
+```
+
+**Mocking pattern reminders:**
+- Mock at module path: `vi.mock("@/lib/prisma")` — Vitest auto-resolves
+  `src/lib/__mocks__/prisma.ts`
+- Mock `@/lib/auth-guards` to return a fake session; tests without auth
+  set `requireSession` to reject (test the throw-Unauthorized path)
+- Mock `next/cache` so `revalidatePath()` is a no-op spy
+- Reset mocks in `beforeEach` (the shared helper does this once)
+
+**Mock reset conventions (split by test category):**
+
+| Test type | Pattern | Where the reset lives |
+|---|---|---|
+| Action tests | `beforeEach(mockReset(prisma))` at module scope + file-level `beforeEach` for `requireSession` / `revalidatePath` | `src/lib/__mocks__/prisma.ts` (Prisma) + each test file's top-level (others) |
+| Component tests | `beforeEach(vi.clearAllMocks)` inside the `describe` block | each test file's `describe` |
+
+The action layer touches a deep mock object (every Prisma method on
+every model is a mock) — `mockReset` from `vitest-mock-extended` clears
+both call history AND any per-test `mockResolvedValue` overrides.
+Component tests use shallow mocks (one `vi.fn()` per mocked function);
+`vi.clearAllMocks()` clears call history while keeping the mock
+implementations in place from the top-level `vi.mock(...)` factory.
+
+Both work for their case. Don't mix the two reset approaches in one file.
+
+**`vi.mock` is hoisted above imports.** Vitest moves `vi.mock(...)` calls
+to the top of the file at parse time, so they run **before** any import
+statements. Consequence:
+
+- You can't share `vi.mock` calls between files via re-export. The
+  hoisting happens per-file at parse time; re-exporting from a helper
+  module wouldn't move the hoisting up in the consumer.
+- Copy-paste the mock block at the top of each test file. The
+  `docs/TESTING.md` examples above are the canonical reference.
+- Inside the factory function passed to `vi.mock`, **don't reference
+  variables defined later in the file** — they're not in scope at
+  hoisted execution. Inline the values, or use `vi.hoisted(() => ...)`
+  to declare hoist-safe references.
+
+### 3. Component tests — `@testing-library/react` + `user-event`
+
+For interactive components. Render, query, simulate user behavior, assert
+on what the user would see.
+
+**Standard mocks** for components that use Next.js navigation:
+
+```typescript
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/customers",
+  useSearchParams: () => new URLSearchParams(),
+}));
+```
+
+**Standard mocks** for components that import server actions (so the
+test doesn't try to invoke a real server function):
+
+```typescript
+vi.mock("./actions", () => ({
+  createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
+  softDeleteCustomer: vi.fn(),
+}));
+```
+
+**Example** (`src/app/(app)/customers/customers-table.test.tsx`):
+
+```typescript
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { CustomersTable } from "./customers-table";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/customers",
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("./actions", () => ({
+  createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
+  softDeleteCustomer: vi.fn(),
+}));
+
+const customers = [
+  { id: "1", name: "Priya Shah", phone: "9876543210", email: null, ... },
+  { id: "2", name: "Ankit Patel", phone: "9988776655", email: null, ... },
+];
+
+describe("CustomersTable search filter", () => {
+  it("filters rows by partial name match", async () => {
+    const user = userEvent.setup();
+    render(<CustomersTable customers={customers} />);
+
+    expect(screen.getByText("Priya Shah")).toBeInTheDocument();
+    expect(screen.getByText("Ankit Patel")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/Search customers/i), "priya");
+
+    expect(screen.getByText("Priya Shah")).toBeInTheDocument();
+    expect(screen.queryByText("Ankit Patel")).not.toBeInTheDocument();
+  });
+});
+```
+
+**Query priority** (per RTL guidance):
+1. `getByRole` — most user-meaningful
+2. `getByLabelText` — for form fields
+3. `getByPlaceholderText` — for inputs without labels
+4. `getByText` — for non-interactive elements
+5. `getByTestId` — last resort, when nothing else fits
+
+**Anchored regexes for ambiguous button names.** When multiple buttons
+on a page contain a common substring (e.g., the "Name" sort header and
+the "+ Add Customer" button both contain N-A-M-E somewhere in their
+accessible names), use an anchored regex:
+
+```typescript
+// Without anchor, ambiguous: matches multiple buttons
+screen.getByRole("button", { name: /name/i });
+
+// Anchored at start — only matches buttons whose name STARTS with "Name"
+screen.getByRole("button", { name: /^name/i });
+```
+
+Save the diagnostic time: anchor your regex when you know the structure.
+
+### Asserting sort order in a table
+
+For sortable tables, after clicking a header, assert the row order by
+walking `getAllByRole('row')`. Skip the header row, then pull the first
+cell's text content from each:
+
+```typescript
+function rowOrder(): string[] {
+  return screen
+    .getAllByRole("row")
+    .slice(1) // first row is the <thead>
+    .map((row) => {
+      const nameCell = within(row).getAllByRole("cell")[0];
+      return nameCell?.textContent ?? "";
+    });
+}
+
+// Default sort: createdAt desc — newest first
+expect(rowOrder()).toEqual(["Cara", "Bob", "Alice"]);
+
+await user.click(screen.getByRole("button", { name: /^name/i }));
+
+// Now sorted by Name asc
+expect(rowOrder()).toEqual(["Alice", "Bob", "Cara"]);
+```
+
+Reusable for any sortable table — fixture data needs distinct values in
+the sorted column, and the function reads the first cell. Adjust the
+cell index if the column you're asserting on isn't first.
+
+### Asserting modal isolation (stopPropagation)
+
+When a row has multiple clickable surfaces (row click opens detail modal,
+icon click opens edit modal), tests need to verify `stopPropagation()`
+prevents the row handler from firing when the icon is clicked. **Count
+open Radix Dialogs:**
+
+```typescript
+await user.click(screen.getByRole("button", { name: /edit customer/i }));
+
+// If stopPropagation works: only the Edit modal opens → 1 dialog
+// If it broke: row click ALSO fires → BOTH modals open → 2 dialogs
+const openDialogs = screen.getAllByRole("dialog");
+expect(openDialogs).toHaveLength(1);
+```
+
+Radix Dialog renders into a portal at `document.body`, but
+`screen.getByRole("dialog")` searches the entire document — so the
+count is accurate regardless of where the dialog's JSX is mounted in
+the component tree.
+
+## What NOT to test
+
+Skip:
+- **Third-party library internals.** Don't test that TanStack Table
+  actually sorts an array; trust the library. Test the data flowing
+  through (column definitions, predicate functions).
+- **Auth.js internals.** Don't test that JWE encoding works; trust the
+  library. Mock `auth()` / `requireSession()` at the boundary.
+- **Pure styling / layout.** Don't assert `expect(el).toHaveClass('bg-primary')`
+  — refactoring class names shouldn't break tests. Test what the user
+  sees and does.
+- **Static markup without logic.** A header that just renders a string
+  doesn't need a test. The page test that uses it does.
+- **CSS / Tailwind theme tokens.** Visual regression is a separate
+  category (deferred — Playwright + visual diff).
+
+## When to skip writing a test (this phase)
+
+- Pure UI with no logic — e.g., the LabeledField component is two `<p>`
+  tags with a null-coalesce. No test until something complex emerges.
+- Throwaway debug code (smoke pages, dev-only routes). If it ships,
+  it gets a test.
+- Components fully covered by parent-component tests. The form modal's
+  internal field structure is exercised by clicking through a form — no
+  need for a separate test of each `<FormInput>` instance.
+
+## Per-phase reporting
+
+From Phase 2.3 onward, the "Test count delta" line in every phase report
+should include:
+
+- **Total tests passing after this phase** — single number
+- **Net new tests added** — `+N` or `−N`
+- **Any tests intentionally skipped** — only if applicable, with reason
+
+Replaces the previous `N/A` placeholder.

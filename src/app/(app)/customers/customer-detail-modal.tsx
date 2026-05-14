@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { LabeledField } from "@/components/labeled-field";
 import type { Customer } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
 
@@ -59,11 +60,11 @@ export function CustomerDetailModal({
         </DialogHeader>
 
         <div className="space-y-5">
-          <Field label="Phone" value={customer.phone} />
-          <Field label="Email" value={customer.email} />
-          <Field label="Address" value={customer.address} multiline />
-          <Field label="Notes" value={customer.notes} multiline />
-          <Field label="Created" value={formatDate(customer.createdAt)} />
+          <LabeledField label="Phone" value={customer.phone} />
+          <LabeledField label="Email" value={customer.email} />
+          <LabeledField label="Address" value={customer.address} multiline />
+          <LabeledField label="Notes" value={customer.notes} multiline />
+          <LabeledField label="Created" value={formatDate(customer.createdAt)} />
         </div>
 
         {/* Footer: normal state shows Edit + Delete; confirming state replaces
@@ -119,29 +120,3 @@ export function CustomerDetailModal({
   );
 }
 
-function Field({
-  label,
-  value,
-  multiline = false,
-}: {
-  label: string;
-  value: string | null | undefined;
-  multiline?: boolean;
-}) {
-  return (
-    <div>
-      <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-1">
-        {label}
-      </p>
-      <p
-        className={
-          multiline
-            ? "text-sm text-on-surface whitespace-pre-wrap break-words"
-            : "text-sm text-on-surface"
-        }
-      >
-        {value ?? "—"}
-      </p>
-    </div>
-  );
-}

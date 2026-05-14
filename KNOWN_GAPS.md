@@ -46,6 +46,12 @@ Decisions where we deviated from an original spec or assumption, kept for instit
 
 - **Optional-field edit semantics — empty form field means NULL, not "preserve old value."** Customer/Supplier/Employee input schemas use a `.nullish().transform((v) => (v === undefined || v === null || v === "" ? null : v))` pattern (with `.pipe(z.union([z.null(), z.string().email(...)]))` for email so format validation runs after the empty-string normalization). This emits `null` for cleared inputs. Prisma's `update.data` treats `undefined` as "skip this field" but `null` as "set column to NULL" — so emitting `null` makes clearing-via-edit-form actually clear the DB column, not silently retain the stale value. The previous `.transform(() => undefined)` pattern from the Phase 2.1 spec example had this bug. Output type for each optional field is `string | null`, never `string | undefined`. Discovered Phase 2.1 Task 3.
 
+- **Test infrastructure: Vitest + mocked Prisma, no real DB.** All Phase 2.2.5 tests run against `vitest-mock-extended`'s deep-mocked PrismaClient (`src/lib/__mocks__/prisma.ts`); real-DB integration tests are deferred to Phase 8 polish. Component tests use `@testing-library/react` + `user-event` with mocked `next/navigation` and mocked server actions. **Mock at the closest meaningful boundary**: `vi.mock("@/lib/auth-guards", ...)` rather than `vi.mock("@/lib/auth", ...)` — smaller surface, single export, no Auth.js factory coupling. The schema/action/component category split + the canonical mock patterns are documented in `docs/TESTING.md`.
+
+- **Three pre-test extractions to canonical helpers (Phase 2.2.5 Tasks 2–4).** Before tests were written, three patterns were extracted from the duplicated Customer/Supplier code so tests would validate the canonical code, not the duplication: (a) `requireSession()` → `src/lib/auth-guards.ts` (was inlined in two actions.ts files); (b) `<Field>` → `<LabeledField>` in `src/components/labeled-field.tsx` (was duplicated as ~25-line subcomponent in two detail modals); (c) form-control styling → `<FormLabel>` / `<FormInput>` / `<FormTextarea>` / `<FormError>` in `src/components/form-controls.tsx` (was four exported `FIELD_*` className constants per form modal, ~20 lines each). Net change: -32 LOC project-wide; each entity's form-modal dropped from 240 to 191 LOC.
+
+- **Test mock reset conventions split by test category.** Action tests reset Prisma at module scope (`beforeEach(mockReset(prisma))` in `src/lib/__mocks__/prisma.ts`) and reset `requireSession` / `revalidatePath` at file scope. Component tests reset all mocks inside the `describe` block via `beforeEach(vi.clearAllMocks)`. Different mock surfaces (deep-mock vs shallow `vi.fn()`s), different reset semantics; both correct for their case. Don't mix the two reset approaches within one file. See `docs/TESTING.md` for the table.
+
 ## Resolved (one audit cycle)
 
 Items completed but kept here for one audit cycle for traceability, then pruned.
@@ -77,6 +83,12 @@ Work intentionally not done, with revisit triggers.
 - **Customer dedup detection not built.** No warning if a user creates two records with similar names (`"Rajeshbhai"` vs `"Rajesh Bhai"`, or with/without a trailing whitespace). Manual data-entry will produce dupes over time. **Revisit in Phase 3** when the Sale party-autocomplete makes the duplication user-visible (typing "Raj" surfaces both records and the user notices). Implementation when needed: levenshtein / unicode-NFKD-normalized name match + phone-prefix match, surfaced as "Did you mean…?" suggestions on the Add modal.
 
 - **No UI to restore soft-deleted customers.** `softDeleteCustomer` sets `deletedAt`; the page query filters `deletedAt: null`; deleted rows preserve history but are invisible from the app. To restore manually: `UPDATE customers SET "deletedAt" = NULL WHERE id = '…'` via Supabase MCP. **Build a `Settings → Deleted records` page if this becomes painful** — likely after Phase 6 when other entities have the same soft-delete pattern and consolidating into one admin view is worthwhile.
+
+- **Real-DB integration tests.** Current tests mock Prisma via `vitest-mock-extended`. End-to-end tests against a real test database (a separate Supabase project, or local Postgres via `prisma migrate deploy` against a sandbox) are deferred to Phase 8 polish. The mocked tests catch logic bugs (validation, transform behavior, action wiring, component interactions). Real-DB tests would additionally catch schema-vs-Prisma-client desync, query-optimizer surprises, and Supabase-specific behavior (e.g., pooler quirks, JSON column edge cases). Revisit when migration count grows enough that schema-client drift becomes a real risk, or when we hit a production bug that mocked tests would have missed.
+
+- **Playwright / browser-driven tests.** No e2e or visual-regression tests this phase. Component tests under `jsdom` catch behavior but not CSS rendering, hover states, animations, layout, or cross-browser issues. Deferred to Phase 8 polish. Implementation when needed: `@playwright/test` with screenshot-diff against a baseline, run against a dev-server-on-CI build. Cost: ~150 MB Chromium download + a few hundred ms per test run.
+
+- **Shared test fixtures across entities.** `makeCustomer()` and `makeSupplier()` row factories are currently duplicated in their respective `actions.test.ts` files; `makeCustomer()` is also duplicated in `customers-table.test.tsx`. Extraction to `src/test/fixtures/customer.ts` + `supplier.ts` (or a single `src/test/fixtures/party.ts` with a `kind` discriminator) is deferred until Phase 2.3 (Employees) adds the third entity. At that point the shape of a generic `buildEntityFixture()` API will be visible.
 
 ## Onboarding notes for future contributors
 
@@ -132,3 +144,14 @@ Things that aren't gaps but trip up new sessions.
   - `<entity>-detail-modal.tsx` — client component, read-only view with Edit/Delete footer (Delete shows inline confirmation, no second-modal layer)
 
   Soft delete is mandatory: every entity that touches business data gets a nullable `deletedAt` column + an index on it. List queries filter `where: { deletedAt: null }`. Restore is via direct DB UPDATE (see deferred items).
+
+- **Running tests.** Three scripts:
+  - `npm test` — Vitest watch mode for development (re-runs affected tests on save)
+  - `npm run test:run` — one-shot run, used by CI / pre-commit hooks
+  - `npm run test:coverage` — one-shot with `@vitest/coverage-v8` baseline (Phase 2.2.5 baseline: ~71% statements project-wide, ~66% for the customers folder, ~87% for `src/components/`; will improve as new test categories land)
+
+  Run a single test file: `npx vitest run path/to/file.test.ts`. Run a single test by name: `npx vitest run -t "rejects empty name"`.
+
+- **Adding a new entity (Phase 2.3 onward).** The per-entity scaffolding convention above now extends to test coverage. Each entity must include: `schema.test.ts` (zod-only, no mocks), `actions.test.ts` (mocked Prisma + auth-guards + next/cache), and a component test on the entity's table (`<entity>-table.test.tsx`). Use the Customer/Supplier files as templates (~24 schema + 11 action + 14 component tests per entity). **Don't extract shared test helpers preemptively** — extraction belongs in a follow-up phase after three entities exist and the right shape is visible.
+
+- **Test count reporting from Phase 2.3 onward.** The "Test count delta" line in every phase report stops being `N/A`. Format: `<previous total> → <new total> (+N net new, M skipped with reason)`. Skipped tests must include a reason (e.g., "skipped: covered by Phase 2.2.5 component test on identical surface"). `N/A` is no longer an acceptable value once tests exist for the layer being modified.

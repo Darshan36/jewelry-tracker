@@ -2,16 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { requireSession } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { customerInputSchema, type CustomerInput } from "./schema";
-
-async function requireSession() {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
-  return session;
-}
 
 export async function createCustomer(input: CustomerInput) {
   await requireSession();

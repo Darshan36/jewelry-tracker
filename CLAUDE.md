@@ -24,6 +24,7 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 - **File storage:** Supabase Storage (receipt uploads — Phase 3+)
 - **Hosting:** Vercel
 - **Package manager:** npm
+- **Testing:** Vitest + `@testing-library/react` + `vitest-mock-extended`, `jsdom` environment, mocked Prisma. No e2e tests yet (Playwright deferred to Phase 8). Test conventions in `docs/TESTING.md`.
 
 > ⚠ This version of Next.js has breaking changes from older releases. Read `node_modules/next/dist/docs/` before writing routing or data-fetching code. Heed deprecation notices. (Reinforced by `@AGENTS.md` above.)
 
@@ -144,6 +145,7 @@ Karigar balance follows the same pattern — derived from `WorkEntry` (debits), 
 - **Server components by default.** Add `'use client'` only when a component needs interactivity, hooks, or browser APIs.
 - **All forms = react-hook-form + zod.** Define the schema in a `schema.ts` next to the route; bind with `zodResolver(schema)`.
 - **Per-entity scaffolding (Customers / Suppliers / Employees / Sales / Purchases):** use the folder structure documented in `KNOWN_GAPS.md` onboarding notes. Schemas live in `schema.ts` separate from `'use server'` files (Next.js compiles non-function exports from server-action files into client-reference stubs, which breaks Zod). Forms use the RHF triple-generic pattern `useForm<FormInput, unknown, FormOutput>` when the schema has transforms.
+- **Every new feature ships with tests.** Schemas → schema tests covering validation + transforms. Server actions → action tests with mocked Prisma + `auth-guards` + `next/cache`. Interactive components → component tests with RTL + mocked navigation + mocked actions. Don't test third-party library internals or pure styling. See `docs/TESTING.md` for the canonical patterns. Per-entity test scaffolding (one `schema.test.ts`, one `actions.test.ts`, one table component test) is mandatory from Phase 2.3 onward.
 - **Currency = paise (integer) at every layer below the UI.** Display formatters live in `src/lib/format.ts`. Never multiply/divide currency in components — call `formatCurrency(paise)` for display.
 - **Dates: store UTC, display `Asia/Kolkata`.** Format helpers in the same `src/lib/format.ts`: `formatDate(value)` for date-only display, `formatDateTime(value)` for date+time.
 - **File naming:** kebab-case for files, PascalCase for component exports. Schema files: `schema.ts`. Action files: `actions.ts`. Page: `page.tsx`. Layout: `layout.tsx`.
