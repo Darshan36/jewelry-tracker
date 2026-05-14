@@ -42,3 +42,19 @@ model Customer {
   @@index([name])
   @@map("customers")
 }
+
+model Supplier {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([deletedAt])
+  @@index([name])
+  @@map("suppliers")
+}

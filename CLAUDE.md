@@ -72,6 +72,7 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 ### Customer (built Phase 2.1) / Supplier (built Phase 2.2)
 `id, name, phone, email, address, notes, createdAt, updatedAt, deletedAt`
 
+- **Two separate DB tables (`customers`, `suppliers`) sharing the same schema.** Kept apart so Sales (Phase 3) can FK to `Customer` and Purchases (Phase 4) can FK to `Supplier` without cross-pollution. The Prisma models, zod schemas, server actions, table component, and modals are near-identical clones — Phase 2.2.5 will extract the genuinely-shared bits (`requireSession()`, the `<Field>` label-value component, form-input class constants) without forcing a generic "master-data entity" abstraction.
 - **Soft delete via `deletedAt`** (nullable). List queries filter `where: { deletedAt: null }`. Deleted rows preserve history; restoring is via direct DB UPDATE (no UI yet — see KNOWN_GAPS).
 - **No uniqueness on `email` or `phone`.** Real entry produces dupes (typos, alternate spellings); we surface them via party-autocomplete in Phase 3, not by hard-rejecting them at insert.
 - **Indexes:** `@@index([deletedAt])` for fast list filtering, `@@index([name])` for search.

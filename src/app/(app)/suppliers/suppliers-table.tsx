@@ -22,23 +22,23 @@ import {
   Trash2,
 } from "lucide-react";
 
-import type { Customer } from "@/generated/prisma";
+import type { Supplier } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
 
-import { softDeleteCustomer } from "./actions";
-import { CustomerDetailModal } from "./customer-detail-modal";
-import { CustomerFormModal } from "./customer-form-modal";
+import { softDeleteSupplier } from "./actions";
+import { SupplierDetailModal } from "./supplier-detail-modal";
+import { SupplierFormModal } from "./supplier-form-modal";
 
-type Props = { customers: Customer[] };
+type Props = { suppliers: Supplier[] };
 
-export function CustomersTable({ customers }: Props) {
+export function SuppliersTable({ suppliers }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   // Modal state
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [viewingSupplier, setViewingSupplier] = useState<Supplier | null>(null);
 
   // Per-row delete confirmation (inline; matches the design-system pattern
   // of replacing the action cluster rather than overlaying a separate modal).
@@ -50,7 +50,7 @@ export function CustomersTable({ customers }: Props) {
   ]);
   const [globalFilter, setGlobalFilter] = useState("");
 
-  const columns: ColumnDef<Customer>[] = [
+  const columns: ColumnDef<Supplier>[] = [
     {
       accessorKey: "name",
       header: "Name",
@@ -85,10 +85,10 @@ export function CustomersTable({ customers }: Props) {
       enableSorting: false,
       cell: ({ row }) => (
         <ActionCell
-          customer={row.original}
+          supplier={row.original}
           isConfirming={confirmDeleteId === row.original.id}
           isPending={isPending}
-          onEdit={() => setEditingCustomer(row.original)}
+          onEdit={() => setEditingSupplier(row.original)}
           onRequestDelete={() => setConfirmDeleteId(row.original.id)}
           onCancelDelete={() => setConfirmDeleteId(null)}
           onConfirmDelete={() => handleDelete(row.original.id)}
@@ -98,7 +98,7 @@ export function CustomersTable({ customers }: Props) {
   ];
 
   const table = useReactTable({
-    data: customers,
+    data: suppliers,
     columns,
     state: { sorting, globalFilter },
     onSortingChange: setSorting,
@@ -120,14 +120,14 @@ export function CustomersTable({ customers }: Props) {
 
   function handleDelete(id: string) {
     startTransition(async () => {
-      await softDeleteCustomer(id);
+      await softDeleteSupplier(id);
       setConfirmDeleteId(null);
       router.refresh();
     });
   }
 
   const rows = table.getRowModel().rows;
-  const hasCustomers = customers.length > 0;
+  const hasSuppliers = suppliers.length > 0;
   const hasMatches = rows.length > 0;
 
   return (
@@ -136,7 +136,7 @@ export function CustomersTable({ customers }: Props) {
       <div className="flex items-center gap-3 mb-4">
         <input
           type="search"
-          placeholder="Search customers…"
+          placeholder="Search suppliers…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
           className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
@@ -147,13 +147,13 @@ export function CustomersTable({ customers }: Props) {
           className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
         >
           <Plus className="size-4" />
-          <span>Add customer</span>
+          <span>Add supplier</span>
         </button>
       </div>
 
       {/* Table container */}
       <div className="border border-outline-variant bg-surface-container-low">
-        {hasCustomers && (
+        {hasSuppliers && (
           <table className="w-full text-sm">
             <thead className="bg-surface-container-high sticky top-0">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -192,10 +192,10 @@ export function CustomersTable({ customers }: Props) {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <CustomerRow
+                <SupplierRow
                   key={row.id}
                   row={row}
-                  onRowClick={(c) => setViewingCustomer(c)}
+                  onRowClick={(s) => setViewingSupplier(s)}
                 />
               ))}
             </tbody>
@@ -203,43 +203,43 @@ export function CustomersTable({ customers }: Props) {
         )}
 
         {/* Empty states */}
-        {!hasCustomers && (
+        {!hasSuppliers && (
           <div className="p-12 text-center">
             <p className="text-on-surface-variant text-sm">
-              No customers yet. Add your first customer to get started.
+              No suppliers yet. Add your first supplier to get started.
             </p>
           </div>
         )}
-        {hasCustomers && !hasMatches && (
+        {hasSuppliers && !hasMatches && (
           <div className="p-12 text-center">
             <p className="text-on-surface-variant text-sm">
-              No customers match your search.
+              No suppliers match your search.
             </p>
           </div>
         )}
       </div>
 
-      {/* Add / Edit form modal — same component, mode toggled by `customer` prop */}
-      <CustomerFormModal
+      {/* Add / Edit form modal — same component, mode toggled by `supplier` prop */}
+      <SupplierFormModal
         open={isAddOpen}
         onOpenChange={setIsAddOpen}
-        customer={undefined}
+        supplier={undefined}
       />
-      <CustomerFormModal
-        open={editingCustomer !== null}
-        onOpenChange={(open) => !open && setEditingCustomer(null)}
-        customer={editingCustomer ?? undefined}
+      <SupplierFormModal
+        open={editingSupplier !== null}
+        onOpenChange={(open) => !open && setEditingSupplier(null)}
+        supplier={editingSupplier ?? undefined}
       />
 
       {/* Detail modal — opened by row click. Edit transitions to the form modal. */}
-      <CustomerDetailModal
-        open={viewingCustomer !== null}
-        onOpenChange={(open) => !open && setViewingCustomer(null)}
-        customer={viewingCustomer}
+      <SupplierDetailModal
+        open={viewingSupplier !== null}
+        onOpenChange={(open) => !open && setViewingSupplier(null)}
+        supplier={viewingSupplier}
         onEdit={() => {
-          const target = viewingCustomer;
-          setViewingCustomer(null);
-          setEditingCustomer(target);
+          const target = viewingSupplier;
+          setViewingSupplier(null);
+          setEditingSupplier(target);
         }}
       />
     </>
@@ -252,12 +252,12 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   return <ArrowUpDown className="size-3 opacity-40" />;
 }
 
-function CustomerRow({
+function SupplierRow({
   row,
   onRowClick,
 }: {
-  row: Row<Customer>;
-  onRowClick?: (customer: Customer) => void;
+  row: Row<Supplier>;
+  onRowClick?: (supplier: Supplier) => void;
 }) {
   return (
     <tr
@@ -281,7 +281,7 @@ function CustomerRow({
 }
 
 function ActionCell({
-  customer: _customer,
+  supplier: _supplier,
   isConfirming,
   isPending,
   onEdit,
@@ -289,7 +289,7 @@ function ActionCell({
   onCancelDelete,
   onConfirmDelete,
 }: {
-  customer: Customer;
+  supplier: Supplier;
   isConfirming: boolean;
   isPending: boolean;
   onEdit: () => void;
@@ -336,7 +336,7 @@ function ActionCell({
       <button
         type="button"
         onClick={onEdit}
-        aria-label="Edit customer"
+        aria-label="Edit supplier"
         className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
       >
         <Edit3 className="size-4" />
@@ -344,7 +344,7 @@ function ActionCell({
       <button
         type="button"
         onClick={onRequestDelete}
-        aria-label="Delete customer"
+        aria-label="Delete supplier"
         className="p-1.5 text-on-surface-variant hover:text-error hover:bg-surface-container transition-colors"
       >
         <Trash2 className="size-4" />
