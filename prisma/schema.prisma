@@ -101,8 +101,26 @@ model Sale {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
+  payments SalePayment[]
+
   @@index([deletedAt])
   @@index([date])
   @@index([customerId])
   @@map("sales")
+}
+
+model SalePayment {
+  id        String    @id @default(cuid())
+  saleId    String
+  sale      Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  date      DateTime
+  amount    BigInt
+  note      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([saleId])
+  @@index([deletedAt])
+  @@map("sale_payments")
 }

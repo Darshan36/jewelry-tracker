@@ -43,7 +43,18 @@ export function SalesTable({ sales, customers }: Props) {
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<SaleForClient | null>(null);
-  const [viewingSale, setViewingSale] = useState<SaleForClient | null>(null);
+  // Derive the currently-viewed sale from the sales array using just an id,
+  // not a snapshot copy. After PaymentPanel's `router.refresh()` re-fetches
+  // the page, the parent passes fresh `sales` here, the .find lookup yields
+  // the updated row, and the detail modal re-renders with new status /
+  // paidAmount / payments without needing the user to close and reopen.
+  // If the sale is soft-deleted while the modal is open (e.g. via the
+  // modal's own Delete button), .find returns undefined → viewingSale
+  // becomes null → modal auto-closes. Desired.
+  const [viewingSaleId, setViewingSaleId] = useState<string | null>(null);
+  const viewingSale = viewingSaleId
+    ? (sales.find((s) => s.id === viewingSaleId) ?? null)
+    : null;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [sorting, setSorting] = useState<SortingState>([
@@ -229,7 +240,7 @@ export function SalesTable({ sales, customers }: Props) {
                 <SaleRow
                   key={row.id}
                   row={row}
-                  onRowClick={(s) => setViewingSale(s)}
+                  onRowClick={(s) => setViewingSaleId(s.id)}
                 />
               ))}
             </tbody>
@@ -267,11 +278,11 @@ export function SalesTable({ sales, customers }: Props) {
 
       <SaleDetailModal
         open={viewingSale !== null}
-        onOpenChange={(open) => !open && setViewingSale(null)}
+        onOpenChange={(open) => !open && setViewingSaleId(null)}
         sale={viewingSale}
         onEdit={() => {
           const target = viewingSale;
-          setViewingSale(null);
+          setViewingSaleId(null);
           setEditingSale(target);
         }}
       />

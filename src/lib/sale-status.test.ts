@@ -46,6 +46,37 @@ describe("computeSaleStatus", () => {
     ).toBe("refund_due");
   });
 
+  // Phase 3.2: explicit boundary tests for the partial/completed transition.
+  // Action layer blocks paidAmount > total, so these cover the realistic
+  // operating range exactly: 1 paise short, exact match, very small paid.
+
+  it("returns 'partial' when paidAmount is exactly 1 paise less than total", () => {
+    expect(
+      computeSaleStatus({
+        total: 2400_00n,
+        paidAmount: 2400_00n - 1n,
+      }),
+    ).toBe("partial");
+  });
+
+  it("returns 'completed' when paidAmount exactly equals total (exact-equality boundary)", () => {
+    expect(
+      computeSaleStatus({
+        total: 2400_00n,
+        paidAmount: 2400_00n,
+      }),
+    ).toBe("completed");
+  });
+
+  it("returns 'partial' for a very small payment (1 paise) against a large total", () => {
+    expect(
+      computeSaleStatus({
+        total: 2400_00n,
+        paidAmount: 1n,
+      }),
+    ).toBe("partial");
+  });
+
   it("returns 'pending' for a zero-total sale (degenerate but defined)", () => {
     expect(computeSaleStatus({ total: 0n })).toBe("pending");
   });

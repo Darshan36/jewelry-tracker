@@ -14,6 +14,11 @@ vi.mock("./actions", () => ({
   softDeleteSale: vi.fn(),
 }));
 
+vi.mock("./payment-actions", () => ({
+  createSalePayment: vi.fn(),
+  softDeleteSalePayment: vi.fn(),
+}));
+
 import { SalesTable } from "./sales-table";
 import type { SaleForClient } from "./sale-helpers";
 import type { CustomerOption } from "./party-picker";
@@ -38,7 +43,9 @@ function makeSale(overrides: Partial<SaleForClient> = {}): SaleForClient {
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    paidAmount: 0,
     status: "pending",
+    payments: [],
     ...overrides,
   };
 }

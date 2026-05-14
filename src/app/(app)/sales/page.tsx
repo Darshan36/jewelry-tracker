@@ -8,6 +8,10 @@ export default async function SalesPage() {
     prisma.sale.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
+      // Include non-deleted payments so serializeSale can compute paidAmount
+      // and derive the live status (pending / partial / completed) for each
+      // row at the page-render boundary.
+      include: { payments: { where: { deletedAt: null } } },
     }),
     prisma.customer.findMany({
       where: { deletedAt: null },
