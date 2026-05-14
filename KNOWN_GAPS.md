@@ -38,6 +38,14 @@ Decisions where we deviated from an original spec or assumption, kept for instit
   ```
   Verified via `has_table_privilege('anon', …, 'SELECT' | 'INSERT')` returning `false` for every check. **If we later want to use Supabase REST for any reason** (Supabase Auth client-side, Realtime, Storage public buckets, etc.), grants need to be re-applied per-table with appropriate RLS policies. Don't blindly `GRANT ALL`.
 
+- **Master data parties (Customers / Suppliers) are for regulars only — walk-in / one-time parties NOT represented in master tables.** Forcing every sale/purchase party through a master record creates friction that doesn't match jewelry-workshop reality. The dual-path party model lands in Phase 3 (Sales) and Phase 4 (Purchases): each Sale/Purchase row gets either `customerId` (FK to a known regular) OR a free-text `partyName` + `partyPhone` pair (one-time / walk-in). The Customers page therefore intentionally has no Excel-bulk-import yet; regulars are entered manually as they emerge. Discovered Phase 2.1 planning. Cross-references: Phase 3 / Phase 4 implement the autocomplete + free-text fallback.
+
+- **Schema extraction pattern for forms with Server Actions.** Zod schemas cannot be exported from files carrying the `'use server'` directive — Next.js compiles non-function exports into client-reference stubs, replacing the actual schema with a serialized handle. When the client form modal imports the "schema," it receives a stub that fails the `zodResolver`'s `isZod4Schema` check (`'_zod' in schema`) at module load with **"Invalid input: not a Zod schema."** Convention going forward: each entity gets a `schema.ts` (no directive — pure validation), `actions.ts` (`'use server'`, imports schema), and form modal (`'use client'`, imports schema). Pattern committed for Customer in Phase 2.1; Suppliers (Phase 2.2) and Employees (Phase 2.3) follow the same layout. Cross-reference Sales (Phase 3) and Purchases (Phase 4) when those land. Discovered Phase 2.1 Task 7.
+
+- **RHF triple-generic pattern for transform-emitting schemas.** When a zod schema uses `.transform(...)` (as ours does to coerce `""` → `null` on optional fields), the input and output types differ — `phone: string | null | undefined` going in, `phone: string | null` coming out. RHF v7's `useForm<TFieldValues>` defaults `TTransformedValues = TFieldValues`, which mismatches the resolver's actual return shape. The fix is the **explicit triple generic**: `useForm<FormInput, unknown, FormOutput>` where `FormInput = z.input<typeof schema>` (form's pre-transform value type, allows `defaultValues: { phone: '' }`) and `FormOutput = z.output<typeof schema>` (post-transform shape passed to `onSubmit`). Without it, TypeScript rejects both `defaultValues` and `handleSubmit`. Committed for the Customer form modal in Phase 2.1 Task 4; same pattern for every form modal going forward.
+
+- **Optional-field edit semantics — empty form field means NULL, not "preserve old value."** Customer/Supplier/Employee input schemas use a `.nullish().transform((v) => (v === undefined || v === null || v === "" ? null : v))` pattern (with `.pipe(z.union([z.null(), z.string().email(...)]))` for email so format validation runs after the empty-string normalization). This emits `null` for cleared inputs. Prisma's `update.data` treats `undefined` as "skip this field" but `null` as "set column to NULL" — so emitting `null` makes clearing-via-edit-form actually clear the DB column, not silently retain the stale value. The previous `.transform(() => undefined)` pattern from the Phase 2.1 spec example had this bug. Output type for each optional field is `string | null`, never `string | undefined`. Discovered Phase 2.1 Task 3.
+
 ## Resolved (one audit cycle)
 
 Items completed but kept here for one audit cycle for traceability, then pruned.
@@ -62,6 +70,12 @@ Work intentionally not done, with revisit triggers.
 
 - **No account lockout / rate limiting on login.** Failed login attempts have no throttling — an attacker who knows the email could brute-force the password endlessly. Acceptable trade-off for an internal app behind a single login wall with a known small admin set. **Revisit if user count grows materially, if the app is ever exposed beyond the office network, or if we add public-facing surfaces.** Implementation options when needed: edge-rate-limiting via Vercel firewall, in-app cooldown table tracked in Postgres, or a `failedAttempts` + `lockedUntil` columns on `User`.
 
+- **Customer Excel import not built.** Manual entry only in Phase 2.1; no bulk-load mechanism. **Revisit as a Phase 2.x polish** if onboarding a long list of regulars (e.g., migrating from a paper ledger) becomes needed. Implementation when needed: ExcelJS-based reader on a `/customers/import` route, with a preview-and-confirm step + dedup detection (see below).
+
+- **Customer dedup detection not built.** No warning if a user creates two records with similar names (`"Rajeshbhai"` vs `"Rajesh Bhai"`, or with/without a trailing whitespace). Manual data-entry will produce dupes over time. **Revisit in Phase 3** when the Sale party-autocomplete makes the duplication user-visible (typing "Raj" surfaces both records and the user notices). Implementation when needed: levenshtein / unicode-NFKD-normalized name match + phone-prefix match, surfaced as "Did you mean…?" suggestions on the Add modal.
+
+- **No UI to restore soft-deleted customers.** `softDeleteCustomer` sets `deletedAt`; the page query filters `deletedAt: null`; deleted rows preserve history but are invisible from the app. To restore manually: `UPDATE customers SET "deletedAt" = NULL WHERE id = '…'` via Supabase MCP. **Build a `Settings → Deleted records` page if this becomes painful** — likely after Phase 6 when other entities have the same soft-delete pattern and consolidating into one admin view is worthwhile.
+
 ## Onboarding notes for future contributors
 
 Things that aren't gaps but trip up new sessions.
@@ -80,7 +94,13 @@ Things that aren't gaps but trip up new sessions.
 
 - **Status is derived, not stored.** Don't add a `status` column to `Sale` or `Purchase`. See `CLAUDE.md` §5 for the full rationale and the TypeScript string-literal union pattern.
 
-- **`prisma generate` does NOT run automatically after `migrate dev` in Prisma 7.** The Prisma 6 behavior of chaining generation onto migration was dropped. Run `npm run prisma:generate` after any schema change — this also writes the barrel `src/generated/prisma/index.ts` that makes `@/generated/prisma` resolve. Fresh clones get this automatically via the `postinstall` hook in `package.json`.
+- **Schema change workflow.** When adding or modifying a Prisma model:
+  1. Edit `prisma/schema.prisma`
+  2. `npx prisma migrate dev --name <description>` — applies the migration to the DB via `DIRECT_URL`
+  3. `npm run prisma:generate` — Prisma 7 doesn't auto-regenerate after `migrate dev`; this also writes the `src/generated/prisma/index.ts` barrel
+  4. **Restart the dev server** — `src/lib/prisma.ts` caches the `PrismaClient` instance in `globalThis.prisma` to prevent connection exhaustion under HMR. New models will be `undefined` on the running singleton until the process restarts (`prisma.customer` would throw `Cannot read properties of undefined (reading 'findMany')`). Discovered Phase 2.1 Task 7.
+
+  Fresh clones get steps 3 + 1-via-`migrate deploy` from the `postinstall` hook in `package.json` — but during active development, all four steps are manual.
 
 - **Postgres `anon` and `authenticated` roles have no privileges on the `public` schema.** New tables don't need RLS policies for security (the only roles that can access them are `postgres` / `service_role`, both of which `BYPASSRLS`). Adding RLS as defense-in-depth is fine. If you see "RLS disabled" advisories from Supabase, **the threat is mitigated by the grant revocation** — see decision lineage. Schema-level USAGE remains for the two roles (inherited from the `PUBLIC` role) but is harmless without table grants.
 
@@ -91,3 +111,15 @@ Things that aren't gaps but trip up new sessions.
 - **JWT sessions — no DB session table.** Auth.js is configured with `session: { strategy: 'jwt', maxAge: 30 days }`. Sessions are stateless JWE cookies signed/encrypted with `AUTH_SECRET`. There is no `sessions` table in the DB and no `@auth/prisma-adapter` involvement (despite the package being installed — it's available for a future switch but not wired up). To invalidate all sessions globally (e.g. after a security incident), **rotate `AUTH_SECRET` in `.env.local`**. Every existing cookie becomes undecryptable; everyone is forced to re-authenticate.
 
 - **Heading fonts cascade from `@layer base`, not from per-element classes.** All `h1`–`h6` elements automatically use Geist via `html, body { font-family: var(--font-sans); }` + `h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); }` in `src/app/globals.css`. **Don't add `font-display` to heading elements** — it's redundant and creates inconsistent patterns across pages. Only use `font-display` on **non-heading** elements that should look like headings (e.g. the dashboard card's stat number uses `font-display text-2xl font-semibold` on a `<p>` because `<p>` defaults to Inter).
+
+- **Tables with Prisma `@updatedAt` — direct-SQL `UPDATE`s via Supabase MCP must set `"updatedAt" = NOW()` explicitly.** Prisma's `@updatedAt` is application-managed (the Prisma client sets the column on every update call), NOT a DB trigger. All app code goes through Prisma and inherits this automatically — but ad-hoc `UPDATE` statements run through the Supabase MCP `execute_sql` tool (for debugging, manual restores, role flips, etc.) won't touch `updatedAt` unless you include it: `UPDATE users SET role = 'STAFF', "updatedAt" = NOW() WHERE id = '…'`. The column has a NOT NULL constraint, so omitting it on an `UPDATE` will be silent unless you've cleared it, in which case the statement fails.
+
+- **Per-entity folder convention.** Each CRUD entity (Customers built in Phase 2.1; Suppliers, Employees, Sales, Purchases follow) lives under `src/app/(app)/<entity>/` with this fixed layout:
+  - `page.tsx` — server component, queries the entity list, embeds the client table
+  - `schema.ts` — zod validation, **plain TS, no `'use server'` directive** (see decision lineage for why)
+  - `actions.ts` — `'use server'`, imports the schema, exports `create<Entity>` / `update<Entity>` / `softDelete<Entity>`
+  - `<entity>-table.tsx` — client component, TanStack Table v8, search + sort + zebra striping + Edit/Delete row actions
+  - `<entity>-form-modal.tsx` — client component, RHF + zodResolver with the triple-generic pattern; one component serves both add and edit (mode toggled by `customer` prop)
+  - `<entity>-detail-modal.tsx` — client component, read-only view with Edit/Delete footer (Delete shows inline confirmation, no second-modal layer)
+
+  Soft delete is mandatory: every entity that touches business data gets a nullable `deletedAt` column + an index on it. List queries filter `where: { deletedAt: null }`. Restore is via direct DB UPDATE (see deferred items).

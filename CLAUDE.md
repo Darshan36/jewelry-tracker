@@ -69,8 +69,13 @@ Full palette in `globals.css` includes Surfaces (10), Text (5), Borders (2), Pri
 
 All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatters render with Indian comma grouping (`₹1,23,456.00`). Dates are `timestamptz` in UTC; display converts to `Asia/Kolkata`.
 
-### Customer / Supplier
-`id, name, phone, address, notes, created_at`
+### Customer (built Phase 2.1) / Supplier (built Phase 2.2)
+`id, name, phone, email, address, notes, createdAt, updatedAt, deletedAt`
+
+- **Soft delete via `deletedAt`** (nullable). List queries filter `where: { deletedAt: null }`. Deleted rows preserve history; restoring is via direct DB UPDATE (no UI yet — see KNOWN_GAPS).
+- **No uniqueness on `email` or `phone`.** Real entry produces dupes (typos, alternate spellings); we surface them via party-autocomplete in Phase 3, not by hard-rejecting them at insert.
+- **Indexes:** `@@index([deletedAt])` for fast list filtering, `@@index([name])` for search.
+- **"Regulars only."** Master tables hold customers/suppliers you transact with repeatedly. Walk-in / one-time parties are handled directly on Sale and Purchase rows via the dual-path party model (existing customer FK OR free-text `partyName` + `partyPhone`). See KNOWN_GAPS.md decision lineage.
 
 ### Employee
 `id, name, phone, type (FIXED | LABOUR), monthly_salary (nullable), notes, created_at`
@@ -137,8 +142,9 @@ Karigar balance follows the same pattern — derived from `WorkEntry` (debits), 
 - **TypeScript strict mode.** No `any`. Use `unknown` for genuinely unknown shapes and narrow with zod.
 - **Server components by default.** Add `'use client'` only when a component needs interactivity, hooks, or browser APIs.
 - **All forms = react-hook-form + zod.** Define the schema in a `schema.ts` next to the route; bind with `zodResolver(schema)`.
-- **Currency = paise (integer) at every layer below the UI.** Display formatters live in `src/lib/format.ts` *[planned, Phase 2 — does not exist yet, do not import]*. Never multiply/divide currency in components.
-- **Dates: store UTC, display `Asia/Kolkata`.** Format helpers in the same `format.ts` *[planned, Phase 2]*.
+- **Per-entity scaffolding (Customers / Suppliers / Employees / Sales / Purchases):** use the folder structure documented in `KNOWN_GAPS.md` onboarding notes. Schemas live in `schema.ts` separate from `'use server'` files (Next.js compiles non-function exports from server-action files into client-reference stubs, which breaks Zod). Forms use the RHF triple-generic pattern `useForm<FormInput, unknown, FormOutput>` when the schema has transforms.
+- **Currency = paise (integer) at every layer below the UI.** Display formatters live in `src/lib/format.ts`. Never multiply/divide currency in components — call `formatCurrency(paise)` for display.
+- **Dates: store UTC, display `Asia/Kolkata`.** Format helpers in the same `src/lib/format.ts`: `formatDate(value)` for date-only display, `formatDateTime(value)` for date+time.
 - **File naming:** kebab-case for files, PascalCase for component exports. Schema files: `schema.ts`. Action files: `actions.ts`. Page: `page.tsx`. Layout: `layout.tsx`.
 - **API surface:** prefer **Server Actions** for mutations. Use route handlers (`/api/…`) only for webhooks, file downloads (Excel exports), and Auth.js callbacks.
 - **Session access:** server components fetch the session via `await auth()` imported from `@/lib/auth`. Client components use `useSession()` from `next-auth/react` **only when reactivity is needed** (e.g. UI that updates as the session changes); prefer passing user data down as props from server components.

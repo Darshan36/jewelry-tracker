@@ -33,7 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/sales", label: "Sales", icon: TrendingUp, enabled: false },
   { href: "/purchases", label: "Purchases", icon: TrendingDown, enabled: false },
   { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: false },
-  { href: "/customers", label: "Customers", icon: Users, enabled: false },
+  { href: "/customers", label: "Customers", icon: Users, enabled: true },
   { href: "/suppliers", label: "Suppliers", icon: Building2, enabled: false },
   { href: "/employees", label: "Employees", icon: UserCog, enabled: false },
   { href: "/reports", label: "Reports", icon: BarChart3, enabled: false },
