@@ -22,6 +22,7 @@ import {
   FormInput,
   FormLabel,
 } from "@/components/form-controls";
+import { normalizePhone } from "@/lib/phone";
 
 export type CustomerOption = {
   id: string;
@@ -49,14 +50,21 @@ export function PartyPicker({ customers, value, onChange, error }: Props) {
 
   const matches = useMemo(() => {
     if (value.customerId !== null) return [];
-    const q = value.partyName.trim().toLowerCase();
+    const q = value.partyName.trim();
     if (!q) return [];
+    const qLower = q.toLowerCase();
+    // Phone-prefix match (Phase 6) only fires when the query contains at
+    // least one digit — pure-alphabetic queries skip phone matching to
+    // avoid spurious hits when a stored phone happens to contain letters.
+    // The query and the candidate phone are both normalized so that
+    // "9876-543-210" stored matches "9876" typed.
+    const qPhone = /\d/.test(q) ? normalizePhone(q) : null;
     return customers
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          (c.phone ?? "").includes(q),
-      )
+      .filter((c) => {
+        if (c.name.toLowerCase().includes(qLower)) return true;
+        if (qPhone === null || c.phone === null) return false;
+        return (normalizePhone(c.phone) ?? "").startsWith(qPhone);
+      })
       .slice(0, MAX_MATCHES);
   }, [customers, value.partyName, value.customerId]);
 

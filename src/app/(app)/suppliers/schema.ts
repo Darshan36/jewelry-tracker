@@ -19,6 +19,8 @@
 
 import { z } from "zod";
 
+import { normalizePhone } from "@/lib/phone";
+
 export const supplierInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   phone: z
@@ -26,7 +28,7 @@ export const supplierInputSchema = z.object({
     .trim()
     .max(20)
     .nullish()
-    .transform((v) => (v === undefined || v === null || v === "" ? null : v)),
+    .transform((v) => normalizePhone(v)),
   email: z
     .string()
     .trim()

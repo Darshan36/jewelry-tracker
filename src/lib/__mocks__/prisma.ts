@@ -18,10 +18,29 @@ import {
   mockReset,
   type DeepMockProxy,
 } from "vitest-mock-extended";
-import { beforeEach } from "vitest";
+import { beforeEach, vi } from "vitest";
 
 export const prisma: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 
+// `$transaction(callback)` default: invoke the callback with the same deep
+// mock as the tx client and return its result. Phase 6 introduced `prisma.
+// $transaction(async (tx) => …)` around the sales / purchases action flow,
+// and tests that mock per-model methods need the callback path to actually
+// run so those mocks fire. Tests can still override per-test if they want
+// to assert tx-rollback behaviour.
+function defaultTransactionImpl(arg: unknown): unknown {
+  if (typeof arg === "function") {
+    return (arg as (tx: typeof prisma) => unknown)(prisma);
+  }
+  // Array form: `$transaction([promise1, promise2])` → Promise.all-ish.
+  if (Array.isArray(arg)) return Promise.all(arg);
+  return undefined;
+}
+
 beforeEach(() => {
   mockReset(prisma);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.mocked(prisma.$transaction as any).mockImplementation(
+    defaultTransactionImpl,
+  );
 });

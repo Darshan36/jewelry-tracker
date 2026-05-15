@@ -138,16 +138,20 @@ describe("createSale", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/sales");
   });
 
-  it("walk-in happy path — passes through partyName/partyPhone from form input", async () => {
+  it("walk-in happy path — passes through partyName, leaves phone null when not provided", async () => {
+    // Phase 6: walk-ins WITH a phone now trigger auto-promotion (see the
+    // Phase 6 RBAC block below). This test covers the pure walk-in case
+    // (no phone) which still stays as a snapshot-only row with customerId
+    // remaining null.
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
     await createSale(
-      validInput({ partyName: "Walkin Bob", partyPhone: "1234567890" }),
+      validInput({ partyName: "Walkin Bob", partyPhone: null }),
     );
 
     const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
     expect(call.data.partyName).toBe("Walkin Bob");
-    expect(call.data.partyPhone).toBe("1234567890");
+    expect(call.data.partyPhone).toBeNull();
     expect(call.data.customerId).toBeNull();
   });
 

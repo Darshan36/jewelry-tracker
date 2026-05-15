@@ -133,16 +133,20 @@ describe("createPurchase", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/purchases");
   });
 
-  it("walk-in happy path — passes through partyName/partyPhone from form input", async () => {
+  it("walk-in happy path — passes through partyName, leaves phone null when not provided", async () => {
+    // Phase 6: walk-ins WITH a phone now trigger auto-promotion (see the
+    // Phase 6 block below). This test covers the pure walk-in case (no
+    // phone) which still stays as a snapshot-only row with supplierId
+    // remaining null.
     vi.mocked(prisma.purchase.create).mockResolvedValue(makePurchase());
 
     await createPurchase(
-      validInput({ partyName: "Walkin Vendor Co", partyPhone: "1234567890" }),
+      validInput({ partyName: "Walkin Vendor Co", partyPhone: null }),
     );
 
     const call = vi.mocked(prisma.purchase.create).mock.calls[0][0];
     expect(call.data.partyName).toBe("Walkin Vendor Co");
-    expect(call.data.partyPhone).toBe("1234567890");
+    expect(call.data.partyPhone).toBeNull();
     expect(call.data.supplierId).toBeNull();
   });
 

@@ -9,6 +9,8 @@
 
 import { z } from "zod";
 
+import { normalizePhone } from "@/lib/phone";
+
 export const purchaseInputSchema = z.object({
   date: z.coerce.date({ message: "Date is required" }),
 
@@ -25,9 +27,7 @@ export const purchaseInputSchema = z.object({
     .trim()
     .max(20)
     .nullish()
-    .transform((v) =>
-      v === undefined || v === null || v === "" ? null : v,
-    ),
+    .transform((v) => normalizePhone(v)),
 
   itemDescription: z
     .string()
