@@ -202,4 +202,77 @@ describe("PartyPicker (Purchases)", () => {
       ).toBeInTheDocument();
     });
   });
+
+  // ===================================================================
+  // Phase 6 — phone-prefix matching (Supplier mirror of Sales).
+  // ===================================================================
+
+  describe("phone-prefix matching (Phase 6)", () => {
+    it("pure-digit query surfaces supplier whose phone starts with the digits", () => {
+      render(
+        <PartyPicker
+          suppliers={suppliers}
+          value={{ supplierId: null, partyName: "9111", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/supplier name or walk-in/i));
+      expect(screen.getByText("Acme Metals")).toBeInTheDocument();
+      expect(screen.queryByText("Bombay Tools")).not.toBeInTheDocument();
+    });
+
+    it("dashed stored phone still matches a digit prefix (normalisation on both sides)", () => {
+      render(
+        <PartyPicker
+          suppliers={[{ id: "s1", name: "Acme Metals", phone: "9111-111-111" }]}
+          value={{ supplierId: null, partyName: "9111", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/supplier name or walk-in/i));
+      expect(screen.getByText("Acme Metals")).toBeInTheDocument();
+    });
+
+    it("pure-letter query matches by name but skips phone matching", () => {
+      render(
+        <PartyPicker
+          suppliers={[{ id: "s1", name: "Acme Metals", phone: "1234567890" }]}
+          value={{ supplierId: null, partyName: "acme", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/supplier name or walk-in/i));
+      expect(screen.getByText("Acme Metals")).toBeInTheDocument();
+    });
+
+    it("mixed alphanumeric query — name match wins, phone-prefix only fires when digits present", () => {
+      render(
+        <PartyPicker
+          suppliers={[
+            { id: "s1", name: "Acme 99 Metals", phone: "1234567890" },
+            { id: "s2", name: "Beta", phone: "9876543210" },
+          ]}
+          value={{ supplierId: null, partyName: "99", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/supplier name or walk-in/i));
+      expect(screen.getByText("Acme 99 Metals")).toBeInTheDocument();
+      expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+    });
+
+    it("digit query that matches the prefix of one phone surfaces only that supplier", () => {
+      render(
+        <PartyPicker
+          suppliers={suppliers}
+          value={{ supplierId: null, partyName: "9333", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/supplier name or walk-in/i));
+      expect(screen.getByText("Crown Polish")).toBeInTheDocument();
+      expect(screen.queryByText("Acme Metals")).not.toBeInTheDocument();
+      expect(screen.queryByText("Bombay Tools")).not.toBeInTheDocument();
+    });
+  });
 });

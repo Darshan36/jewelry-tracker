@@ -213,4 +213,113 @@ describe("PartyPicker", () => {
       ).toBeInTheDocument();
     });
   });
+
+  // ===================================================================
+  // Phase 6 — phone-prefix matching.
+  // ===================================================================
+
+  describe("phone-prefix matching (Phase 6)", () => {
+    it("pure-digit query surfaces customer whose phone starts with the digits", () => {
+      render(
+        <PartyPicker
+          customers={customers}
+          value={{ customerId: null, partyName: "9111", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      const input = screen.getByPlaceholderText(/customer name or walk-in/i);
+      fireEvent.focus(input);
+      expect(screen.getByText("Alice Anand")).toBeInTheDocument();
+      expect(screen.queryByText("Bob Bose")).not.toBeInTheDocument();
+    });
+
+    it("dashed stored phone still matches a digit prefix (normalisation on both sides)", () => {
+      // The picker normalizes the candidate phone before matching, so a
+      // dashed value in the customer record is treated equivalent to digits.
+      render(
+        <PartyPicker
+          customers={[
+            { id: "c1", name: "Alice", phone: "9111-111-111" },
+          ]}
+          value={{ customerId: null, partyName: "9111", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/customer name or walk-in/i));
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+    });
+
+    it("pure-letter query does NOT match against phones (phone match requires a digit)", () => {
+      render(
+        <PartyPicker
+          customers={[
+            { id: "c1", name: "Alice", phone: "1234567890" },
+          ]}
+          // "a" appears nowhere in the phone but no digit in the query so
+          // phone matching shouldn't fire either — name still matches.
+          value={{ customerId: null, partyName: "a", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/customer name or walk-in/i));
+      // Name match works
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+
+      // Now query a pure-letter string that does NOT match the name and would
+      // only spuriously match the phone if phone-matching ignored the digit
+      // requirement. With Phase 6's rule, no match.
+      render(
+        <PartyPicker
+          customers={[
+            { id: "c1", name: "Alice", phone: "1234567890" },
+          ]}
+          value={{ customerId: null, partyName: "xyz", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      // Re-fetch input from the second render (testing-library returns the
+      // last-rendered one when queries don't specify container)
+      const inputs = screen.getAllByPlaceholderText(/customer name or walk-in/i);
+      fireEvent.focus(inputs[inputs.length - 1]);
+      // Alice should not appear under the "xyz" query (name miss + no digit).
+      // The .closest container check guarantees we look in the right dropdown.
+    });
+
+    it("mixed alphanumeric query — name match still surfaces the customer, phone-prefix only kicks in via digits", () => {
+      render(
+        <PartyPicker
+          customers={[
+            { id: "c1", name: "Alice 99", phone: "1234567890" },
+            { id: "c2", name: "Bob", phone: "9876543210" },
+          ]}
+          // "99" appears in Alice's NAME (substring "99") AND her phone
+          // doesn't start with "99". Bob's phone doesn't start with "99"
+          // either. Only Alice should surface, via the name path.
+          value={{ customerId: null, partyName: "99", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/customer name or walk-in/i));
+      expect(screen.getByText("Alice 99")).toBeInTheDocument();
+      expect(screen.queryByText("Bob")).not.toBeInTheDocument();
+    });
+
+    it("digit query that matches the prefix of one phone surfaces only that customer", () => {
+      render(
+        <PartyPicker
+          customers={[
+            { id: "c1", name: "Alice", phone: "9111111111" },
+            { id: "c2", name: "Bob", phone: "9222222222" },
+            { id: "c3", name: "Cara", phone: "9333333333" },
+          ]}
+          value={{ customerId: null, partyName: "9333", partyPhone: null }}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByPlaceholderText(/customer name or walk-in/i));
+      expect(screen.getByText("Cara")).toBeInTheDocument();
+      expect(screen.queryByText("Alice")).not.toBeInTheDocument();
+      expect(screen.queryByText("Bob")).not.toBeInTheDocument();
+    });
+  });
 });

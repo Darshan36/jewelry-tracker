@@ -99,20 +99,34 @@ async function step(page, name, fn) {
 
 async function fillSaleForm(page, { partyName, partyPhone, item, qty, rate }) {
   await page.fill("#party-name-input", partyName);
-  // Let the picker dropdown settle.
   await page.waitForTimeout(400);
-  // Always click "Use as walk-in: …" so we explicitly stay in walk-in mode
-  // (otherwise the dropdown might auto-link to a match we surfaced).
   const walkin = page.locator(
     '[role="dialog"] button:has-text("Use as walk-in:")',
   );
   if (await walkin.count()) {
     await walkin.first().click();
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(250);
   }
   if (partyPhone !== null) {
-    await page.fill("#party-phone-input", partyPhone);
+    // Focus + clear + retype the phone so the input event fires definitively.
+    const phoneInput = page.locator("#party-phone-input");
+    await phoneInput.click();
+    await phoneInput.fill("");
+    await phoneInput.fill(partyPhone);
+    await phoneInput.blur();
   }
+  // Diagnostic: read back the live form-state values from the rendered inputs.
+  const state = await page.evaluate(() => {
+    const nameInput = document.querySelector("#party-name-input");
+    const phoneInput = document.querySelector("#party-phone-input");
+    return {
+      partyName: nameInput?.value ?? null,
+      partyPhone: phoneInput?.value ?? null,
+    };
+  });
+  console.log(
+    `    [diag] form party state: name="${state.partyName}" phone="${state.partyPhone}"`,
+  );
   await page.fill("#sale-item", item);
   await page.fill("#sale-qty", String(qty));
   await page.fill("#sale-rate", String(rate));
@@ -126,10 +140,14 @@ async function fillPurchaseForm(page, { partyName, partyPhone, item, qty, rate }
   );
   if (await walkin.count()) {
     await walkin.first().click();
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(250);
   }
   if (partyPhone !== null) {
-    await page.fill("#party-phone-input", partyPhone);
+    const phoneInput = page.locator("#party-phone-input");
+    await phoneInput.click();
+    await phoneInput.fill("");
+    await phoneInput.fill(partyPhone);
+    await phoneInput.blur();
   }
   await page.fill("#purchase-item", item);
   await page.fill("#purchase-qty", String(qty));
@@ -201,7 +219,7 @@ async function cleanup() {
 
     // Sign in.
     console.log("\n=== Sign in ===");
-    await page.goto(`${BASE}/auth/login`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}/auth/login`, { waitUntil: "networkidle" });
     await page.fill('input[type="email"]', EMAIL);
     await page.fill('input[type="password"]', PASSWORD);
     await Promise.all([
@@ -217,7 +235,7 @@ async function cleanup() {
       page,
       "1. SALE walk-in + new phone auto-creates customer",
       async () => {
-        await page.goto(`${BASE}/sales`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/sales`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add sale")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -230,6 +248,7 @@ async function cleanup() {
         });
         await page.click('[role="dialog"] button[type="submit"]');
         await dialog.waitFor({ state: "hidden", timeout: 10000 });
+        await page.reload({ waitUntil: "networkidle" });
         // Verify table row shows linked-customer chip for the row we created.
         const row = page.locator(`tr:has-text("${ITEM}_A")`).first();
         await row.waitFor({ timeout: 10000 });
@@ -245,7 +264,7 @@ async function cleanup() {
         await page.keyboard.press("Escape");
         await dialog.waitFor({ state: "hidden" });
         // Verify customer landed in /customers.
-        await page.goto(`${BASE}/customers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/customers`, { waitUntil: "networkidle" });
         const customerRow = page.locator(`tr:has-text("${NAME_FIRST}")`);
         await customerRow.first().waitFor({ timeout: 10000 });
         const count = await customerRow.count();
@@ -262,7 +281,7 @@ async function cleanup() {
       page,
       "2. SALE walk-in + SAME phone links to existing, party=canonical",
       async () => {
-        await page.goto(`${BASE}/sales`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/sales`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add sale")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -297,7 +316,7 @@ async function cleanup() {
 
         // /customers should still have exactly ONE row for NAME_FIRST and
         // ZERO rows for NAME_SECOND (since the second sale linked, not created).
-        await page.goto(`${BASE}/customers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/customers`, { waitUntil: "networkidle" });
         const firstRows = await page
           .locator(`tr:has-text("${NAME_FIRST}")`)
           .count();
@@ -322,7 +341,7 @@ async function cleanup() {
       page,
       "3. SALE picker phone-prefix surfaces existing customer",
       async () => {
-        await page.goto(`${BASE}/sales`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/sales`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add sale")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -367,10 +386,10 @@ async function cleanup() {
       "5. SALE name-only walk-in, no phone, no customer created",
       async () => {
         // Snapshot customer count before.
-        await page.goto(`${BASE}/customers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/customers`, { waitUntil: "networkidle" });
         const before = await page.locator("tbody tr").count();
 
-        await page.goto(`${BASE}/sales`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/sales`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add sale")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -388,7 +407,7 @@ async function cleanup() {
         await row.waitFor({ timeout: 10000 });
 
         // No new customer.
-        await page.goto(`${BASE}/customers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/customers`, { waitUntil: "networkidle" });
         const after = await page.locator("tbody tr").count();
         if (after !== before) {
           throw new Error(
@@ -411,7 +430,7 @@ async function cleanup() {
       page,
       "6a. PURCHASE walk-in + new phone auto-creates supplier",
       async () => {
-        await page.goto(`${BASE}/purchases`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/purchases`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add purchase")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -425,7 +444,7 @@ async function cleanup() {
         await page.click('[role="dialog"] button[type="submit"]');
         await dialog.waitFor({ state: "hidden", timeout: 10000 });
         await page.locator(`tr:has-text("${ITEM}_P_A")`).first().waitFor({ timeout: 10000 });
-        await page.goto(`${BASE}/suppliers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/suppliers`, { waitUntil: "networkidle" });
         const supplierRow = page.locator(`tr:has-text("${NAME_SUPPLIER_FIRST}")`);
         await supplierRow.first().waitFor({ timeout: 10000 });
       },
@@ -435,7 +454,7 @@ async function cleanup() {
       page,
       "6b. PURCHASE walk-in + SAME phone links to existing, party=canonical",
       async () => {
-        await page.goto(`${BASE}/purchases`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/purchases`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add purchase")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -467,7 +486,7 @@ async function cleanup() {
         await page.keyboard.press("Escape");
         await dialog.waitFor({ state: "hidden" });
 
-        await page.goto(`${BASE}/suppliers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/suppliers`, { waitUntil: "networkidle" });
         const firstRows = await page
           .locator(`tr:has-text("${NAME_SUPPLIER_FIRST}")`)
           .count();
@@ -491,7 +510,7 @@ async function cleanup() {
       page,
       "6c. PURCHASE picker phone-prefix surfaces existing supplier",
       async () => {
-        await page.goto(`${BASE}/purchases`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/purchases`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add purchase")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -524,10 +543,10 @@ async function cleanup() {
       page,
       "6d. PURCHASE name-only walk-in, no phone, no supplier created",
       async () => {
-        await page.goto(`${BASE}/suppliers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/suppliers`, { waitUntil: "networkidle" });
         const before = await page.locator("tbody tr").count();
 
-        await page.goto(`${BASE}/purchases`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/purchases`, { waitUntil: "networkidle" });
         await page.click('button:has-text("Add purchase")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
@@ -542,7 +561,7 @@ async function cleanup() {
         await dialog.waitFor({ state: "hidden", timeout: 10000 });
         await page.locator(`tr:has-text("${ITEM}_P_C")`).first().waitFor({ timeout: 10000 });
 
-        await page.goto(`${BASE}/suppliers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/suppliers`, { waitUntil: "networkidle" });
         const after = await page.locator("tbody tr").count();
         if (after !== before) {
           throw new Error(
@@ -558,7 +577,7 @@ async function cleanup() {
       "8. SNAPSHOT — rename customer, opened sale still shows old name",
       async () => {
         // Edit the auto-created customer's name.
-        await page.goto(`${BASE}/customers`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/customers`, { waitUntil: "networkidle" });
         const row = page.locator(`tr:has-text("${NAME_FIRST}")`).first();
         await row.waitFor({ timeout: 10000 });
         // Click the row's edit affordance. The customers table has Edit/Delete buttons.
@@ -585,7 +604,7 @@ async function cleanup() {
         await page.waitForTimeout(500);
 
         // Open the first sale and confirm the modal still shows the OLD name.
-        await page.goto(`${BASE}/sales`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${BASE}/sales`, { waitUntil: "networkidle" });
         const saleRow = page.locator(`tr:has-text("${ITEM}_A")`).first();
         await saleRow.waitFor({ timeout: 10000 });
         await saleRow.click();

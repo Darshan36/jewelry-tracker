@@ -454,6 +454,36 @@ output still "kind of works" because the inverted label happens to be
 true in both directions). Phase 4 (Sales→Purchases) used this
 extensively in `purchases/payment-panel.test.tsx`.
 
+**The dual-assertion pattern applies to non-UI assertions too.** When
+verifying that a server action snapshots the **canonical** value
+rather than the typed input (Phase 6 walk-in auto-promotion is the
+canonical example — the action should override the typed `partyName`
+with the linked customer's `name`), assert BOTH that the canonical
+value IS used AND that the typed input is NOT. The negative check
+catches the failure mode where the action accidentally short-circuits
+and uses the typed string.
+
+```typescript
+// Walk-in with a phone that matches an existing Customer ("Real Customer")
+await createSale(validInput({
+  customerId: null,
+  partyName: "TYPED — should be overridden",
+  partyPhone: "9876500001",
+}));
+
+const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
+// Positive: canonical name from the matched Customer row
+expect(call.data.partyName).toBe("Real Customer");
+// Negative: the typed string did NOT leak through
+expect(call.data.partyName).not.toBe("TYPED — should be overridden");
+```
+
+Same rationale as the UI inversion pattern: a positive-only assertion
+would still pass against a buggy action that *also* writes the typed
+string somewhere it shouldn't (or that returns the wrong field as
+canonical). Phase 6 (`sales/actions.test.ts`, `purchases/actions.test.ts`)
+uses this for the typed-vs-canonical snapshot assertion.
+
 ### Triggering React synthetic events in jsdom
 
 **Programmatic `element.focus()` does NOT trigger React's synthetic

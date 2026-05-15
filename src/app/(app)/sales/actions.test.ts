@@ -446,3 +446,145 @@ describe.each(SALE_ROLE_MATRIX)("softDeleteSale role access — %s", (role, allo
     }
   });
 });
+
+// =====================================================================
+// Phase 6 — walk-in auto-promotion.
+// When customerId is null AND partyPhone is non-null, the action does a
+// lookup-by-phone and either links to an existing customer or auto-creates
+// a new one. Walk-ins WITHOUT a phone stay snapshot-only.
+// =====================================================================
+
+describe("createSale auto-promotion (Phase 6)", () => {
+  it("walk-in + new phone → auto-creates customer and links the sale", async () => {
+    // No existing customer matches the phone.
+    vi.mocked(prisma.customer.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.customer.create).mockResolvedValue(
+      makeCustomer({
+        id: "auto-cust-1",
+        name: "New Walkin",
+        phone: "9876500001",
+      }),
+    );
+    vi.mocked(prisma.sale.create).mockResolvedValue(
+      makeSale({ customerId: "auto-cust-1", partyName: "New Walkin", partyPhone: "9876500001" }),
+    );
+
+    const result = await createSale(
+      validInput({ partyName: "New Walkin", partyPhone: "9876500001" }),
+    );
+
+    expect(result.ok).toBe(true);
+    // Lookup ran with normalised phone + deletedAt guard.
+    expect(prisma.customer.findFirst).toHaveBeenCalledWith({
+      where: { phone: "9876500001", deletedAt: null },
+    });
+    // Customer create ran with the typed name + normalised phone.
+    expect(prisma.customer.create).toHaveBeenCalledWith({
+      data: {
+        name: "New Walkin",
+        phone: "9876500001",
+        email: null,
+        address: null,
+        notes: null,
+      },
+    });
+    // Sale row links to the auto-created customer; partyName/Phone snapshot
+    // canonicalised from the freshly-created row.
+    const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
+    expect(saleCall.data.customerId).toBe("auto-cust-1");
+    expect(saleCall.data.partyName).toBe("New Walkin");
+    expect(saleCall.data.partyPhone).toBe("9876500001");
+  });
+
+  it("walk-in + existing phone → links to existing customer, no new customer created", async () => {
+    vi.mocked(prisma.customer.findFirst).mockResolvedValue(
+      makeCustomer({
+        id: "existing-cust",
+        name: "Canonical Name",
+        phone: "9876500001",
+      }),
+    );
+    vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+
+    const result = await createSale(
+      validInput({ partyName: "Whatever Typed", partyPhone: "9876500001" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.customer.findFirst).toHaveBeenCalledOnce();
+    // No new customer.
+    expect(prisma.customer.create).not.toHaveBeenCalled();
+    // Sale row links and uses CANONICAL name, ignoring the typed value.
+    const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
+    expect(saleCall.data.customerId).toBe("existing-cust");
+    expect(saleCall.data.partyName).toBe("Canonical Name");
+    expect(saleCall.data.partyPhone).toBe("9876500001");
+  });
+
+  it("walk-in + existing phone, typed name differs → canonical name wins", async () => {
+    // Explicit name-override scenario, the core of step-2 walkthrough check.
+    vi.mocked(prisma.customer.findFirst).mockResolvedValue(
+      makeCustomer({ id: "c", name: "Real Customer", phone: "9876500001" }),
+    );
+    vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+
+    await createSale(
+      validInput({
+        customerId: null,
+        partyName: "TYPED — should be overridden",
+        partyPhone: "9876500001",
+      }),
+    );
+
+    const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
+    expect(saleCall.data.partyName).toBe("Real Customer");
+    expect(saleCall.data.partyName).not.toBe("TYPED — should be overridden");
+  });
+
+  it("walk-in + null phone → stays snapshot-only, no customer touched", async () => {
+    vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+
+    const result = await createSale(
+      validInput({ partyName: "No Phone Walkin", partyPhone: null }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.customer.findFirst).not.toHaveBeenCalled();
+    expect(prisma.customer.create).not.toHaveBeenCalled();
+    const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
+    expect(saleCall.data.customerId).toBeNull();
+    expect(saleCall.data.partyName).toBe("No Phone Walkin");
+    expect(saleCall.data.partyPhone).toBeNull();
+  });
+
+  it("normalised phone — dashes/spaces in the input still match a clean stored phone", async () => {
+    // Schema normalises partyPhone before the action sees it — so by the
+    // time findFirst runs, the lookup is by clean digits. This test confirms
+    // the schema+action pipeline together: typed "9876-500-001" lands as
+    // "9876500001" in the lookup.
+    vi.mocked(prisma.customer.findFirst).mockResolvedValue(
+      makeCustomer({ id: "c", name: "Existing", phone: "9876500001" }),
+    );
+    vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+
+    await createSale(
+      validInput({ partyName: "Whatever", partyPhone: "9876-500-001" }),
+    );
+
+    expect(prisma.customer.findFirst).toHaveBeenCalledWith({
+      where: { phone: "9876500001", deletedAt: null },
+    });
+  });
+
+  it("transaction atomicity — if customer.create throws, sale.create is never called", async () => {
+    vi.mocked(prisma.customer.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.customer.create).mockRejectedValueOnce(
+      new Error("DB constraint violation"),
+    );
+
+    await expect(
+      createSale(validInput({ partyName: "X", partyPhone: "9876500001" })),
+    ).rejects.toThrow();
+    expect(prisma.sale.create).not.toHaveBeenCalled();
+  });
+});

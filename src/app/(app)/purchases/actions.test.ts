@@ -436,3 +436,134 @@ describe.each(PURCHASE_ROLE_MATRIX)("softDeletePurchase role access — %s", (ro
     }
   });
 });
+
+// =====================================================================
+// Phase 6 — walk-in auto-promotion (Supplier mirror of Sales).
+// =====================================================================
+
+describe("createPurchase auto-promotion (Phase 6)", () => {
+  it("walk-in + new phone → auto-creates supplier and links the purchase", async () => {
+    vi.mocked(prisma.supplier.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.supplier.create).mockResolvedValue(
+      makeSupplier({
+        id: "auto-supp-1",
+        name: "New Supplier",
+        phone: "9876500001",
+      }),
+    );
+    vi.mocked(prisma.purchase.create).mockResolvedValue(
+      makePurchase({
+        supplierId: "auto-supp-1",
+        partyName: "New Supplier",
+        partyPhone: "9876500001",
+      }),
+    );
+
+    const result = await createPurchase(
+      validInput({ partyName: "New Supplier", partyPhone: "9876500001" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+      where: { phone: "9876500001", deletedAt: null },
+    });
+    expect(prisma.supplier.create).toHaveBeenCalledWith({
+      data: {
+        name: "New Supplier",
+        phone: "9876500001",
+        email: null,
+        address: null,
+        notes: null,
+      },
+    });
+    const call = vi.mocked(prisma.purchase.create).mock.calls[0][0];
+    expect(call.data.supplierId).toBe("auto-supp-1");
+    expect(call.data.partyName).toBe("New Supplier");
+    expect(call.data.partyPhone).toBe("9876500001");
+  });
+
+  it("walk-in + existing phone → links to existing supplier, no new supplier created", async () => {
+    vi.mocked(prisma.supplier.findFirst).mockResolvedValue(
+      makeSupplier({
+        id: "existing-supp",
+        name: "Canonical Vendor",
+        phone: "9876500001",
+      }),
+    );
+    vi.mocked(prisma.purchase.create).mockResolvedValue(makePurchase());
+
+    const result = await createPurchase(
+      validInput({ partyName: "Whatever Typed", partyPhone: "9876500001" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.supplier.findFirst).toHaveBeenCalledOnce();
+    expect(prisma.supplier.create).not.toHaveBeenCalled();
+    const call = vi.mocked(prisma.purchase.create).mock.calls[0][0];
+    expect(call.data.supplierId).toBe("existing-supp");
+    expect(call.data.partyName).toBe("Canonical Vendor");
+    expect(call.data.partyPhone).toBe("9876500001");
+  });
+
+  it("walk-in + existing phone, typed name differs → canonical name wins", async () => {
+    vi.mocked(prisma.supplier.findFirst).mockResolvedValue(
+      makeSupplier({ id: "s", name: "Real Vendor", phone: "9876500001" }),
+    );
+    vi.mocked(prisma.purchase.create).mockResolvedValue(makePurchase());
+
+    await createPurchase(
+      validInput({
+        supplierId: null,
+        partyName: "TYPED — should be overridden",
+        partyPhone: "9876500001",
+      }),
+    );
+
+    const call = vi.mocked(prisma.purchase.create).mock.calls[0][0];
+    expect(call.data.partyName).toBe("Real Vendor");
+    expect(call.data.partyName).not.toBe("TYPED — should be overridden");
+  });
+
+  it("walk-in + null phone → stays snapshot-only, no supplier touched", async () => {
+    vi.mocked(prisma.purchase.create).mockResolvedValue(makePurchase());
+
+    const result = await createPurchase(
+      validInput({ partyName: "No Phone Vendor", partyPhone: null }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(prisma.supplier.findFirst).not.toHaveBeenCalled();
+    expect(prisma.supplier.create).not.toHaveBeenCalled();
+    const call = vi.mocked(prisma.purchase.create).mock.calls[0][0];
+    expect(call.data.supplierId).toBeNull();
+    expect(call.data.partyName).toBe("No Phone Vendor");
+    expect(call.data.partyPhone).toBeNull();
+  });
+
+  it("normalised phone — dashes/spaces in the input still match a clean stored phone", async () => {
+    vi.mocked(prisma.supplier.findFirst).mockResolvedValue(
+      makeSupplier({ id: "s", name: "Existing", phone: "9876500001" }),
+    );
+    vi.mocked(prisma.purchase.create).mockResolvedValue(makePurchase());
+
+    await createPurchase(
+      validInput({ partyName: "Whatever", partyPhone: "9876-500-001" }),
+    );
+
+    expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+      where: { phone: "9876500001", deletedAt: null },
+    });
+  });
+
+  it("transaction atomicity — if supplier.create throws, purchase.create is never called", async () => {
+    vi.mocked(prisma.supplier.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.supplier.create).mockRejectedValueOnce(
+      new Error("DB constraint violation"),
+    );
+
+    await expect(
+      createPurchase(validInput({ partyName: "X", partyPhone: "9876500001" })),
+    ).rejects.toThrow();
+    expect(prisma.purchase.create).not.toHaveBeenCalled();
+  });
+});
