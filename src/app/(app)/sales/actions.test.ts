@@ -375,3 +375,70 @@ describe("softDeleteSale", () => {
     expect(prisma.sale.update).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Phase 5 RBAC — parameterised role matrix.
+// Sales are ADMIN-only. 3 actions × 4 roles = 12 tests.
+// =====================================================================
+
+const SALE_ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", false],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+function sessionFor(role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT") {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(SALE_ROLE_MATRIX)("createSale role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+      const r = await createSale(validInput());
+      expect(r.ok).toBe(true);
+      expect(prisma.sale.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createSale(validInput())).rejects.toThrow("Forbidden");
+      expect(prisma.sale.create).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(SALE_ROLE_MATRIX)("updateSale role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.sale.update).mockResolvedValue(makeSale());
+      const r = await updateSale("sale-abc", validInput());
+      expect(r.ok).toBe(true);
+      expect(prisma.sale.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(updateSale("sale-abc", validInput())).rejects.toThrow("Forbidden");
+      expect(prisma.sale.update).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(SALE_ROLE_MATRIX)("softDeleteSale role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.sale.update).mockResolvedValue(makeSale({ deletedAt: new Date() }));
+      const r = await softDeleteSale("sale-abc");
+      expect(r.ok).toBe(true);
+      expect(prisma.sale.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(softDeleteSale("sale-abc")).rejects.toThrow("Forbidden");
+      expect(prisma.sale.update).not.toHaveBeenCalled();
+    }
+  });
+});

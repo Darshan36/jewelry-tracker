@@ -435,3 +435,59 @@ describe("softDeleteSalePayment", () => {
     expect(prisma.salePayment.update).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Phase 5 RBAC — parameterised role matrix.
+// SalePayment actions are ADMIN-only. 2 actions × 4 roles = 8 tests.
+// =====================================================================
+
+const SALE_PAYMENT_ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", false],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+function sessionFor(role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT") {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(SALE_PAYMENT_ROLE_MATRIX)("createSalePayment role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.sale.findUnique).mockResolvedValue(makeSaleRow());
+      vi.mocked(prisma.salePayment.create).mockResolvedValue(
+        makePaymentRow({ amount: 50000n }),
+      );
+      const r = await createSalePayment(validInput({ amount: 500 }));
+      expect(r.ok).toBe(true);
+      expect(prisma.salePayment.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createSalePayment(validInput())).rejects.toThrow("Forbidden");
+      expect(prisma.salePayment.create).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(SALE_PAYMENT_ROLE_MATRIX)("softDeleteSalePayment role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.salePayment.update).mockResolvedValue(
+        makePaymentRow({ deletedAt: new Date() }),
+      );
+      const r = await softDeleteSalePayment("cuid-pmt-1");
+      expect(r.ok).toBe(true);
+      expect(prisma.salePayment.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(softDeleteSalePayment("cuid-pmt-1")).rejects.toThrow("Forbidden");
+      expect(prisma.salePayment.update).not.toHaveBeenCalled();
+    }
+  });
+});

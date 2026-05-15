@@ -17,7 +17,8 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 - **Styling:** Tailwind CSS v4 + shadcn/ui (Radix-based, preset `radix-nova` — visual tokens fully overridden in `globals.css`)
 - **Database:** Supabase Postgres (Mumbai, `ap-south-1`)
 - **ORM:** Prisma 7 — singleton at `src/lib/prisma.ts` (`import { prisma } from '@/lib/prisma'`). Connects via `@prisma/adapter-pg` using `DATABASE_URL` (transaction pooler + `?pgbouncer=true&connection_limit=1`). Migrations / CLI use `DIRECT_URL` via `prisma.config.ts` (NOT `schema.prisma` — Prisma 7 moved connection URLs out of the schema). Client is generated into `src/generated/prisma/` (gitignored); regenerate with `npm run prisma:generate` after schema changes.
-- **Auth:** Auth.js v5 beta with Credentials provider, **JWT strategy** (no session table — sessions are stateless JWE cookies, 30-day expiry), **bcrypt** password hashing (cost 12), `Role` enum (`ADMIN | STAFF`) in Prisma schema. Auth.js entry point: `src/lib/auth.ts` exporting `{ auth, handlers, signIn, signOut }`. Route protection lives in `src/proxy.ts` (Next.js 16 — see KNOWN_GAPS.md, was previously called `middleware.ts`).
+- **Auth:** Auth.js v5 beta with Credentials provider, **JWT strategy** (no session table — sessions are stateless JWE cookies, 30-day expiry), **bcrypt** password hashing (cost 12), `Role` enum (`ADMIN | PURCHASE_DEPT | LABOUR_MGMT | CASTING_PLATING_MGMT`) in Prisma schema. Auth.js entry point: `src/lib/auth.ts` exporting `{ auth, handlers, signIn, signOut }`. Route protection lives in `src/proxy.ts` (Next.js 16 — see KNOWN_GAPS.md, was previously called `middleware.ts`).
+- **RBAC:** Role-based access control via `requireRole(allowedRoles[])` at every server action + per-route gating in `src/proxy.ts` + per-role sidebar filtering in `src/app/(app)/sidebar.tsx`. Four roles: `ADMIN | PURCHASE_DEPT | LABOUR_MGMT | CASTING_PLATING_MGMT`. See KNOWN_GAPS decision lineage for boundary rationale.
 - **Tables/grids:** TanStack Table v8
 - **Charts:** Recharts
 - **Excel:** ExcelJS for both export and import
@@ -69,6 +70,14 @@ Full palette in `globals.css` includes Surfaces (10), Text (5), Borders (2), Pri
 ## 4. Data Model
 
 All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatters render with Indian comma grouping (`₹1,23,456.00`). Dates are `timestamptz` in UTC; display converts to `Asia/Kolkata`.
+
+### User (built Phase 1, extended Phase 5)
+`id, email (unique), passwordHash, name, role (Role enum: ADMIN | PURCHASE_DEPT | LABOUR_MGMT | CASTING_PLATING_MGMT), createdAt, updatedAt`
+
+- **`role` is required on insert (no default).** STAFF was the historical default and has been removed; every new user must explicitly choose a role. Direct DB inserts to `users` must specify `role`.
+- **No soft delete.** The User table is small (handful of rows) and tightly coupled to who can sign in; if a user leaves, the row is deleted outright rather than tombstoned.
+- **`passwordHash`** is bcrypt cost 12, generated via `bcryptjs`. Plain passwords never touch the DB.
+- **No `email` uniqueness on case folding.** Auth.js's `authorize()` lowercases the input via the zod schema (`z.string().email().toLowerCase().trim()`), so the case-sensitive UNIQUE on `email` is effectively case-insensitive in practice. Don't store mixed-case emails.
 
 ### Customer (built Phase 2.1) / Supplier (built Phase 2.2)
 `id, name, phone, email, address, notes, createdAt, updatedAt, deletedAt`
@@ -211,6 +220,7 @@ Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − s
 - **File naming:** kebab-case for files, PascalCase for component exports. Schema files: `schema.ts`. Action files: `actions.ts`. Page: `page.tsx`. Layout: `layout.tsx`.
 - **API surface:** prefer **Server Actions** for mutations. Use route handlers (`/api/…`) only for webhooks, file downloads (Excel exports), and Auth.js callbacks.
 - **Session access:** server components fetch the session via `await auth()` imported from `@/lib/auth`. Client components use `useSession()` from `next-auth/react` **only when reactivity is needed** (e.g. UI that updates as the session changes); prefer passing user data down as props from server components.
+- **Role gates on every server action.** Every server action calls `await requireRole([...allowedRoles])` as its first await. The list is per-action and declares which roles can invoke it — reading the action's first line tells you the access matrix at a glance. `requireRole` throws `Unauthorized` (no session) or `Forbidden` (wrong role); both halt the action before any DB work. The older `requireSession()` helper still exists in `src/lib/auth-guards.ts` for cases where any authenticated user is sufficient (currently none — Phase 5 migrated every action).
 - **Path alias:** `@/*` → `src/*`. No relative `../../` imports across feature boundaries.
 
 ## 7. Phase Plan
@@ -243,6 +253,7 @@ Hosted on Vercel; production fed from `main`. Operational reference lives in `do
 - **Auth gate:** Auth.js JWT cookie sessions only. Vercel's project-level SSO Deployment Protection is disabled (the app does its own auth). Re-enable only if you also wire up a way for staff to bypass it.
 - **Prisma client construction is lazy.** `src/lib/prisma.ts` uses a Proxy so `DATABASE_URL` is only read on first query, not at module load. This is required so Next.js 16's build-time page-data collection can import route modules without crashing when env-resolution timing differs from runtime. Do NOT revert to eager construction.
 - **The `authorize()` callback in `src/lib/auth.ts` console.errors any thrown exception** before rethrowing. Auth.js v5 otherwise hides the underlying cause as a generic `Configuration` error. Keep this wrapper — it's the only diagnostic path for prod auth failures until proper observability is wired in.
+- **Direct user inserts to the production `users` table must specify `role` explicitly** (no DB default since Phase 5). Production currently has 4 users: 1 ADMIN (the owner) + 3 test accounts (one per non-admin role — see [`HANDOFF.md` § Test accounts](./docs/HANDOFF.md)). Test account passwords are in admin's password manager. Until the user-management UI ships, new users go in via Supabase MCP or `pg` + `.env.production.local` with bcrypt-hashed passwords.
 
 ---
 

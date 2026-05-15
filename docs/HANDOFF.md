@@ -127,7 +127,7 @@ A change to env vars does NOT automatically redeploy. After editing, trigger a r
 
 ## 7. First-time login
 
-The single seeded admin account is:
+The seeded admin account is:
 
 - **Email:** `c.darshan.somaiya369@gmail.com`
 - **Password:** stored in `.env.production.local` as `SEED_ADMIN_PASSWORD` (gitignored)
@@ -135,12 +135,30 @@ The single seeded admin account is:
 
 After first login, change the password via direct DB update (no UI for self-service yet — see KNOWN_GAPS).
 
-Additional users (staff, second admin) can be created by:
+Additional users can be created by:
 
-1. Direct insert against the prod DB via Prisma client or raw SQL (`INSERT INTO users (id, email, "passwordHash", role, name, "createdAt", "updatedAt") VALUES ('cuid()', 'staff@example.com', '<bcrypt-hash>', 'STAFF', 'Staff Name', NOW(), NOW())`). bcrypt cost 12.
-2. Or by setting different `SEED_ADMIN_*` env vars locally and re-running `npx prisma db seed` against `DIRECT_URL` (idempotent — won't duplicate if email matches).
+1. Direct insert against the prod DB via raw SQL with an explicit role from `ADMIN | PURCHASE_DEPT | LABOUR_MGMT | CASTING_PLATING_MGMT`. `role` is required (no default since Phase 5). Example:
+   ```sql
+   INSERT INTO users (id, email, "passwordHash", role, name, "createdAt", "updatedAt")
+   VALUES ('cuid()', 'newuser@example.com', '<bcrypt-cost-12-hash>', 'PURCHASE_DEPT', 'New User', NOW(), NOW());
+   ```
+2. Or by setting different `SEED_ADMIN_*` env vars locally and re-running `npx prisma db seed` against `DIRECT_URL` (idempotent — won't duplicate if email matches; the seed creates an `ADMIN`).
 
-## 8. Backups
+## 8. Test accounts (production)
+
+Three non-admin test users exist on production for RBAC verification:
+
+- `test-purchase@shreecreation.test` — `PURCHASE_DEPT` role
+- `test-labour@shreecreation.test` — `LABOUR_MGMT` role
+- `test-casting@shreecreation.test` — `CASTING_PLATING_MGMT` role
+
+**Passwords are in admin's password manager.** They are NOT stored on disk anywhere in the repo or the local working tree — the original generation file (`credentials.md`) was gitignored and is intended to be deleted after the passwords land in the password manager.
+
+**Purpose:** verify role-gated access after any RBAC-related schema or guard changes. Sign in as each role, confirm sidebar contents and route allow/redirect behaviour against the access matrix in CLAUDE.md §2. The automated walkthrough script `scripts/walkthrough-rbac.mjs` exercises all four roles in ~30 seconds and produces a 36-point PASS/FAIL report against production.
+
+**Do not delete.** Recreating them requires direct DB inserts (no user-management UI yet — see KNOWN_GAPS); keeping them avoids a regeneration step every time we touch role logic. Cost is three extra rows on a table with a handful of entries.
+
+## 9. Backups
 
 Supabase Free tier provides daily automated backups for 7 days, retrievable from Project Settings → Database → Backups. No app-side backup automation has been added.
 
@@ -152,7 +170,7 @@ pg_dump "$DIRECT_URL" --no-owner --no-privileges > backup-$(date +%Y-%m-%d).sql
 
 Run from a machine that already has the URL in env. Store the dump somewhere off the host.
 
-## 9. Common operational tasks
+## 10. Common operational tasks
 
 **View runtime logs** — Vercel dashboard → Deployments → pick a deployment → Functions tab. Or via API:
 
@@ -167,7 +185,7 @@ vercel logs https://jewlerytracker-darshan-somaiyas-projects.vercel.app --follow
 
 **Restore a soft-deleted row** — direct SQL: `UPDATE <table> SET "deletedAt" = NULL, "updatedAt" = NOW() WHERE id = '…'`. There is no UI; see KNOWN_GAPS for the `Settings → Deleted records` page deferred item.
 
-## 10. Cleanup after Phase 4.5
+## 11. Cleanup after Phase 4.5
 
 The walkthrough script `scripts/walkthrough-prod.mjs` is committed for re-runs against future deploys. It creates a customer + sale + payment + return, asserts the full lifecycle including the `refund_due` chip, then cleans up. Each invocation uses a unique `__walkthrough_<timestamp>` marker so concurrent runs don't collide.
 
@@ -180,7 +198,7 @@ DELETE FROM sales         WHERE "itemDescription" LIKE '%__walkthrough_%';
 DELETE FROM customers     WHERE name LIKE '%__walkthrough_%';
 ```
 
-## 11. What's still deferred
+## 12. What's still deferred
 
 See `KNOWN_GAPS.md` § Deferred items for the running list. Items added in Phase 4.5 specifically:
 

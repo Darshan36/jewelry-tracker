@@ -318,3 +318,57 @@ describe("softDeleteSaleReturn", () => {
     expect(prisma.saleReturn.update).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Phase 5 RBAC — parameterised role matrix.
+// SaleReturn actions are ADMIN-only. 2 actions × 4 roles = 8 tests.
+// =====================================================================
+
+const SALE_RETURN_ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", false],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+function sessionFor(role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT") {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(SALE_RETURN_ROLE_MATRIX)("createSaleReturn role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.sale.findUnique).mockResolvedValue(makeSaleRow());
+      vi.mocked(prisma.saleReturn.create).mockResolvedValue(makeReturnRow());
+      const r = await createSaleReturn(validInput());
+      expect(r.ok).toBe(true);
+      expect(prisma.saleReturn.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createSaleReturn(validInput())).rejects.toThrow("Forbidden");
+      expect(prisma.saleReturn.create).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(SALE_RETURN_ROLE_MATRIX)("softDeleteSaleReturn role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.saleReturn.update).mockResolvedValue(
+        makeReturnRow({ deletedAt: new Date() }),
+      );
+      const r = await softDeleteSaleReturn("cuid-ret-1");
+      expect(r.ok).toBe(true);
+      expect(prisma.saleReturn.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(softDeleteSaleReturn("cuid-ret-1")).rejects.toThrow("Forbidden");
+      expect(prisma.saleReturn.update).not.toHaveBeenCalled();
+    }
+  });
+});

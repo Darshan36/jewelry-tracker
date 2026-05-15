@@ -242,3 +242,80 @@ describe("softDeleteSupplier", () => {
     expect(prisma.supplier.update).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Phase 5 RBAC — parameterised role matrix.
+// Suppliers: ADMIN and PURCHASE_DEPT allowed; LABOUR_MGMT and
+// CASTING_PLATING_MGMT must be rejected at the guard before any DB work.
+// 3 actions × 4 roles = 12 tests.
+// =====================================================================
+
+const SUPPLIER_ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", true],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+const validSupplierInput = {
+  name: "Role Test",
+  phone: null,
+  email: null,
+  address: null,
+  notes: null,
+};
+
+function sessionFor(role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT") {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(SUPPLIER_ROLE_MATRIX)("createSupplier role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.supplier.create).mockResolvedValue(makeSupplier());
+      const r = await createSupplier(validSupplierInput);
+      expect(r.ok).toBe(true);
+      expect(prisma.supplier.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createSupplier(validSupplierInput)).rejects.toThrow("Forbidden");
+      expect(prisma.supplier.create).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(SUPPLIER_ROLE_MATRIX)("updateSupplier role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.supplier.update).mockResolvedValue(makeSupplier());
+      const r = await updateSupplier("abc", validSupplierInput);
+      expect(r.ok).toBe(true);
+      expect(prisma.supplier.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(updateSupplier("abc", validSupplierInput)).rejects.toThrow("Forbidden");
+      expect(prisma.supplier.update).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(SUPPLIER_ROLE_MATRIX)("softDeleteSupplier role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.supplier.update).mockResolvedValue(makeSupplier({ deletedAt: new Date() }));
+      const r = await softDeleteSupplier("abc");
+      expect(r.ok).toBe(true);
+      expect(prisma.supplier.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(softDeleteSupplier("abc")).rejects.toThrow("Forbidden");
+      expect(prisma.supplier.update).not.toHaveBeenCalled();
+    }
+  });
+});

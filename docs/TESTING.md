@@ -94,8 +94,11 @@ describe("customerInputSchema", () => {
 ### 2. Action tests — server actions with mocked Prisma
 
 The action layer is where validation meets the database. Mock Prisma so
-tests are fast and deterministic. Mock the `requireSession()` guard so
-the auth dependency is explicit per test.
+tests are fast and deterministic. Mock the `requireRole()` guard so the
+auth dependency is explicit per test. (Phase 5 migrated every action to
+`requireRole([...allowedRoles])`; the older `requireSession()` helper
+still exists in `src/lib/auth-guards.ts` for any future endpoint where
+authentication alone is sufficient.)
 
 **Setup** — `src/lib/__mocks__/prisma.ts` provides the shared deep mock:
 
@@ -123,7 +126,7 @@ import { createCustomer } from "./actions";
 
 vi.mock("@/lib/prisma");
 vi.mock("@/lib/auth-guards", () => ({
-  requireSession: vi
+  requireRole: vi
     .fn()
     .mockResolvedValue({ user: { id: "user-1", role: "ADMIN" } }),
 }));
@@ -176,7 +179,7 @@ describe("createCustomer", () => {
 - Mock at module path: `vi.mock("@/lib/prisma")` — Vitest auto-resolves
   `src/lib/__mocks__/prisma.ts`
 - Mock `@/lib/auth-guards` to return a fake session; tests without auth
-  set `requireSession` to reject (test the throw-Unauthorized path)
+  set `requireRole` to reject (test the throw-Forbidden / Unauthorized path)
 - Mock `next/cache` so `revalidatePath()` is a no-op spy
 - Reset mocks in `beforeEach` (the shared helper does this once)
 
@@ -184,7 +187,7 @@ describe("createCustomer", () => {
 
 | Test type | Pattern | Where the reset lives |
 |---|---|---|
-| Action tests | `beforeEach(mockReset(prisma))` at module scope + file-level `beforeEach` for `requireSession` / `revalidatePath` | `src/lib/__mocks__/prisma.ts` (Prisma) + each test file's top-level (others) |
+| Action tests | `beforeEach(mockReset(prisma))` at module scope + file-level `beforeEach` for `requireRole` / `revalidatePath` | `src/lib/__mocks__/prisma.ts` (Prisma) + each test file's top-level (others) |
 | Component tests | `beforeEach(vi.clearAllMocks)` inside the `describe` block | each test file's `describe` |
 
 The action layer touches a deep mock object (every Prisma method on
@@ -243,6 +246,60 @@ statements. Consequence:
   variables defined later in the file** — they're not in scope at
   hoisted execution. Inline the values, or use `vi.hoisted(() => ...)`
   to declare hoist-safe references.
+
+**Role-based access tests via `describe.each`.** Every role-gated server
+action gets a parameterised role-matrix block alongside its happy-path
+tests. The four-role matrix is shared shape; the booleans flip per
+action depending on the action's `requireRole([...allowedRoles])` list.
+
+```typescript
+const ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", false],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+function sessionFor(
+  role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT",
+) {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(ROLE_MATRIX)("createSale role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+      const result = await createSale(validInput());
+      expect(result.ok).toBe(true);
+      expect(prisma.sale.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createSale(validInput())).rejects.toThrow("Forbidden");
+      expect(prisma.sale.create).not.toHaveBeenCalled();
+    }
+  });
+});
+```
+
+The `prisma.sale.create.not.toHaveBeenCalled()` assertion on the deny
+branch is the critical check — it catches the failure mode where the
+role check is bypassed silently and the action proceeds to the
+database. Without that assertion, the test would pass against a buggy
+action that swallowed the guard rejection. Always assert presence on
+allow AND absence on deny.
+
+Use `mockResolvedValueOnce` / `mockRejectedValueOnce` (the "once"
+variants) so the per-test override doesn't bleed into subsequent tests
+running off the file-level `mockResolvedValue(fakeSession)` default.
+
+The flip pattern per action (which roles get `true`) maps directly to
+the action's `requireRole([...])` list — Customers/Sales: only ADMIN;
+Suppliers/Purchases: ADMIN + PURCHASE_DEPT; Employees: ADMIN + LABOUR_MGMT.
 
 ### 3. Component tests — `@testing-library/react` + `user-event`
 

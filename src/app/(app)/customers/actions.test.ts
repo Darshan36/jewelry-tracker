@@ -242,3 +242,80 @@ describe("softDeleteCustomer", () => {
     expect(prisma.customer.update).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Phase 5 RBAC — parameterised role matrix.
+// Customers are ADMIN-only: only ADMIN succeeds; the three other roles
+// must be rejected at the guard (Forbidden) before the DB is touched.
+// 3 actions × 4 roles = 12 tests.
+// =====================================================================
+
+const ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", false],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+const validInput = {
+  name: "Role Test",
+  phone: null,
+  email: null,
+  address: null,
+  notes: null,
+};
+
+function sessionFor(role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT") {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(ROLE_MATRIX)("createCustomer role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.customer.create).mockResolvedValue(makeCustomer());
+      const r = await createCustomer(validInput);
+      expect(r.ok).toBe(true);
+      expect(prisma.customer.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createCustomer(validInput)).rejects.toThrow("Forbidden");
+      expect(prisma.customer.create).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(ROLE_MATRIX)("updateCustomer role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.customer.update).mockResolvedValue(makeCustomer());
+      const r = await updateCustomer("abc", validInput);
+      expect(r.ok).toBe(true);
+      expect(prisma.customer.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(updateCustomer("abc", validInput)).rejects.toThrow("Forbidden");
+      expect(prisma.customer.update).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(ROLE_MATRIX)("softDeleteCustomer role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.customer.update).mockResolvedValue(makeCustomer({ deletedAt: new Date() }));
+      const r = await softDeleteCustomer("abc");
+      expect(r.ok).toBe(true);
+      expect(prisma.customer.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(softDeleteCustomer("abc")).rejects.toThrow("Forbidden");
+      expect(prisma.customer.update).not.toHaveBeenCalled();
+    }
+  });
+});

@@ -310,3 +310,59 @@ describe("softDeletePurchaseReturn", () => {
     expect(prisma.purchaseReturn.update).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Phase 5 RBAC — parameterised role matrix.
+// PurchaseReturn: ADMIN and PURCHASE_DEPT allowed; LABOUR_MGMT and
+// CASTING_PLATING_MGMT rejected at the guard.
+// 2 actions × 4 roles = 8 tests.
+// =====================================================================
+
+const PURCHASE_RETURN_ROLE_MATRIX = [
+  ["ADMIN", true],
+  ["PURCHASE_DEPT", true],
+  ["LABOUR_MGMT", false],
+  ["CASTING_PLATING_MGMT", false],
+] as const;
+
+function sessionFor(role: "ADMIN" | "PURCHASE_DEPT" | "LABOUR_MGMT" | "CASTING_PLATING_MGMT") {
+  return {
+    user: { id: "u", email: "u@example.com", name: "U", role },
+    expires: "2099-12-31T00:00:00.000Z",
+  };
+}
+
+describe.each(PURCHASE_RETURN_ROLE_MATRIX)("createPurchaseReturn role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.purchase.findUnique).mockResolvedValue(makePurchaseRow());
+      vi.mocked(prisma.purchaseReturn.create).mockResolvedValue(makeReturnRow());
+      const r = await createPurchaseReturn(validInput());
+      expect(r.ok).toBe(true);
+      expect(prisma.purchaseReturn.create).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(createPurchaseReturn(validInput())).rejects.toThrow("Forbidden");
+      expect(prisma.purchaseReturn.create).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe.each(PURCHASE_RETURN_ROLE_MATRIX)("softDeletePurchaseReturn role access — %s", (role, allowed) => {
+  it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
+    if (allowed) {
+      vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.purchaseReturn.update).mockResolvedValue(
+        makeReturnRow({ deletedAt: new Date() }),
+      );
+      const r = await softDeletePurchaseReturn("cuid-ret-1");
+      expect(r.ok).toBe(true);
+      expect(prisma.purchaseReturn.update).toHaveBeenCalledOnce();
+    } else {
+      vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+      await expect(softDeletePurchaseReturn("cuid-ret-1")).rejects.toThrow("Forbidden");
+      expect(prisma.purchaseReturn.update).not.toHaveBeenCalled();
+    }
+  });
+});
