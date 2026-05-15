@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { salePaymentInputSchema, type SalePaymentInput } from "./payment-schema";
@@ -39,7 +39,7 @@ function computeReturnTotal(
 }
 
 export async function createSalePayment(input: SalePaymentInput) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   const parsed = salePaymentInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -117,7 +117,7 @@ export async function createSalePayment(input: SalePaymentInput) {
 }
 
 export async function softDeleteSalePayment(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   await prisma.salePayment.update({
     where: { id, deletedAt: null },

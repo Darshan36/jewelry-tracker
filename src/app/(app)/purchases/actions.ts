@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { purchaseInputSchema, type PurchaseInput } from "./schema";
@@ -73,7 +73,7 @@ async function buildPurchaseData(
 }
 
 export async function createPurchase(input: PurchaseInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = purchaseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -94,7 +94,7 @@ export async function createPurchase(input: PurchaseInput) {
 }
 
 export async function updatePurchase(id: string, input: PurchaseInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = purchaseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -118,7 +118,7 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
 }
 
 export async function softDeletePurchase(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   await prisma.purchase.update({
     where: { id, deletedAt: null },

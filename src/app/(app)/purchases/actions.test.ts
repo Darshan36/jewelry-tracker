@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma");
 vi.mock("@/lib/auth-guards", () => ({
-  requireSession: vi.fn(),
+  requireRole: vi.fn(),
 }));
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { revalidatePath } from "next/cache";
 
 import {
@@ -110,8 +110,8 @@ function validInput(overrides: Partial<ReturnType<typeof base>> = {}) {
 }
 
 beforeEach(() => {
-  vi.mocked(requireSession).mockReset();
-  vi.mocked(requireSession).mockResolvedValue(fakeSession);
+  vi.mocked(requireRole).mockReset();
+  vi.mocked(requireRole).mockResolvedValue(fakeSession);
   vi.mocked(revalidatePath).mockClear();
 });
 
@@ -253,8 +253,8 @@ describe("createPurchase", () => {
     }
   });
 
-  it("propagates auth failure (requireSession throws)", async () => {
-    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+  it("propagates auth failure (requireRole throws)", async () => {
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 
     await expect(createPurchase(validInput())).rejects.toThrow("Unauthorized");
 
@@ -321,7 +321,7 @@ describe("updatePurchase", () => {
   });
 
   it("propagates auth failure", async () => {
-    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 
     await expect(updatePurchase("purchase-abc", validInput())).rejects.toThrow(
       "Unauthorized",
@@ -356,7 +356,7 @@ describe("softDeletePurchase", () => {
   });
 
   it("propagates auth failure", async () => {
-    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 
     await expect(softDeletePurchase("purchase-abc")).rejects.toThrow("Unauthorized");
 

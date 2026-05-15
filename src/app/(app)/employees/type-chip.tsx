@@ -2,7 +2,7 @@
 //
 // Shape mirrors the sidebar's role chip: small uppercase label with a
 // leading colored dot. FIXED → gold (primary), LABOUR → electric blue
-// (secondary), aligning with the sidebar's ADMIN/STAFF convention.
+// (secondary).
 
 import type { EmployeeType } from "@/generated/prisma";
 

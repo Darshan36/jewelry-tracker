@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { employeeInputSchema, type EmployeeInput } from "./schema";
@@ -22,7 +22,7 @@ function toPrismaData<T extends { monthlySalary: number | null }>(parsed: T) {
 }
 
 export async function createEmployee(input: EmployeeInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
   const parsed = employeeInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -40,7 +40,7 @@ export async function createEmployee(input: EmployeeInput) {
 }
 
 export async function updateEmployee(id: string, input: EmployeeInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
   const parsed = employeeInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -59,7 +59,7 @@ export async function updateEmployee(id: string, input: EmployeeInput) {
 }
 
 export async function softDeleteEmployee(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
   await prisma.employee.update({
     where: { id, deletedAt: null },

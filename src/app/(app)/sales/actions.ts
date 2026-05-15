@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { saleInputSchema, type SaleInput } from "./schema";
@@ -84,7 +84,7 @@ async function buildSaleData(
 }
 
 export async function createSale(input: SaleInput) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   const parsed = saleInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -105,7 +105,7 @@ export async function createSale(input: SaleInput) {
 }
 
 export async function updateSale(id: string, input: SaleInput) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   const parsed = saleInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -129,7 +129,7 @@ export async function updateSale(id: string, input: SaleInput) {
 }
 
 export async function softDeleteSale(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   await prisma.sale.update({
     where: { id, deletedAt: null },

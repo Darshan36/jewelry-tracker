@@ -2,13 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { customerInputSchema, type CustomerInput } from "./schema";
 
 export async function createCustomer(input: CustomerInput) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   const parsed = customerInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -24,7 +24,7 @@ export async function createCustomer(input: CustomerInput) {
 }
 
 export async function updateCustomer(id: string, input: CustomerInput) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   const parsed = customerInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -47,7 +47,7 @@ export async function updateCustomer(id: string, input: CustomerInput) {
 }
 
 export async function softDeleteCustomer(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   await prisma.customer.update({
     where: { id, deletedAt: null },

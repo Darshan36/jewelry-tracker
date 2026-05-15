@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import {
@@ -21,7 +21,7 @@ function formatPaiseAsRupees(paise: bigint): string {
 }
 
 export async function createPurchaseReturn(input: PurchaseReturnInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = purchaseReturnInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -93,7 +93,7 @@ export async function createPurchaseReturn(input: PurchaseReturnInput) {
 }
 
 export async function softDeletePurchaseReturn(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   await prisma.purchaseReturn.update({
     where: { id, deletedAt: null },

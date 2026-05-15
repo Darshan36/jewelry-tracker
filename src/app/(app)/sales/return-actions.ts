@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { saleReturnInputSchema, type SaleReturnInput } from "./return-schema";
@@ -18,7 +18,7 @@ function formatPaiseAsRupees(paise: bigint): string {
 }
 
 export async function createSaleReturn(input: SaleReturnInput) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   const parsed = saleReturnInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -94,7 +94,7 @@ export async function createSaleReturn(input: SaleReturnInput) {
 }
 
 export async function softDeleteSaleReturn(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN"]);
 
   await prisma.saleReturn.update({
     where: { id, deletedAt: null },

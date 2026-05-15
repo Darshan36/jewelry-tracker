@@ -4,14 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // `vi.mock('@/lib/prisma')` resolves to `src/lib/__mocks__/prisma.ts`.
 vi.mock("@/lib/prisma");
 vi.mock("@/lib/auth-guards", () => ({
-  requireSession: vi.fn(),
+  requireRole: vi.fn(),
 }));
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { revalidatePath } from "next/cache";
 
 import {
@@ -59,9 +59,9 @@ function makeCustomer(
 
 beforeEach(() => {
   // Default: auth succeeds with an ADMIN session. Tests can override via
-  // vi.mocked(requireSession).mockRejectedValueOnce(...).
-  vi.mocked(requireSession).mockReset();
-  vi.mocked(requireSession).mockResolvedValue(fakeSession);
+  // vi.mocked(requireRole).mockRejectedValueOnce(...).
+  vi.mocked(requireRole).mockReset();
+  vi.mocked(requireRole).mockResolvedValue(fakeSession);
   vi.mocked(revalidatePath).mockClear();
 });
 
@@ -115,7 +115,7 @@ describe("createCustomer", () => {
   });
 
   it("propagates auth failure — throw bubbles up, DB not touched", async () => {
-    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 
     await expect(
       createCustomer({
@@ -192,7 +192,7 @@ describe("updateCustomer", () => {
   });
 
   it("propagates auth failure", async () => {
-    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 
     await expect(
       updateCustomer("abc", {
@@ -235,7 +235,7 @@ describe("softDeleteCustomer", () => {
   });
 
   it("propagates auth failure", async () => {
-    vi.mocked(requireSession).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 
     await expect(softDeleteCustomer("abc")).rejects.toThrow("Unauthorized");
 

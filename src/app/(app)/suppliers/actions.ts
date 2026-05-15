@@ -2,13 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSession } from "@/lib/auth-guards";
+import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 import { supplierInputSchema, type SupplierInput } from "./schema";
 
 export async function createSupplier(input: SupplierInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = supplierInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -24,7 +24,7 @@ export async function createSupplier(input: SupplierInput) {
 }
 
 export async function updateSupplier(id: string, input: SupplierInput) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = supplierInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -47,7 +47,7 @@ export async function updateSupplier(id: string, input: SupplierInput) {
 }
 
 export async function softDeleteSupplier(id: string) {
-  await requireSession();
+  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   await prisma.supplier.update({
     where: { id, deletedAt: null },

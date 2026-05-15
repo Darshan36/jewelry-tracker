@@ -40,6 +40,8 @@ yarn-error.log*
 
 # local credentials — never commit
 keys.txt
+credentials.md
+scripts/.test-user-insert.sql
 
 # vercel
 .vercel

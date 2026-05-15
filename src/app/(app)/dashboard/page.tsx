@@ -1,41 +1,231 @@
-import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-// Dashboard placeholder. Real summary cards land in Phase 7
-// (receivables / payables / today's flow + monthly line graphs).
-// For Phase 1.6 it exists to give the (app) layout a child route.
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { formatCurrency } from "@/lib/format";
+
+// Role-aware dashboard. Each branch fetches only the data its cards need.
+// Full Recharts dashboards are deferred to Phase 7 — these cards are minimal
+// landing-page summaries so every role has somewhere to land after sign-in.
 
 export default async function DashboardPage() {
   const session = await auth();
+  if (!session?.user) redirect("/auth/login");
+
+  const { name, role } = session.user;
+
+  switch (role) {
+    case "ADMIN":
+      return <AdminDashboard name={name} />;
+    case "PURCHASE_DEPT":
+      return <PurchaseDashboard name={name} />;
+    case "LABOUR_MGMT":
+      return <LabourDashboard name={name} />;
+    case "CASTING_PLATING_MGMT":
+      return <CastingPlatingDashboard name={name} />;
+    default: {
+      const _exhaustive: never = role;
+      return <UnknownRoleDashboard name={name} role={_exhaustive} />;
+    }
+  }
+}
+
+// ---------- shared layout primitives ----------
+
+function PageHeader({ name, subtitle }: { name: string; subtitle: string }) {
+  return (
+    <header className="mb-10 pb-6 border-b border-outline-variant">
+      <h1 className="text-3xl font-semibold tracking-tight mb-1">Dashboard</h1>
+      <p className="text-on-surface-variant text-xs uppercase tracking-widest">
+        Welcome back, {name} · {subtitle}
+      </p>
+    </header>
+  );
+}
+
+function Card({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="p-6 bg-surface-container border border-outline-variant">
+      <p className="text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+        {label}
+      </p>
+      <p className="font-display text-2xl font-semibold">{value}</p>
+      {hint && <p className="text-xs text-on-surface-variant mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+// ---------- per-role dashboards ----------
+
+async function AdminDashboard({ name }: { name: string }) {
+  const monthRange = currentMonthRange();
+
+  const [customerCount, supplierCount, salesAgg, purchasesAgg] =
+    await Promise.all([
+      prisma.customer.count({ where: { deletedAt: null } }),
+      prisma.supplier.count({ where: { deletedAt: null } }),
+      prisma.sale.aggregate({
+        where: { deletedAt: null, date: monthRange },
+        _count: { _all: true },
+        _sum: { total: true },
+      }),
+      prisma.purchase.aggregate({
+        where: { deletedAt: null, date: monthRange },
+        _count: { _all: true },
+        _sum: { total: true },
+      }),
+    ]);
 
   return (
     <div className="p-10">
-      <header className="mb-10 pb-6 border-b border-outline-variant">
-        <h1 className="text-3xl font-semibold tracking-tight mb-1">
-          Dashboard
-        </h1>
-        <p className="text-on-surface-variant text-xs uppercase tracking-widest">
-          Welcome back, {session?.user?.name}
-        </p>
-      </header>
-
-      <div className="grid grid-cols-4 gap-3">
-        {["Receivables", "Payables", "Today's Sales", "Today's Purchases"].map(
-          (label) => (
-            <div
-              key={label}
-              className="p-6 bg-surface-container border border-outline-variant"
-            >
-              <p className="text-xs uppercase tracking-wider text-on-surface-variant mb-2">
-                {label}
-              </p>
-              <p className="font-display text-2xl font-semibold">—</p>
-              <p className="text-xs text-on-surface-variant mt-1">
-                Coming in Phase 7
-              </p>
-            </div>
-          ),
-        )}
+      <PageHeader name={name} subtitle="Admin overview" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        <Card label="Customers" value={String(customerCount)} />
+        <Card label="Suppliers" value={String(supplierCount)} />
+        <Card
+          label="Sales (this month)"
+          value={formatCurrency(Number(salesAgg._sum.total ?? 0n))}
+          hint={`${salesAgg._count._all} transactions`}
+        />
+        <Card
+          label="Purchases (this month)"
+          value={formatCurrency(Number(purchasesAgg._sum.total ?? 0n))}
+          hint={`${purchasesAgg._count._all} transactions`}
+        />
       </div>
     </div>
   );
 }
+
+async function PurchaseDashboard({ name }: { name: string }) {
+  const monthRange = currentMonthRange();
+
+  const [supplierCount, purchasesAgg, owedToSuppliers] = await Promise.all([
+    prisma.supplier.count({ where: { deletedAt: null } }),
+    prisma.purchase.aggregate({
+      where: { deletedAt: null, date: monthRange },
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    sumOwedToSuppliers(),
+  ]);
+
+  return (
+    <div className="p-10">
+      <PageHeader name={name} subtitle="Purchases overview" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Card label="Suppliers" value={String(supplierCount)} />
+        <Card
+          label="Purchases (this month)"
+          value={formatCurrency(Number(purchasesAgg._sum.total ?? 0n))}
+          hint={`${purchasesAgg._count._all} transactions`}
+        />
+        <Card
+          label="Owed to suppliers"
+          value={formatCurrency(Number(owedToSuppliers))}
+          hint="Across all non-completed purchases"
+        />
+      </div>
+    </div>
+  );
+}
+
+async function LabourDashboard({ name }: { name: string }) {
+  const [fixed, labour, salaryAgg] = await Promise.all([
+    prisma.employee.count({ where: { deletedAt: null, type: "FIXED" } }),
+    prisma.employee.count({ where: { deletedAt: null, type: "LABOUR" } }),
+    prisma.employee.aggregate({
+      where: { deletedAt: null, type: "FIXED" },
+      _sum: { monthlySalary: true },
+    }),
+  ]);
+
+  return (
+    <div className="p-10">
+      <PageHeader name={name} subtitle="Employees overview" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Card
+          label="Employees"
+          value={`${fixed + labour}`}
+          hint={`${fixed} fixed · ${labour} labour`}
+        />
+        <Card
+          label="Monthly salary (fixed)"
+          value={formatCurrency(Number(salaryAgg._sum.monthlySalary ?? 0n))}
+          hint="Sum of fixed-salary commitments"
+        />
+      </div>
+    </div>
+  );
+}
+
+function CastingPlatingDashboard({ name }: { name: string }) {
+  return (
+    <div className="p-10">
+      <PageHeader name={name} subtitle="Casting & Plating" />
+      <div className="grid grid-cols-1 gap-3">
+        <Card
+          label="Coming soon"
+          value="—"
+          hint="Casting and Plating tracking are scheduled for a future phase."
+        />
+      </div>
+    </div>
+  );
+}
+
+function UnknownRoleDashboard({ name, role }: { name: string; role: never }) {
+  return (
+    <div className="p-10">
+      <PageHeader name={name} subtitle="Unrecognised role" />
+      <div className="grid grid-cols-1 gap-3">
+        <Card
+          label="No dashboard configured"
+          value={String(role)}
+          hint="Contact an administrator."
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------- helpers ----------
+
+function currentMonthRange() {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return { gte: start, lt: end };
+}
+
+async function sumOwedToSuppliers(): Promise<bigint> {
+  const purchases = await prisma.purchase.findMany({
+    where: { deletedAt: null },
+    include: {
+      payments: { where: { deletedAt: null } },
+      returns: { where: { deletedAt: null } },
+    },
+  });
+
+  let owed = 0n;
+  for (const p of purchases) {
+    const netPaid = p.payments.reduce(
+      (sum, pay) => (pay.type === "PAYMENT" ? sum + pay.amount : sum - pay.amount),
+      0n,
+    );
+    const returnTotal = p.returns.reduce((sum, r) => sum + r.refundAmount, 0n);
+    const effectiveTotal = p.total - returnTotal;
+    const remaining = effectiveTotal - netPaid;
+    if (remaining > 0n) owed += remaining;
+  }
+  return owed;
+}
+
