@@ -1,15 +1,25 @@
 // Zod schema for the Purchase add/edit form.
 //
 // Structural mirror of sales/schema.ts. Only meaningful difference is the
-// FK direction: supplierId instead of customerId (Purchases attach to
-// suppliers, the supplier-direction equivalent of customers).
-//
-// Same wire-format rules — rate/discount stay `number` rupees here,
-// converted to BigInt paise inside actions.ts at the Prisma boundary.
+// FK direction: supplierId instead of customerId. Same line-items array
+// shape, same wire-format rules.
 
 import { z } from "zod";
 
 import { normalizePhone } from "@/lib/phone";
+
+export const purchaseLineItemSchema = z.object({
+  itemDescription: z
+    .string()
+    .trim()
+    .min(1, "Item description is required")
+    .max(500),
+  qty: z
+    .number()
+    .int("Qty must be a whole number")
+    .positive("Qty must be greater than zero"),
+  rate: z.number().nonnegative("Rate cannot be negative"),
+});
 
 export const purchaseInputSchema = z.object({
   date: z.coerce.date({ message: "Date is required" }),
@@ -29,18 +39,9 @@ export const purchaseInputSchema = z.object({
     .nullish()
     .transform((v) => normalizePhone(v)),
 
-  itemDescription: z
-    .string()
-    .trim()
-    .min(1, "Item description is required")
-    .max(500),
-
-  qty: z
-    .number()
-    .int("Qty must be a whole number")
-    .positive("Qty must be greater than zero"),
-
-  rate: z.number().nonnegative("Rate cannot be negative"),
+  lineItems: z
+    .array(purchaseLineItemSchema)
+    .min(1, "At least one line item is required"),
 
   discount: z
     .number()
@@ -58,3 +59,4 @@ export const purchaseInputSchema = z.object({
 });
 
 export type PurchaseInput = z.infer<typeof purchaseInputSchema>;
+export type PurchaseLineItemInput = z.infer<typeof purchaseLineItemSchema>;

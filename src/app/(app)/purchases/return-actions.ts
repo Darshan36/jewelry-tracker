@@ -34,7 +34,10 @@ export async function createPurchaseReturn(input: PurchaseReturnInput) {
 
   const purchase = await prisma.purchase.findUnique({
     where: { id: data.purchaseId, deletedAt: null },
-    include: { returns: { where: { deletedAt: null } } },
+    include: {
+      returns: { where: { deletedAt: null } },
+      lineItems: true,
+    },
   });
 
   if (!purchase) {
@@ -52,13 +55,19 @@ export async function createPurchaseReturn(input: PurchaseReturnInput) {
     (sum, r) => sum + r.refundAmount,
     0n,
   );
+  // Phase 7: total purchasable qty is the sum across line items, not a
+  // single `Purchase.qty` column (which was removed).
+  const totalLineItemQty = purchase.lineItems.reduce(
+    (sum, li) => sum + li.qty,
+    0,
+  );
 
-  if (data.qtyReturned + existingReturnedQty > purchase.qty) {
+  if (data.qtyReturned + existingReturnedQty > totalLineItemQty) {
     return {
       ok: false as const,
       errors: {
         qtyReturned: [
-          `Cannot return more than the original quantity. Already returned: ${existingReturnedQty} of ${purchase.qty}`,
+          `Cannot return more than the original quantity. Already returned: ${existingReturnedQty} of ${totalLineItemQty}`,
         ],
       },
     };

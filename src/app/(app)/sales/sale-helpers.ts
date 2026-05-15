@@ -3,11 +3,17 @@
 // NOT marked 'use server' — type definitions + pure helpers shared between
 // server components (page.tsx) and client components.
 //
-// BigInt fields on Prisma rows (Sale.rate/discount/total, SalePayment.amount,
-// SaleReturn.refundAmount) are converted to `number` (paise) here. JS Number
-// is safe to 2^53 — paise can hold ~₹90 quadrillion before precision loss.
+// BigInt fields on Prisma rows (Sale.discount/total, SaleLineItem.rate,
+// SalePayment.amount, SaleReturn.refundAmount) are converted to `number`
+// (paise) here. JS Number is safe to 2^53 — paise can hold ~₹90 quadrillion
+// before precision loss.
 
-import type { Sale, SalePayment, SaleReturn } from "@/generated/prisma";
+import type {
+  Sale,
+  SaleLineItem,
+  SalePayment,
+  SaleReturn,
+} from "@/generated/prisma";
 
 import {
   computeTransactionStatus,
@@ -28,10 +34,14 @@ export type SaleReturnForClient = Omit<SaleReturn, "refundAmount"> & {
   refundAmount: number;
 };
 
-export type SaleForClient = Omit<Sale, "rate" | "discount" | "total"> & {
+export type SaleLineItemForClient = Omit<SaleLineItem, "rate"> & {
   rate: number;
+};
+
+export type SaleForClient = Omit<Sale, "discount" | "total"> & {
   discount: number;
   total: number;
+  lineItems: SaleLineItemForClient[];
   // Net paid amount: SUM(PAYMENT.amount) − SUM(REFUND.amount) over non-deleted.
   paidAmount: number;
   // Sum of refundAmount over non-deleted returns.
@@ -55,6 +65,15 @@ export function serializeSaleReturn(saleReturn: SaleReturn): SaleReturnForClient
   };
 }
 
+export function serializeSaleLineItem(
+  line: SaleLineItem,
+): SaleLineItemForClient {
+  return {
+    ...line,
+    rate: Number(line.rate),
+  };
+}
+
 // Sum non-deleted PAYMENT entries minus non-deleted REFUND entries.
 // All math in BigInt to avoid float precision loss.
 function netPaidAmountBigInt(payments: SalePayment[]): bigint {
@@ -71,16 +90,24 @@ function returnTotalBigInt(returns: SaleReturn[]): bigint {
     .reduce((sum, r) => sum + r.refundAmount, 0n);
 }
 
-// `serializeSale` accepts either a plain Sale (action returns immediately
-// after create/update — no children needed) OR a Sale joined with payments
-// and returns via Prisma `include` (page queries needing live status).
-// When children are present, only non-deleted contribute to aggregations;
-// the query layer's include filter SHOULD already strip soft-deleted rows,
-// but we re-filter here defensively.
+// `serializeSale` accepts a Sale that MUST include its lineItems (the
+// page query and the action returns both pass them via Prisma `include`).
+// Payments and returns are optional — present on the page query, absent
+// on the action's immediately-after-create return.
 export function serializeSale(
-  input: Sale & { payments?: SalePayment[]; returns?: SaleReturn[] },
+  input: Sale & {
+    lineItems?: SaleLineItem[];
+    payments?: SalePayment[];
+    returns?: SaleReturn[];
+  },
 ): SaleForClient {
-  const { payments: rawPayments, returns: rawReturns, ...sale } = input;
+  const {
+    lineItems: rawLineItems,
+    payments: rawPayments,
+    returns: rawReturns,
+    ...sale
+  } = input;
+  const lineItems = rawLineItems ?? [];
   const payments = rawPayments ?? [];
   const returns = rawReturns ?? [];
 
@@ -92,9 +119,9 @@ export function serializeSale(
 
   return {
     ...sale,
-    rate: Number(sale.rate),
     discount: Number(sale.discount),
     total: Number(sale.total),
+    lineItems: lineItems.map(serializeSaleLineItem),
     paidAmount: Number(paidAmountBigInt),
     returnTotal: Number(returnTotalBigInt_),
     status: computeTransactionStatus({

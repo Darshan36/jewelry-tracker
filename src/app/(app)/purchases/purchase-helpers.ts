@@ -7,6 +7,7 @@
 
 import type {
   Purchase,
+  PurchaseLineItem,
   PurchasePayment,
   PurchaseReturn,
 } from "@/generated/prisma";
@@ -26,13 +27,14 @@ export type PurchaseReturnForClient = Omit<PurchaseReturn, "refundAmount"> & {
   refundAmount: number;
 };
 
-export type PurchaseForClient = Omit<
-  Purchase,
-  "rate" | "discount" | "total"
-> & {
+export type PurchaseLineItemForClient = Omit<PurchaseLineItem, "rate"> & {
   rate: number;
+};
+
+export type PurchaseForClient = Omit<Purchase, "discount" | "total"> & {
   discount: number;
   total: number;
+  lineItems: PurchaseLineItemForClient[];
   // Net paid (PAYMENT − REFUND) — for Purchases, this is "shop's net cash to
   // supplier." REFUND entries reduce this (supplier credited money back).
   paidAmount: number;
@@ -60,6 +62,15 @@ export function serializePurchaseReturn(
   };
 }
 
+export function serializePurchaseLineItem(
+  line: PurchaseLineItem,
+): PurchaseLineItemForClient {
+  return {
+    ...line,
+    rate: Number(line.rate),
+  };
+}
+
 function netPaidAmountBigInt(payments: PurchasePayment[]): bigint {
   return payments
     .filter((p) => p.deletedAt === null)
@@ -76,11 +87,18 @@ function returnTotalBigInt(returns: PurchaseReturn[]): bigint {
 
 export function serializePurchase(
   input: Purchase & {
+    lineItems?: PurchaseLineItem[];
     payments?: PurchasePayment[];
     returns?: PurchaseReturn[];
   },
 ): PurchaseForClient {
-  const { payments: rawPayments, returns: rawReturns, ...purchase } = input;
+  const {
+    lineItems: rawLineItems,
+    payments: rawPayments,
+    returns: rawReturns,
+    ...purchase
+  } = input;
+  const lineItems = rawLineItems ?? [];
   const payments = rawPayments ?? [];
   const returns = rawReturns ?? [];
 
@@ -92,9 +110,9 @@ export function serializePurchase(
 
   return {
     ...purchase,
-    rate: Number(purchase.rate),
     discount: Number(purchase.discount),
     total: Number(purchase.total),
+    lineItems: lineItems.map(serializePurchaseLineItem),
     paidAmount: Number(paidAmountBigInt),
     returnTotal: Number(returnTotalBigInt_),
     status: computeTransactionStatus({

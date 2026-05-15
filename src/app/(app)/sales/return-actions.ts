@@ -31,7 +31,10 @@ export async function createSaleReturn(input: SaleReturnInput) {
 
   const sale = await prisma.sale.findUnique({
     where: { id: data.saleId, deletedAt: null },
-    include: { returns: { where: { deletedAt: null } } },
+    include: {
+      returns: { where: { deletedAt: null } },
+      lineItems: true,
+    },
   });
 
   if (!sale) {
@@ -50,14 +53,20 @@ export async function createSaleReturn(input: SaleReturnInput) {
     (sum, r) => sum + r.refundAmount,
     0n,
   );
+  // Phase 7: total sellable qty is the sum across line items, not a single
+  // `Sale.qty` column (which was removed).
+  const totalLineItemQty = sale.lineItems.reduce(
+    (sum, li) => sum + li.qty,
+    0,
+  );
 
-  // QTY check: cumulative returned ≤ sale.qty (original sold quantity).
-  if (data.qtyReturned + existingReturnedQty > sale.qty) {
+  // QTY check: cumulative returned ≤ sum of line-item qty.
+  if (data.qtyReturned + existingReturnedQty > totalLineItemQty) {
     return {
       ok: false as const,
       errors: {
         qtyReturned: [
-          `Cannot return more than the original quantity. Already returned: ${existingReturnedQty} of ${sale.qty}`,
+          `Cannot return more than the original quantity. Already returned: ${existingReturnedQty} of ${totalLineItemQty}`,
         ],
       },
     };

@@ -15,6 +15,7 @@ export default async function SalesPage() {
       include: {
         payments: { where: { deletedAt: null } },
         returns: { where: { deletedAt: null } },
+        lineItems: { orderBy: { createdAt: "asc" } },
       },
     }),
     prisma.customer.findMany({

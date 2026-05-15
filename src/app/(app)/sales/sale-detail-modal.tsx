@@ -75,29 +75,80 @@ export function SaleDetailModal({
             <LabeledField label="Phone" value={sale.partyPhone} />
           </div>
 
-          <LabeledField
-            label="Item"
-            value={sale.itemDescription}
-            multiline
-          />
-
-          <div className="grid grid-cols-3 gap-5">
-            <LabeledField label="Qty" value={String(sale.qty)} />
-            <LabeledField label="Rate" value={formatCurrency(sale.rate)} />
-            <LabeledField
-              label="Discount"
-              value={formatCurrency(sale.discount)}
-            />
+          {/* Line items table */}
+          <div>
+            <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+              Items
+            </p>
+            <div className="border border-outline-variant">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-display text-xs uppercase tracking-wider text-on-surface-variant">
+                      Description
+                    </th>
+                    <th className="text-right px-3 py-2 font-display text-xs uppercase tracking-wider text-on-surface-variant w-20">
+                      Qty
+                    </th>
+                    <th className="text-right px-3 py-2 font-display text-xs uppercase tracking-wider text-on-surface-variant w-28">
+                      Rate
+                    </th>
+                    <th className="text-right px-3 py-2 font-display text-xs uppercase tracking-wider text-on-surface-variant w-32">
+                      Line total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sale.lineItems.map((line, idx) => (
+                    <tr
+                      key={line.id}
+                      className={
+                        idx % 2 === 0
+                          ? "bg-surface-container-low"
+                          : "bg-surface-container"
+                      }
+                    >
+                      <td className="px-3 py-2 text-on-surface">
+                        {line.itemDescription}
+                      </td>
+                      <td className="px-3 py-2 text-right text-on-surface tabular-nums">
+                        {line.qty}
+                      </td>
+                      <td className="px-3 py-2 text-right text-on-surface tabular-nums font-mono">
+                        {formatCurrency(line.rate)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-on-surface tabular-nums font-mono">
+                        {formatCurrency(line.qty * line.rate)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* Total emphasized */}
-          <div className="border-t border-outline-variant pt-4">
-            <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-1">
-              Total
-            </p>
-            <p className="text-2xl font-display tabular-nums text-on-surface">
-              {formatCurrency(sale.total)}
-            </p>
+          {/* Subtotal / Discount / Final total */}
+          <div className="border-t border-outline-variant pt-4 space-y-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-on-surface-variant">Subtotal</span>
+              <span className="tabular-nums font-mono text-on-surface">
+                {formatCurrency(sale.total + sale.discount)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-on-surface-variant">Discount</span>
+              <span className="tabular-nums font-mono text-on-surface">
+                −{formatCurrency(sale.discount)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-outline-variant/40">
+              <span className="font-display text-xs uppercase tracking-wider text-on-surface-variant">
+                Total
+              </span>
+              <span className="text-2xl font-display tabular-nums text-on-surface">
+                {formatCurrency(sale.total)}
+              </span>
+            </div>
           </div>
 
           {sale.notes && (

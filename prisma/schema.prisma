@@ -89,29 +89,40 @@ model Employee {
 }
 
 model Sale {
-  id              String    @id @default(cuid())
-  date            DateTime
-  customerId      String?
-  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  partyName       String
-  partyPhone      String?
-  itemDescription String
-  qty             Int
-  rate            BigInt
-  discount        BigInt    @default(0)
-  total           BigInt
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  id         String    @id @default(cuid())
+  date       DateTime
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  partyName  String
+  partyPhone String?
+  discount   BigInt    @default(0)
+  total      BigInt
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
 
-  payments SalePayment[]
-  returns  SaleReturn[]
+  payments  SalePayment[]
+  returns   SaleReturn[]
+  lineItems SaleLineItem[]
 
   @@index([deletedAt])
   @@index([date])
   @@index([customerId])
   @@map("sales")
+}
+
+model SaleLineItem {
+  id              String   @id @default(cuid())
+  saleId          String
+  sale            Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  itemDescription String
+  qty             Int
+  rate            BigInt
+  createdAt       DateTime @default(now())
+
+  @@index([saleId])
+  @@map("sale_line_items")
 }
 
 enum PaymentType {
@@ -155,29 +166,40 @@ model SaleReturn {
 }
 
 model Purchase {
-  id              String    @id @default(cuid())
-  date            DateTime
-  supplierId      String?
-  supplier        Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  partyName       String
-  partyPhone      String?
-  itemDescription String
-  qty             Int
-  rate            BigInt
-  discount        BigInt    @default(0)
-  total           BigInt
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  id         String    @id @default(cuid())
+  date       DateTime
+  supplierId String?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  partyName  String
+  partyPhone String?
+  discount   BigInt    @default(0)
+  total      BigInt
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
 
-  payments PurchasePayment[]
-  returns  PurchaseReturn[]
+  payments  PurchasePayment[]
+  returns   PurchaseReturn[]
+  lineItems PurchaseLineItem[]
 
   @@index([deletedAt])
   @@index([date])
   @@index([supplierId])
   @@map("purchases")
+}
+
+model PurchaseLineItem {
+  id              String   @id @default(cuid())
+  purchaseId      String
+  purchase        Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  itemDescription String
+  qty             Int
+  rate            BigInt
+  createdAt       DateTime @default(now())
+
+  @@index([purchaseId])
+  @@map("purchase_line_items")
 }
 
 model PurchasePayment {

@@ -9,21 +9,23 @@ import type { Prisma } from "@/generated/prisma";
 import { purchaseInputSchema, type PurchaseInput } from "./schema";
 import { serializePurchase } from "./purchase-helpers";
 
-// Mirror of sales/actions.ts. Same auto-promotion rules, only the target
-// table flips: Supplier instead of Customer, partyPhone matched against
-// `suppliers.phone`, auto-created on no match.
+// Mirror of sales/actions.ts. Same auto-promotion + line-items pattern,
+// only the target tables flip: Supplier instead of Customer, PurchaseLineItem
+// instead of SaleLineItem.
 
 type BuiltPurchaseData = {
   date: Date;
   supplierId: string | null;
   partyName: string;
   partyPhone: string | null;
-  itemDescription: string;
-  qty: number;
-  rate: bigint;
   discount: bigint;
   total: bigint;
   notes: string | null;
+  lineItemCreates: Array<{
+    itemDescription: string;
+    qty: number;
+    rate: bigint;
+  }>;
 };
 
 async function buildPurchaseData(
@@ -74,16 +76,25 @@ async function buildPurchaseData(
     }
   }
 
-  const ratePaise = BigInt(Math.round(parsed.rate * 100));
+  const lineItemCreates = parsed.lineItems.map((line) => ({
+    itemDescription: line.itemDescription,
+    qty: line.qty,
+    rate: BigInt(Math.round(line.rate * 100)),
+  }));
+  const subtotal = lineItemCreates.reduce(
+    (sum, line) => sum + BigInt(line.qty) * line.rate,
+    0n,
+  );
   const discountPaise = BigInt(Math.round(parsed.discount * 100));
-  const total = BigInt(parsed.qty) * ratePaise - discountPaise;
 
-  if (total < 0n) {
+  if (discountPaise > subtotal) {
     return {
       ok: false,
-      errors: { discount: ["Discount cannot exceed line total"] },
+      errors: { discount: ["Discount cannot exceed line item subtotal"] },
     };
   }
+
+  const total = subtotal - discountPaise;
 
   return {
     ok: true,
@@ -92,12 +103,10 @@ async function buildPurchaseData(
       supplierId,
       partyName,
       partyPhone,
-      itemDescription: parsed.itemDescription,
-      qty: parsed.qty,
-      rate: ratePaise,
       discount: discountPaise,
       total,
       notes: parsed.notes,
+      lineItemCreates,
     },
   };
 }
@@ -116,7 +125,14 @@ export async function createPurchase(input: PurchaseInput) {
   const result = await prisma.$transaction(async (tx) => {
     const built = await buildPurchaseData(tx, parsed.data);
     if (!built.ok) return built;
-    const created = await tx.purchase.create({ data: built.data });
+    const { lineItemCreates, ...purchaseData } = built.data;
+    const created = await tx.purchase.create({
+      data: {
+        ...purchaseData,
+        lineItems: { create: lineItemCreates },
+      },
+      include: { lineItems: { orderBy: { createdAt: "asc" } } },
+    });
     return { ok: true as const, purchase: created };
   });
 
@@ -143,9 +159,15 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
   const result = await prisma.$transaction(async (tx) => {
     const built = await buildPurchaseData(tx, parsed.data);
     if (!built.ok) return built;
+    const { lineItemCreates, ...purchaseData } = built.data;
+    await tx.purchaseLineItem.deleteMany({ where: { purchaseId: id } });
     const updated = await tx.purchase.update({
       where: { id, deletedAt: null },
-      data: built.data,
+      data: {
+        ...purchaseData,
+        lineItems: { create: lineItemCreates },
+      },
+      include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
     return { ok: true as const, purchase: updated };
   });

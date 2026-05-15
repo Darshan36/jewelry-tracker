@@ -99,17 +99,27 @@ export function SalesTable({ sales, customers }: Props) {
       ),
     },
     {
-      accessorKey: "itemDescription",
-      header: "Item",
+      id: "items",
+      header: "Items",
       enableSorting: false,
-      cell: ({ row }) => (
-        <span
-          className="text-on-surface block max-w-[280px] truncate"
-          title={row.original.itemDescription}
-        >
-          {row.original.itemDescription}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const lines = row.original.lineItems;
+        if (lines.length === 0) return <span className="text-on-surface-variant">—</span>;
+        const first = lines[0].itemDescription;
+        const more = lines.length > 1 ? ` + ${lines.length - 1} more` : "";
+        const summary = `${first}${more}`;
+        const titleAll = lines
+          .map((l) => `${l.itemDescription} (×${l.qty})`)
+          .join(", ");
+        return (
+          <span
+            className="text-on-surface block max-w-[280px] truncate"
+            title={titleAll}
+          >
+            {summary}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "total",
@@ -160,7 +170,9 @@ export function SalesTable({ sales, customers }: Props) {
       return (
         r.partyName.toLowerCase().includes(q) ||
         (r.partyPhone ?? "").toLowerCase().includes(q) ||
-        r.itemDescription.toLowerCase().includes(q)
+        r.lineItems.some((li) =>
+          li.itemDescription.toLowerCase().includes(q),
+        )
       );
     },
   });

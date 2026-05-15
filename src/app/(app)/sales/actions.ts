@@ -11,34 +11,31 @@ import { serializeSale } from "./sale-helpers";
 
 // Build the Prisma `data` payload from a validated schema parse.
 //
-// Three concerns live in here, all at the Prisma boundary:
-//   1. Currency: rupees `number` → BigInt paise.
-//   2. Snapshot integrity: if customerId is set OR auto-promoted from a phone
-//      match, partyName/partyPhone are copied from the Customer row (server
-//      is source of truth for FK-linked party data — the form values are
-//      advisory only).
-//   3. Total computation: total = qty * ratePaise - discountPaise, in BigInt.
+// Phase 7: line items moved to a child table. The parent `Sale` no longer
+// carries `qty`, `rate`, or `itemDescription`; instead each `lineItems[i]`
+// becomes a `SaleLineItem` row. Total is computed as `SUM(qty × rate) -
+// discount` in BigInt paise and persisted on the Sale row (stored-not-derived
+// discipline preserved). Discount-exceeds-subtotal is rejected at the action
+// layer because the validation needs the parsed numbers in scope.
 //
-// Auto-promotion (Phase 6): when `customerId` is null AND `partyPhone` is
-// present, look up an existing customer by normalized phone. If found, link
-// to them silently. If not found, auto-create a `Customer` row with the
-// typed name + phone (other fields null) and link to it. Walk-ins without
-// phone stay as walk-ins (`customerId` remains null; snapshot strings only).
-// Both lookup and create happen on the transaction client `tx`, so the whole
-// build + sale-create is atomic — if anything fails, no partial state lands.
-//
-// Returns either a Prisma data payload OR an `errors` shape.
+// Auto-promotion (Phase 6) still runs here: when `customerId` is null but
+// `partyPhone` is non-null, the action either links to or auto-creates the
+// Customer. The whole flow (party lookup/create + Sale create + line item
+// creates) runs inside `prisma.$transaction`.
+
 type BuiltSaleData = {
   date: Date;
   customerId: string | null;
   partyName: string;
   partyPhone: string | null;
-  itemDescription: string;
-  qty: number;
-  rate: bigint;
   discount: bigint;
   total: bigint;
   notes: string | null;
+  lineItemCreates: Array<{
+    itemDescription: string;
+    qty: number;
+    rate: bigint;
+  }>;
 };
 
 async function buildSaleData(
@@ -53,7 +50,6 @@ async function buildSaleData(
   let partyPhone = parsed.partyPhone;
 
   if (customerId !== null) {
-    // Explicit FK from the form — snapshot from the live customer row.
     const customer = await tx.customer.findUnique({
       where: { id: customerId, deletedAt: null },
     });
@@ -66,8 +62,6 @@ async function buildSaleData(
     partyName = customer.name;
     partyPhone = customer.phone;
   } else if (partyPhone !== null) {
-    // Walk-in with a phone — auto-promote. Schema has already normalized
-    // partyPhone, so the lookup compares clean-to-clean.
     const existing = await tx.customer.findFirst({
       where: { phone: partyPhone, deletedAt: null },
     });
@@ -91,18 +85,27 @@ async function buildSaleData(
       partyPhone = created.phone;
     }
   }
-  // else: walk-in with no phone — snapshot-only, customerId stays null.
 
-  const ratePaise = BigInt(Math.round(parsed.rate * 100));
+  // Compute subtotal across line items, in BigInt paise.
+  const lineItemCreates = parsed.lineItems.map((line) => ({
+    itemDescription: line.itemDescription,
+    qty: line.qty,
+    rate: BigInt(Math.round(line.rate * 100)),
+  }));
+  const subtotal = lineItemCreates.reduce(
+    (sum, line) => sum + BigInt(line.qty) * line.rate,
+    0n,
+  );
   const discountPaise = BigInt(Math.round(parsed.discount * 100));
-  const total = BigInt(parsed.qty) * ratePaise - discountPaise;
 
-  if (total < 0n) {
+  if (discountPaise > subtotal) {
     return {
       ok: false,
-      errors: { discount: ["Discount cannot exceed line total"] },
+      errors: { discount: ["Discount cannot exceed line item subtotal"] },
     };
   }
+
+  const total = subtotal - discountPaise;
 
   return {
     ok: true,
@@ -111,12 +114,10 @@ async function buildSaleData(
       customerId,
       partyName,
       partyPhone,
-      itemDescription: parsed.itemDescription,
-      qty: parsed.qty,
-      rate: ratePaise,
       discount: discountPaise,
       total,
       notes: parsed.notes,
+      lineItemCreates,
     },
   };
 }
@@ -132,11 +133,17 @@ export async function createSale(input: SaleInput) {
     };
   }
 
-  // Atomic: auto-promotion lookup/create + sale create live or die together.
   const result = await prisma.$transaction(async (tx) => {
     const built = await buildSaleData(tx, parsed.data);
     if (!built.ok) return built;
-    const created = await tx.sale.create({ data: built.data });
+    const { lineItemCreates, ...saleData } = built.data;
+    const created = await tx.sale.create({
+      data: {
+        ...saleData,
+        lineItems: { create: lineItemCreates },
+      },
+      include: { lineItems: { orderBy: { createdAt: "asc" } } },
+    });
     return { ok: true as const, sale: created };
   });
 
@@ -163,9 +170,18 @@ export async function updateSale(id: string, input: SaleInput) {
   const result = await prisma.$transaction(async (tx) => {
     const built = await buildSaleData(tx, parsed.data);
     if (!built.ok) return built;
+    const { lineItemCreates, ...saleData } = built.data;
+    // Hard-delete the existing line items, then recreate the full new set.
+    // Line items are subordinate to the parent (no soft-delete) — see
+    // Phase 7 locked decision Q6.
+    await tx.saleLineItem.deleteMany({ where: { saleId: id } });
     const updated = await tx.sale.update({
       where: { id, deletedAt: null },
-      data: built.data,
+      data: {
+        ...saleData,
+        lineItems: { create: lineItemCreates },
+      },
+      include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
     return { ok: true as const, sale: updated };
   });

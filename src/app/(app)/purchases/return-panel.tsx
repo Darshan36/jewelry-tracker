@@ -64,7 +64,11 @@ export function ReturnPanel({ purchase, returns }: Props) {
     (sum, r) => sum + r.refundAmount,
     0,
   );
-  const remainingReturnableQty = purchase.qty - existingReturnedQty;
+  const totalLineItemQty = purchase.lineItems.reduce(
+    (sum, li) => sum + li.qty,
+    0,
+  );
+  const remainingReturnableQty = totalLineItemQty - existingReturnedQty;
   const remainingReturnableValuePaise =
     purchase.total - existingReturnTotalPaise;
 
@@ -226,7 +230,7 @@ export function ReturnPanel({ purchase, returns }: Props) {
             <p className="text-xs text-on-surface-variant mt-1">
               Up to {remainingReturnableQty} available to return
               {existingReturnedQty > 0
-                ? ` (already returned: ${existingReturnedQty} of ${purchase.qty})`
+                ? ` (already returned: ${existingReturnedQty} of ${totalLineItemQty})`
                 : ""}
             </p>
             <FormError>{errors.qtyReturned?.message}</FormError>

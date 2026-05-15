@@ -18,6 +18,7 @@ export default async function PurchasesPage() {
       include: {
         payments: { where: { deletedAt: null } },
         returns: { where: { deletedAt: null } },
+        lineItems: { orderBy: { createdAt: "asc" } },
       },
     }),
     prisma.supplier.findMany({
