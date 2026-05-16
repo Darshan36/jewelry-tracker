@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import { saleInputSchema } from "./schema";
 
+function validLineItem() {
+  return {
+    itemDescription: "Gold-plated chain",
+    qty: 10,
+    rate: 250,
+  };
+}
+
 function validWalkInInput() {
   return {
     date: "2026-05-14",
     customerId: null,
     partyName: "Test Walkin",
     partyPhone: "9876543210",
-    itemDescription: "Gold-plated chain",
-    qty: 10,
-    rate: 250,
+    lineItems: [validLineItem()],
     discount: 100,
     notes: "Test sale",
   };
@@ -22,9 +28,7 @@ function validLinkedInput() {
     customerId: "cuid_customer_123",
     partyName: "Priya Shah",
     partyPhone: "9876543210",
-    itemDescription: "Gold-plated chain",
-    qty: 10,
-    rate: 250,
+    lineItems: [validLineItem()],
     discount: 100,
     notes: null,
   };
@@ -47,15 +51,29 @@ describe("saleInputSchema", () => {
         date: "2026-05-14",
         customerId: null,
         partyName: "Test",
-        itemDescription: "x",
-        qty: 1,
-        rate: 100,
+        lineItems: [{ itemDescription: "x", qty: 1, rate: 100 }],
       });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.discount).toBe(0);
         expect(result.data.notes).toBeNull();
         expect(result.data.partyPhone).toBeNull();
+      }
+    });
+
+    it("accepts multiple line items", () => {
+      const result = saleInputSchema.safeParse({
+        ...validWalkInInput(),
+        lineItems: [
+          { itemDescription: "Item A", qty: 3, rate: 100 },
+          { itemDescription: "Item B", qty: 5, rate: 200 },
+          { itemDescription: "Item C", qty: 1, rate: 50 },
+        ],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineItems).toHaveLength(3);
+        expect(result.data.lineItems[1].itemDescription).toBe("Item B");
       }
     });
   });
@@ -159,7 +177,7 @@ describe("saleInputSchema", () => {
     });
   });
 
-  describe("partyPhone — empty-string-to-null", () => {
+  describe("partyPhone — empty-string-to-null + normalization", () => {
     it("transforms empty string to null", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
@@ -169,10 +187,19 @@ describe("saleInputSchema", () => {
       if (result.success) expect(result.data.partyPhone).toBeNull();
     });
 
-    it("preserves a non-empty phone", () => {
+    it("preserves a non-empty phone, normalised (Phase 6)", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
         partyPhone: "9876543210",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.partyPhone).toBe("9876543210");
+    });
+
+    it("normalises dashed phone (Phase 6)", () => {
+      const result = saleInputSchema.safeParse({
+        ...validWalkInInput(),
+        partyPhone: "9876-543-210",
       });
       expect(result.success).toBe(true);
       if (result.success) expect(result.data.partyPhone).toBe("9876543210");
@@ -187,29 +214,72 @@ describe("saleInputSchema", () => {
     });
   });
 
-  describe("itemDescription", () => {
-    it("rejects empty", () => {
+  // ===================================================================
+  // Phase 7 — line items array replaces single-item top-level fields.
+  // ===================================================================
+
+  describe("lineItems — array, at least one row required", () => {
+    it("rejects empty array", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        itemDescription: "",
+        lineItems: [],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const flat = result.error.flatten();
+        expect(flat.fieldErrors.lineItems?.[0]).toMatch(/at least one/i);
+      }
+    });
+
+    it("rejects missing lineItems field", () => {
+      const input = validWalkInInput() as Partial<
+        ReturnType<typeof validWalkInInput>
+      >;
+      delete input.lineItems;
+      const result = saleInputSchema.safeParse(input);
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts one line item", () => {
+      const result = saleInputSchema.safeParse({
+        ...validWalkInInput(),
+        lineItems: [validLineItem()],
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("line item — itemDescription", () => {
+    it("rejects empty itemDescription", () => {
+      const result = saleInputSchema.safeParse({
+        ...validWalkInInput(),
+        lineItems: [{ ...validLineItem(), itemDescription: "" }],
       });
       expect(result.success).toBe(false);
     });
 
-    it("rejects > 500 chars", () => {
+    it("rejects whitespace-only itemDescription (trimmed before length check)", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        itemDescription: "x".repeat(501),
+        lineItems: [{ ...validLineItem(), itemDescription: "   " }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects itemDescription > 500 chars", () => {
+      const result = saleInputSchema.safeParse({
+        ...validWalkInInput(),
+        lineItems: [{ ...validLineItem(), itemDescription: "x".repeat(501) }],
       });
       expect(result.success).toBe(false);
     });
   });
 
-  describe("qty", () => {
+  describe("line item — qty", () => {
     it("rejects zero", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        qty: 0,
+        lineItems: [{ ...validLineItem(), qty: 0 }],
       });
       expect(result.success).toBe(false);
     });
@@ -217,7 +287,7 @@ describe("saleInputSchema", () => {
     it("rejects negative", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        qty: -1,
+        lineItems: [{ ...validLineItem(), qty: -1 }],
       });
       expect(result.success).toBe(false);
     });
@@ -225,7 +295,7 @@ describe("saleInputSchema", () => {
     it("rejects non-integer (e.g., 2.5)", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        qty: 2.5,
+        lineItems: [{ ...validLineItem(), qty: 2.5 }],
       });
       expect(result.success).toBe(false);
     });
@@ -233,17 +303,17 @@ describe("saleInputSchema", () => {
     it("accepts positive integer", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        qty: 1,
+        lineItems: [{ ...validLineItem(), qty: 1 }],
       });
       expect(result.success).toBe(true);
     });
   });
 
-  describe("rate — kept as number, NOT transformed to BigInt", () => {
+  describe("line item — rate (kept as number, NOT transformed to BigInt)", () => {
     it("rejects negative rate", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        rate: -1,
+        lineItems: [{ ...validLineItem(), rate: -1 }],
       });
       expect(result.success).toBe(false);
     });
@@ -251,24 +321,26 @@ describe("saleInputSchema", () => {
     it("accepts zero rate (promotional / free items)", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        rate: 0,
+        lineItems: [{ ...validLineItem(), rate: 0 }],
       });
       expect(result.success).toBe(true);
     });
 
-    it("output rate is plain number, NOT BigInt (wire format consistency)", () => {
+    it("output rate stays plain number (wire format consistency)", () => {
       const result = saleInputSchema.safeParse(validWalkInInput());
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(typeof result.data.rate).toBe("number");
-        expect(result.data.rate).toBe(250);
+        expect(typeof result.data.lineItems[0].rate).toBe("number");
+        expect(result.data.lineItems[0].rate).toBe(250);
       }
     });
   });
 
   describe("discount", () => {
     it("defaults to 0 when omitted", () => {
-      const input = validWalkInInput() as Partial<ReturnType<typeof validWalkInInput>>;
+      const input = validWalkInInput() as Partial<
+        ReturnType<typeof validWalkInInput>
+      >;
       delete input.discount;
       const result = saleInputSchema.safeParse(input);
       expect(result.success).toBe(true);

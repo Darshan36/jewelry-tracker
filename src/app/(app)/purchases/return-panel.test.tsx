@@ -24,29 +24,40 @@ import type {
 } from "./purchase-helpers";
 
 function makePurchase(
-  overrides: Partial<PurchaseForClient> = {},
+  overrides: Partial<PurchaseForClient> & { qty?: number } = {},
 ): PurchaseForClient {
+  const { qty, lineItems, ...rest } = overrides;
+  const defaultLineItems =
+    lineItems ??
+    [
+      {
+        id: "line-1",
+        purchaseId: "p-1",
+        itemDescription: "Gold wire",
+        qty: qty ?? 10,
+        rate: 25000,
+        createdAt: new Date("2026-05-10T12:00:00Z"),
+      },
+    ];
   return {
     id: "p-1",
     date: new Date("2026-05-10T00:00:00Z"),
     supplierId: null,
     partyName: "Test Walkin Vendor",
     partyPhone: null,
-    itemDescription: "Gold wire",
-    qty: 10,
-    rate: 25000,
     discount: 0,
     total: 250000,
     notes: null,
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    lineItems: defaultLineItems,
     paidAmount: 0,
     returnTotal: 0,
     status: "pending",
     payments: [],
     returns: [],
-    ...overrides,
+    ...rest,
   };
 }
 

@@ -99,17 +99,29 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - Soft delete via `deletedAt` (matches Customer / Supplier convention).
 - **Indexes:** `@@index([deletedAt])`, `@@index([name])`, `@@index([type])` (the third supports the FIXED / LABOUR / ALL filter pills on the list page).
 
-### Sale (built Phase 3.1)
-`id, date, customerId (FK → Customer, nullable, onDelete: SetNull), partyName, partyPhone, itemDescription, qty, rate (BigInt paise), discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, createdAt, updatedAt, deletedAt`
+### Sale (built Phase 3.1, restructured Phase 7)
+`id, date, customerId (FK → Customer, nullable, onDelete: SetNull), partyName, partyPhone, discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, createdAt, updatedAt, deletedAt`
 
+- **Phase 7: line items moved to a child table.** `qty`, `rate`, and `itemDescription` no longer live on `Sale` — they're rows in `SaleLineItem` (see below). The Sale row carries the per-transaction metadata (party, date, discount, total, notes) and the line items carry the items themselves. One Sale, one-or-more SaleLineItems.
+- **Sale-level discount only.** `Sale.discount` applies to the whole-sale subtotal; there is **no per-line discount**. Matches workshop invoicing practice ("₹13,500 of items, give it for ₹13,000"). If per-line negotiated discounts surface as a real workflow later, the schema extends naturally with a `SaleLineItem.discount` column.
+- **`total` is stored, not derived.** Computed at write time as `SUM(lineItems.qty × lineItems.rate) − Sale.discount` (all in BigInt paise) and persisted on the row. Trade-off vs. computing on read: enables straightforward `SUM(total)` aggregates AND preserves audit history. Must be recomputed on every `updateSale`. See KNOWN_GAPS.md decision lineage.
 - **Dual-path party model.** Each sale either links to a `Customer` (FK `customerId` set; `partyName`/`partyPhone` are server-side snapshots of `Customer.name`/`Customer.phone` at sale time) OR is a walk-in (`customerId` null; the two strings are the only identity). Snapshot pattern preserves historical sale display correctness regardless of later customer rename or soft-delete. `onDelete: SetNull` is defensive — if a customer is ever hard-deleted, sales lose only the link, not their party data. See KNOWN_GAPS.md decision lineage.
-- **`partyPhone` is normalized on storage** (whitespace, dashes, parens stripped via `src/lib/phone.ts#normalizePhone`). Phone is the identity anchor for **walk-in auto-promotion** (Phase 6): when a walk-in (`customerId IS NULL`) is saved with a populated `partyPhone`, the server normalizes, looks up an existing Customer by phone; if found, links via FK and snapshots canonical `Customer.name`; if not, auto-creates a new Customer row with the typed name + normalized phone. Walk-ins without phone stay as snapshot-only entries (no FK). The whole lookup-or-create + sale-create runs inside `prisma.$transaction` so the pair lands atomically.
+- **`partyPhone` is normalized on storage** (whitespace, dashes, parens stripped via `src/lib/phone.ts#normalizePhone`). Phone is the identity anchor for **walk-in auto-promotion** (Phase 6): when a walk-in (`customerId IS NULL`) is saved with a populated `partyPhone`, the server normalizes, looks up an existing Customer by phone; if found, links via FK and snapshots canonical `Customer.name`; if not, auto-creates a new Customer row with the typed name + normalized phone. Walk-ins without phone stay as snapshot-only entries (no FK). The whole lookup-or-create + sale-create + line-item-create runs inside `prisma.$transaction` so the trio lands atomically.
 - **Date is date-only.** Stored as DateTime in Prisma (midnight UTC by convention); rendered via `formatDate` (not `formatDateTime`). Form input is `<input type="date">` emitting "YYYY-MM-DD"; the schema's `z.coerce.date()` accepts both that string and Date instances (symmetric wire format).
-- **`total` is stored, not derived.** Computed at write time in the action's `buildSaleData()` helper as `BigInt(qty) × ratePaise − discountPaise` and persisted on the row. Trade-off vs. computing on read: enables straightforward `SUM(total)` aggregates AND preserves audit history (if discount logic ever changes, historical totals don't shift). Must be recomputed on every `updateSale`. See KNOWN_GAPS.md decision lineage.
 - **`status` is derived on read.** Computed by `computeSaleStatus(sale)` in `src/lib/sale-status.ts` and attached by `serializeSale()` before the row reaches the client. Phase 3.1 always returns `'pending'` (no payments/returns yet); Phase 3.2/3.3 plug into the same function's forward-compatible signature. See §5.
-- **Currency pipeline** identical to Employee — schema validates rupees as `z.number().nonnegative()`, action's `buildSaleData()` converts to BigInt paise at the Prisma boundary, `serializeSale()` converts back to Number at the action return for JSON safety. Three BigInt columns per sale (`rate`, `discount`, `total`).
-- Soft delete via `deletedAt`; list queries filter `where: { deletedAt: null }`.
+- **Currency pipeline** identical to Employee — schema validates rupees as `z.number().nonnegative()` on every line and on the discount; action's `buildSaleData()` converts to BigInt paise at the Prisma boundary; `serializeSale()` converts back to Number at the action return for JSON safety. Two BigInt columns on Sale (`discount`, `total`) + one BigInt column per line item (`rate`).
+- Soft delete via `deletedAt`; list queries filter `where: { deletedAt: null }`. Line items inherit visibility via the parent — soft-deleted Sales hide their lines from list views automatically.
 - **Indexes:** `@@index([deletedAt])`, `@@index([date])` (for chronological queries), `@@index([customerId])` (for per-customer history).
+
+### SaleLineItem (built Phase 7)
+`id, saleId (FK → Sale, onDelete: Cascade), itemDescription, qty (Int, positive), rate (BigInt paise, non-negative), createdAt`
+
+- **Minimum 1 per Sale.** Enforced at the schema layer (`saleInputSchema.lineItems = z.array(...).min(1)`). Empty `lineItems` array on insert rejects before any DB work.
+- **Hard-deleted on parent edit** (no `deletedAt`). `updateSale` runs `tx.saleLineItem.deleteMany({ where: { saleId } })` followed by `tx.sale.update({ data: { ..., lineItems: { create: [...] } } })` inside `$transaction` — see §6 convention. Subordinate to parent; audit-relevant unit is the Sale itself.
+- **Immutable after creation** (no `updatedAt`). Edits replace the entire line set, not modify individual lines.
+- **Cascade delete only fires on actual delete.** Soft-deleting a Sale (`deletedAt` set) does NOT cascade — line items remain in DB and are filtered out of list queries via the parent's `deletedAt IS NULL` clause. Hard-deleting a Sale (currently never happens) would cascade and remove its line items.
+- **No discount column.** Per-line discount is intentionally not represented — see Sale entry above.
+- **Indexes:** `@@index([saleId])` for the join-on-saleId access pattern (every sale read joins its line items).
 
 ### SalePayment (built Phase 3.2, extended Phase 3.3)
 `id, saleId (FK → Sale, onDelete: Cascade), date, amount (BigInt paise), type (PaymentType: PAYMENT | REFUND, default PAYMENT), note, createdAt, updatedAt, deletedAt`
@@ -133,10 +145,10 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - **`onDelete: Cascade`** on the Sale FK — defensive consistency with SalePayment.
 - **Indexes:** `@@index([saleId])` for aggregation, `@@index([deletedAt])` for soft-delete filtering.
 
-### Purchase (built Phase 4)
-`id, date, supplierId (FK → Supplier, nullable, onDelete: SetNull), partyName, partyPhone, itemDescription, qty, rate (BigInt paise), discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, createdAt, updatedAt, deletedAt`
+### Purchase (built Phase 4, restructured Phase 7)
+`id, date, supplierId (FK → Supplier, nullable, onDelete: SetNull), partyName, partyPhone, discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, createdAt, updatedAt, deletedAt`
 
-- **Structural mirror of `Sale`** — same schema shape, same dual-path party model, same currency pipeline, same stored-total convention, same `viewingPurchaseId` live-updating modal pattern, same **walk-in auto-promotion via normalized phone** (Phase 6 — see the Sale entry for the full pattern; the only inversion is `Supplier` for `Customer`). The FK is to `Supplier` (instead of `Customer`); everything else is identical.
+- **Structural mirror of `Sale`** — same Phase-7 restructure (line items moved to `PurchaseLineItem`), same dual-path party model, same currency pipeline, same stored-total convention, same `viewingPurchaseId` live-updating modal pattern, same **walk-in auto-promotion via normalized phone** (Phase 6 — see the Sale entry for the full pattern; the only inversion is `Supplier` for `Customer`), same replace-all line-item edit pattern (see §6). The FK is to `Supplier` (instead of `Customer`); everything else is identical.
 - **Status meaning is semantically inverted** vs. Sales — derived from the same `computeTransactionStatus` (see §5) but interpreted from the shop's perspective on the OPPOSITE side of the transaction:
   - `pending` = shop owes supplier money (no payment to supplier yet)
   - `partial` = partial payment made to supplier
@@ -144,6 +156,12 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
   - `refund_due` = supplier owes the shop money back (a return reduced the effective total below what the shop paid)
 - **UI label inversions** (see KNOWN_GAPS decision lineage): "Outstanding" → "Owed to supplier"; "Refund owed" → "Refund expected"; "+ Issue refund" → "+ Record refund received"; REFUND-row styling flips from red `text-error` + `−` prefix (Sales: money OUT) to blue `text-secondary` + `+` prefix (Purchases: money IN). Mental model: red = money out of shop, blue = money in to shop, regardless of which entity owns the row.
 - **Indexes:** `@@index([deletedAt])`, `@@index([date])`, `@@index([supplierId])`.
+
+### PurchaseLineItem (built Phase 7)
+`id, purchaseId (FK → Purchase, onDelete: Cascade), itemDescription, qty (Int, positive), rate (BigInt paise, non-negative), createdAt`
+
+- Mirror of `SaleLineItem`. Same min-1 enforcement, same hard-delete-on-edit (no `deletedAt`), same immutable-after-creation (no `updatedAt`), same `Cascade`-only-on-actual-delete behaviour, same no-per-line-discount stance. The only difference is the parent FK (`purchaseId` instead of `saleId`).
+- **Indexes:** `@@index([purchaseId])`.
 
 ### PurchasePayment (built Phase 4)
 `id, purchaseId (FK → Purchase, onDelete: Cascade), date, amount (BigInt paise), type (PaymentType: PAYMENT | REFUND, default PAYMENT), note, createdAt, updatedAt, deletedAt`
@@ -226,6 +244,7 @@ Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − s
 - **Session access:** server components fetch the session via `await auth()` imported from `@/lib/auth`. Client components use `useSession()` from `next-auth/react` **only when reactivity is needed** (e.g. UI that updates as the session changes); prefer passing user data down as props from server components.
 - **Role gates on every server action.** Every server action calls `await requireRole([...allowedRoles])` as its first await. The list is per-action and declares which roles can invoke it — reading the action's first line tells you the access matrix at a glance. `requireRole` throws `Unauthorized` (no session) or `Forbidden` (wrong role); both halt the action before any DB work. The older `requireSession()` helper still exists in `src/lib/auth-guards.ts` for cases where any authenticated user is sufficient (currently none — Phase 5 migrated every action).
 - **Phone identity for parties.** `Customer.phone` and `Supplier.phone` are the identity anchors for walk-in auto-promotion. Phones are normalized via `src/lib/phone.ts#normalizePhone` (strips whitespace, dashes, parens; preserves leading `+` for international numbers; returns `null` for empty/whitespace-only). Normalization is **idempotent** — running it on an already-clean phone is a no-op. Apply at every **storage** boundary (`Customer.phone`, `Supplier.phone`, `Sale.partyPhone`, `Purchase.partyPhone` schemas) AND at every **lookup** boundary (`findFirst` calls in auto-promotion, party-picker phone-prefix match). Without symmetric normalization, the lookup misses already-stored records. Pattern established Phase 6.
+- **Multi-item line items use replace-all on edit.** When updating a `Sale` or `Purchase`, the action runs `tx.saleLineItem.deleteMany({ where: { saleId } })` (or the purchase equivalent) followed by `tx.sale.update({ data: { ..., lineItems: { create: [...] } } })` inside `prisma.$transaction`. Atomicity guarantees either all line items replace cleanly or none do. Line items are subordinate to the parent (no `deletedAt` on `SaleLineItem` / `PurchaseLineItem`); the audit-relevant unit is the parent — `Sale.deletedAt` / `Purchase.deletedAt` is the right granularity. Pattern established Phase 7.
 - **Path alias:** `@/*` → `src/*`. No relative `../../` imports across feature boundaries.
 
 ## 7. Phase Plan

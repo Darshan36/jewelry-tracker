@@ -484,6 +484,89 @@ string somewhere it shouldn't (or that returns the wrong field as
 canonical). Phase 6 (`sales/actions.test.ts`, `purchases/actions.test.ts`)
 uses this for the typed-vs-canonical snapshot assertion.
 
+### `useFieldArray` — assert that field re-keying survives middle-row removal
+
+Forms with dynamic row arrays (Phase 7's sale-form-modal /
+purchase-form-modal use `useFieldArray` from react-hook-form for the
+line items) must use the field's stable RHF id (`field.id`) as the
+React key, never the array index. Index-keyed rows produce silent
+data swaps when a middle row is removed: React reuses the wrong
+`<input>` element for the surviving rows and the user's typed values
+end up attached to the wrong row.
+
+To catch this in component tests, render the form, add enough rows to
+have a middle one to remove, type **distinct sentinel values into
+non-adjacent rows**, remove a middle row, and assert the surviving
+rows still hold their sentinels:
+
+```typescript
+it("removing a middle line re-keys the survivors cleanly", async () => {
+  const user = userEvent.setup();
+  render(<SaleFormModal open onOpenChange={() => {}} customers={[]} />);
+
+  // Get to 3 lines.
+  await user.click(screen.getByRole("button", { name: /add line/i }));
+  await user.click(screen.getByRole("button", { name: /add line/i }));
+
+  // Type sentinels into rows 1 and 3 (non-adjacent).
+  await user.type(
+    screen.getByLabelText(/^line 1$/i).querySelector("input")!,
+    "FIRST",
+  );
+  await user.type(
+    screen.getByLabelText(/^line 3$/i).querySelector("input")!,
+    "THIRD",
+  );
+
+  // Remove the middle row.
+  await user.click(screen.getByRole("button", { name: /remove line 2/i }));
+
+  // Survivors keep their typed values.
+  const groups = screen.getAllByRole("group", { name: /^Line \d+$/i });
+  expect(groups).toHaveLength(2);
+  const line1Input = within(groups[0]).getByRole("textbox") as HTMLInputElement;
+  const line2Input = within(groups[1]).getByRole("textbox") as HTMLInputElement;
+  expect(line1Input.value).toBe("FIRST");
+  expect(line2Input.value).toBe("THIRD"); // ← was line 3 before removal
+});
+```
+
+If the assertion fails (typed values appear in the wrong row), the
+React key is index-based and would silently corrupt user data in
+production. See `sale-form-modal.test.tsx` for the canonical
+implementation.
+
+### Playwright + portal-based modals (Radix Dialog)
+
+Radix Dialog — and any portal-based modal with click-outside-to-
+dismiss behaviour — closes the dialog when `page.locator("body").click(...)`
+is called to blur an input inside the modal. The body click lands
+outside the dialog's `DialogContent` portal and triggers Radix's
+`onPointerDownOutside` handler, which calls `onOpenChange(false)`.
+
+Symptoms in a Playwright walkthrough: step 2 PASSes (its assertions
+run before the close animation completes), step 3 fails to find an
+in-dialog element with "Timeout exceeded waiting for `[role='dialog']`."
+
+**Fix**: blur via `page.keyboard.press("Tab")` instead of a body
+click — keyboard events don't trigger the outside-pointer handler.
+
+```typescript
+// WRONG — closes the dialog
+await rateInput.fill("250");
+await page.locator("body").click({ position: { x: 1, y: 1 } });
+
+// RIGHT — blurs without dismissing
+await rateInput.fill("250");
+await rateInput.press("Tab");
+```
+
+Same applies to any modal with default `closeOnOutsideClick`
+behaviour (Radix Dialog, Headless UI Dialog, shadcn's Sheet/Drawer).
+Discovered during Phase 7's `walkthrough-p7-line-items.mjs` — the
+`fillLine` helper originally body-clicked to commit each rate input
+and silently dropped the dialog between steps.
+
 ### Triggering React synthetic events in jsdom
 
 **Programmatic `element.focus()` does NOT trigger React's synthetic

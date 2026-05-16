@@ -32,24 +32,39 @@ const suppliers: SupplierOption[] = [
   { id: "s1", name: "Acme Metals", phone: "9111111111" },
 ];
 
+function makeLine(
+  purchaseId: string,
+  itemDescription: string,
+  qty = 1,
+  rate = 10000,
+): PurchaseForClient["lineItems"][number] {
+  return {
+    id: `${purchaseId}-l1`,
+    purchaseId,
+    itemDescription,
+    qty,
+    rate,
+    createdAt: new Date("2026-05-10T12:00:00Z"),
+  };
+}
+
 function makePurchase(
   overrides: Partial<PurchaseForClient> = {},
 ): PurchaseForClient {
+  const id = overrides.id ?? "p-default";
   return {
-    id: "p-default",
+    id,
     date: new Date("2026-05-10T00:00:00Z"),
     supplierId: null,
     partyName: "Default Walkin Vendor",
     partyPhone: "9000000000",
-    itemDescription: "Default item",
-    qty: 1,
-    rate: 10000,
     discount: 0,
     total: 10000,
     notes: null,
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    lineItems: [makeLine(id, "Default item")],
     paidAmount: 0,
     returnTotal: 0,
     status: "pending",
@@ -66,7 +81,7 @@ function mixedPurchases(): PurchaseForClient[] {
       date: new Date("2026-01-01T00:00:00Z"),
       partyName: "Acme Metals",
       partyPhone: "9111111111",
-      itemDescription: "Gold wire",
+      lineItems: [makeLine("p1", "Gold wire", 10, 24000)],
       total: 240000,
       supplierId: "s1",
       status: "pending",
@@ -76,7 +91,7 @@ function mixedPurchases(): PurchaseForClient[] {
       date: new Date("2026-02-01T00:00:00Z"),
       partyName: "Bombay Tools",
       partyPhone: "9222222222",
-      itemDescription: "Silver casting",
+      lineItems: [makeLine("p2", "Silver casting", 5, 30000)],
       total: 150000,
       supplierId: null,
       status: "pending",
@@ -86,7 +101,7 @@ function mixedPurchases(): PurchaseForClient[] {
       date: new Date("2026-03-01T00:00:00Z"),
       partyName: "Crown Polish",
       partyPhone: null,
-      itemDescription: "Polish chemicals",
+      lineItems: [makeLine("p3", "Polish chemicals", 1, 50000)],
       total: 50000,
       supplierId: "s1",
       status: "pending",
@@ -111,7 +126,13 @@ describe("PurchasesTable", () => {
       const user = userEvent.setup();
       render(
         <PurchasesTable
-          purchases={[makePurchase({ partyName: "Acme", itemDescription: "Wire" })]}
+          purchases={[
+            makePurchase({
+              id: "p",
+              partyName: "Acme",
+              lineItems: [makeLine("p", "Wire")],
+            }),
+          ]}
           suppliers={suppliers}
         />,
       );
@@ -128,11 +149,11 @@ describe("PurchasesTable", () => {
   });
 
   describe("rendering", () => {
-    it("renders Date, Party, Item, Total, Status column headers", () => {
+    it("renders Date, Party, Items, Total, Status column headers", () => {
       render(<PurchasesTable purchases={mixedPurchases()} suppliers={suppliers} />);
       expect(screen.getByRole("columnheader", { name: /date/i })).toBeInTheDocument();
       expect(screen.getByRole("columnheader", { name: /party/i })).toBeInTheDocument();
-      expect(screen.getByRole("columnheader", { name: /^item$/i })).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: /^items$/i })).toBeInTheDocument();
       expect(screen.getByRole("columnheader", { name: /total/i })).toBeInTheDocument();
       expect(screen.getByRole("columnheader", { name: /status/i })).toBeInTheDocument();
     });
@@ -197,7 +218,7 @@ describe("PurchasesTable", () => {
       expect(screen.queryByText("Acme Metals")).not.toBeInTheDocument();
     });
 
-    it("filters rows by itemDescription substring", async () => {
+    it("filters rows by line-item description substring (Phase 7)", async () => {
       const user = userEvent.setup();
       render(<PurchasesTable purchases={mixedPurchases()} suppliers={suppliers} />);
 
@@ -208,6 +229,66 @@ describe("PurchasesTable", () => {
 
       expect(screen.getByText("Bombay Tools")).toBeInTheDocument();
       expect(screen.queryByText("Acme Metals")).not.toBeInTheDocument();
+    });
+
+    it("filter matches when ANY line item's description contains the query (multi-line)", async () => {
+      const user = userEvent.setup();
+      const purchases = mixedPurchases();
+      purchases[0] = {
+        ...purchases[0],
+        lineItems: [
+          makeLine("p1", "Gold wire", 5, 20000),
+          makeLine("p1", "Pearl beads", 1, 50000),
+        ],
+      };
+      render(<PurchasesTable purchases={purchases} suppliers={suppliers} />);
+
+      await user.type(
+        screen.getByPlaceholderText(/Search by party, phone, or item/i),
+        "pearl",
+      );
+
+      expect(screen.getByText("Acme Metals")).toBeInTheDocument();
+      expect(screen.queryByText("Bombay Tools")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("items summary (Phase 7)", () => {
+    it("single-line row shows just the description", () => {
+      render(
+        <PurchasesTable
+          purchases={[
+            makePurchase({
+              id: "p",
+              partyName: "X",
+              lineItems: [makeLine("p", "Solo item")],
+            }),
+          ]}
+          suppliers={suppliers}
+        />,
+      );
+      expect(screen.getByText("Solo item")).toBeInTheDocument();
+      expect(screen.queryByText(/\+ \d+ more/)).not.toBeInTheDocument();
+    });
+
+    it("multi-line row shows '<first> + N more'", () => {
+      render(
+        <PurchasesTable
+          purchases={[
+            makePurchase({
+              id: "p",
+              partyName: "X",
+              lineItems: [
+                makeLine("p", "First line"),
+                makeLine("p", "Second line"),
+                makeLine("p", "Third line"),
+              ],
+            }),
+          ]}
+          suppliers={suppliers}
+        />,
+      );
+      expect(screen.getByText(/First line \+ 2 more/)).toBeInTheDocument();
     });
   });
 

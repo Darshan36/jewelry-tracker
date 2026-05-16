@@ -33,9 +33,6 @@ type RawSale = {
   customerId: string | null;
   partyName: string;
   partyPhone: string | null;
-  itemDescription: string;
-  qty: number;
-  rate: bigint;
   discount: bigint;
   total: bigint;
   notes: string | null;
@@ -56,19 +53,42 @@ type RawReturn = {
   deletedAt: Date | null;
 };
 
+type RawLineItem = {
+  id: string;
+  saleId: string;
+  itemDescription: string;
+  qty: number;
+  rate: bigint;
+  createdAt: Date;
+};
+
+function makeLineItem(overrides: Partial<RawLineItem> = {}): RawLineItem {
+  return {
+    id: "line-1",
+    saleId: "cuid-sale-test",
+    itemDescription: "Test item",
+    qty: 10,
+    rate: 25000n,
+    createdAt: new Date("2026-05-14T12:00:00Z"),
+    ...overrides,
+  };
+}
+
+// Phase 7: the cumulative-qty guard reads `sale.lineItems` (sum of qty
+// across line items) instead of the legacy `sale.qty` column. Default
+// fixture: a single line with qty=10, so the existing assertions about
+// "10 available" still match.
 function makeSaleRow(
   overrides: Partial<RawSale> = {},
   returns: RawReturn[] = [],
-): RawSale & { returns: RawReturn[] } {
+  lineItems: RawLineItem[] = [makeLineItem()],
+): RawSale & { returns: RawReturn[]; lineItems: RawLineItem[] } {
   return {
     id: "cuid-sale-test",
     date: new Date("2026-05-14T00:00:00Z"),
     customerId: null,
     partyName: "Test Walkin",
     partyPhone: null,
-    itemDescription: "Test item",
-    qty: 10,
-    rate: 25000n,
     discount: 10000n,
     total: 240000n,
     notes: null,
@@ -77,6 +97,7 @@ function makeSaleRow(
     deletedAt: null,
     ...overrides,
     returns,
+    lineItems,
   };
 }
 
@@ -261,7 +282,28 @@ describe("createSaleReturn", () => {
     }
   });
 
-  it("includes returns where deletedAt:null filter on the lookup query", async () => {
+  it("Phase 7 — cumulative qty guard sums across multiple line items", async () => {
+    // Two lines: qty 6 + qty 4 = 10 total. Existing returns 7. Request 4 → 11 > 10 → reject.
+    vi.mocked(prisma.sale.findUnique).mockResolvedValue(
+      makeSaleRow(
+        {},
+        [makeReturnRow({ id: "r1", qtyReturned: 7 })],
+        [
+          makeLineItem({ id: "l1", qty: 6 }),
+          makeLineItem({ id: "l2", qty: 4 }),
+        ],
+      ),
+    );
+
+    const result = await createSaleReturn(validInput({ qtyReturned: 4 }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.qtyReturned?.[0]).toContain("Already returned: 7 of 10");
+    }
+  });
+
+  it("includes returns+lineItems on the lookup query (Phase 7)", async () => {
     vi.mocked(prisma.sale.findUnique).mockResolvedValue(makeSaleRow());
     vi.mocked(prisma.saleReturn.create).mockResolvedValue(makeReturnRow());
 
@@ -270,6 +312,7 @@ describe("createSaleReturn", () => {
     const call = vi.mocked(prisma.sale.findUnique).mock.calls[0][0];
     expect(call.include).toEqual({
       returns: { where: { deletedAt: null } },
+      lineItems: true,
     });
   });
 

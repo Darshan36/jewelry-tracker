@@ -32,22 +32,37 @@ const customers: CustomerOption[] = [
   { id: "c1", name: "Alice", phone: "9111111111" },
 ];
 
-function makeSale(overrides: Partial<SaleForClient> = {}): SaleForClient {
+function makeLine(
+  saleId: string,
+  itemDescription: string,
+  qty = 1,
+  rate = 10000,
+): SaleForClient["lineItems"][number] {
   return {
-    id: "s-default",
+    id: `${saleId}-l1`,
+    saleId,
+    itemDescription,
+    qty,
+    rate,
+    createdAt: new Date("2026-05-10T12:00:00Z"),
+  };
+}
+
+function makeSale(overrides: Partial<SaleForClient> = {}): SaleForClient {
+  const id = overrides.id ?? "s-default";
+  return {
+    id,
     date: new Date("2026-05-10T00:00:00Z"),
     customerId: null,
     partyName: "Default Walkin",
     partyPhone: "9000000000",
-    itemDescription: "Default item",
-    qty: 1,
-    rate: 10000,
     discount: 0,
     total: 10000,
     notes: null,
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    lineItems: [makeLine(id, "Default item")],
     paidAmount: 0,
     returnTotal: 0,
     status: "pending",
@@ -64,7 +79,7 @@ function mixedSales(): SaleForClient[] {
       date: new Date("2026-01-01T00:00:00Z"),
       partyName: "Alice Anand",
       partyPhone: "9111111111",
-      itemDescription: "Gold-plated chain",
+      lineItems: [makeLine("s1", "Gold-plated chain", 10, 24000)],
       total: 240000,
       customerId: "c1",
       status: "pending",
@@ -74,7 +89,7 @@ function mixedSales(): SaleForClient[] {
       date: new Date("2026-02-01T00:00:00Z"),
       partyName: "Bob Bose",
       partyPhone: "9222222222",
-      itemDescription: "Silver bracelet",
+      lineItems: [makeLine("s2", "Silver bracelet", 5, 30000)],
       total: 150000,
       customerId: null,
       status: "pending",
@@ -84,7 +99,7 @@ function mixedSales(): SaleForClient[] {
       date: new Date("2026-03-01T00:00:00Z"),
       partyName: "Cara Chen",
       partyPhone: null,
-      itemDescription: "Earrings",
+      lineItems: [makeLine("s3", "Earrings", 1, 50000)],
       total: 50000,
       customerId: "c1",
       status: "pending",
@@ -109,7 +124,13 @@ describe("SalesTable", () => {
       const user = userEvent.setup();
       render(
         <SalesTable
-          sales={[makeSale({ partyName: "Alice", itemDescription: "Chain" })]}
+          sales={[
+            makeSale({
+              id: "s",
+              partyName: "Alice",
+              lineItems: [makeLine("s", "Chain")],
+            }),
+          ]}
           customers={customers}
         />,
       );
@@ -126,7 +147,7 @@ describe("SalesTable", () => {
   });
 
   describe("rendering", () => {
-    it("renders Date, Party, Item, Total, Status column headers", () => {
+    it("renders Date, Party, Items, Total, Status column headers", () => {
       render(<SalesTable sales={mixedSales()} customers={customers} />);
       expect(
         screen.getByRole("columnheader", { name: /date/i }),
@@ -135,7 +156,7 @@ describe("SalesTable", () => {
         screen.getByRole("columnheader", { name: /party/i }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole("columnheader", { name: /^item$/i }),
+        screen.getByRole("columnheader", { name: /^items$/i }),
       ).toBeInTheDocument();
       expect(
         screen.getByRole("columnheader", { name: /total/i }),
@@ -207,7 +228,7 @@ describe("SalesTable", () => {
       expect(screen.queryByText("Alice Anand")).not.toBeInTheDocument();
     });
 
-    it("filters rows by itemDescription substring", async () => {
+    it("filters rows by line-item description substring (Phase 7)", async () => {
       const user = userEvent.setup();
       render(<SalesTable sales={mixedSales()} customers={customers} />);
 
@@ -218,6 +239,67 @@ describe("SalesTable", () => {
 
       expect(screen.getByText("Bob Bose")).toBeInTheDocument();
       expect(screen.queryByText("Alice Anand")).not.toBeInTheDocument();
+    });
+
+    it("filter matches when ANY line item's description contains the query (multi-line)", async () => {
+      const user = userEvent.setup();
+      const sales = mixedSales();
+      // Give Alice's sale a second line whose description should still match.
+      sales[0] = {
+        ...sales[0],
+        lineItems: [
+          makeLine("s1", "Gold-plated chain", 5, 20000),
+          makeLine("s1", "Pearl ring", 1, 50000),
+        ],
+      };
+      render(<SalesTable sales={sales} customers={customers} />);
+
+      await user.type(
+        screen.getByPlaceholderText(/Search by party, phone, or item/i),
+        "pearl",
+      );
+
+      expect(screen.getByText("Alice Anand")).toBeInTheDocument();
+      expect(screen.queryByText("Bob Bose")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("items summary (Phase 7)", () => {
+    it("single-line row shows just the description", () => {
+      render(
+        <SalesTable
+          sales={[
+            makeSale({
+              id: "s",
+              partyName: "X",
+              lineItems: [makeLine("s", "Solo item")],
+            }),
+          ]}
+          customers={customers}
+        />,
+      );
+      expect(screen.getByText("Solo item")).toBeInTheDocument();
+      expect(screen.queryByText(/\+ \d+ more/)).not.toBeInTheDocument();
+    });
+
+    it("multi-line row shows '<first> + N more'", () => {
+      render(
+        <SalesTable
+          sales={[
+            makeSale({
+              id: "s",
+              partyName: "X",
+              lineItems: [
+                makeLine("s", "First line"),
+                makeLine("s", "Second line"),
+                makeLine("s", "Third line"),
+              ],
+            }),
+          ]}
+          customers={customers}
+        />,
+      );
+      expect(screen.getByText(/First line \+ 2 more/)).toBeInTheDocument();
     });
   });
 

@@ -28,6 +28,27 @@ const fakeSession = {
   expires: "2099-12-31T00:00:00.000Z",
 };
 
+function makeSaleLineItem(
+  overrides: Partial<{
+    id: string;
+    saleId: string;
+    itemDescription: string;
+    qty: number;
+    rate: bigint;
+    createdAt: Date;
+  }> = {},
+) {
+  return {
+    id: "line-1",
+    saleId: "cuid-sale-test",
+    itemDescription: "Test item",
+    qty: 10,
+    rate: 25000n,
+    createdAt: new Date("2026-05-14T12:00:00Z"),
+    ...overrides,
+  };
+}
+
 function makeSale(
   overrides: Partial<{
     id: string;
@@ -35,9 +56,6 @@ function makeSale(
     customerId: string | null;
     partyName: string;
     partyPhone: string | null;
-    itemDescription: string;
-    qty: number;
-    rate: bigint;
     discount: bigint;
     total: bigint;
     notes: string | null;
@@ -45,6 +63,7 @@ function makeSale(
     updatedAt: Date;
     deletedAt: Date | null;
   }> = {},
+  lineItems: ReturnType<typeof makeSaleLineItem>[] = [makeSaleLineItem()],
 ) {
   return {
     id: "cuid-sale-test",
@@ -52,16 +71,14 @@ function makeSale(
     customerId: null,
     partyName: "Test Walkin",
     partyPhone: null,
-    itemDescription: "Test item",
-    qty: 1,
-    rate: 10000n,
     discount: 0n,
-    total: 10000n,
+    total: 240000n,
     notes: null,
     createdAt: new Date("2026-05-14T12:00:00Z"),
     updatedAt: new Date("2026-05-14T12:00:00Z"),
     deletedAt: null,
     ...overrides,
+    lineItems,
   };
 }
 
@@ -93,23 +110,27 @@ function makeCustomer(
 }
 
 // Valid form-shape input — passes the schema. Rupee numbers, not paise.
-// `date` is a Date instance (post-zodResolver coercion) — matches what the
-// RHF `handleSubmit` actually hands the server action at runtime.
-function validInput(overrides: Partial<ReturnType<typeof base>> = {}) {
-  function base() {
-    return {
-      date: new Date("2026-05-14T00:00:00Z"),
-      customerId: null as string | null,
-      partyName: "Test Walkin",
-      partyPhone: null as string | null,
-      itemDescription: "Gold chain",
-      qty: 10,
-      rate: 250,
-      discount: 100,
-      notes: null as string | null,
-    };
-  }
-  return { ...base(), ...overrides };
+function validInput(
+  overrides: Partial<{
+    date: Date;
+    customerId: string | null;
+    partyName: string;
+    partyPhone: string | null;
+    lineItems: Array<{ itemDescription: string; qty: number; rate: number }>;
+    discount: number;
+    notes: string | null;
+  }> = {},
+) {
+  return {
+    date: new Date("2026-05-14T00:00:00Z"),
+    customerId: null as string | null,
+    partyName: "Test Walkin",
+    partyPhone: null as string | null,
+    lineItems: [{ itemDescription: "Gold chain", qty: 10, rate: 250 }],
+    discount: 100,
+    notes: null as string | null,
+    ...overrides,
+  };
 }
 
 beforeEach(() => {
@@ -119,30 +140,36 @@ beforeEach(() => {
 });
 
 describe("createSale", () => {
-  it("walk-in happy path — converts rupees to BigInt paise at Prisma boundary", async () => {
+  it("walk-in happy path — converts rupees to BigInt paise at the Prisma boundary on each line", async () => {
     vi.mocked(prisma.sale.create).mockResolvedValue(
-      makeSale({ total: 2400_00n, rate: 250_00n, discount: 100_00n, qty: 10 }),
+      makeSale({ total: 240000n, discount: 10000n }),
     );
 
     await createSale(validInput());
 
     expect(prisma.sale.create).toHaveBeenCalledOnce();
     const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
-    // BigInt paise conversion at the boundary
-    expect(call.data.rate).toBe(25000n);
+    // Top-level Sale fields
     expect(call.data.discount).toBe(10000n);
-    expect(typeof call.data.rate).toBe("bigint");
+    expect(typeof call.data.discount).toBe("bigint");
     // total computed: 10 * 25000 - 10000 = 240000
     expect(call.data.total).toBe(240000n);
     expect(typeof call.data.total).toBe("bigint");
+    // Line item nested create
+    const created =
+      (call.data.lineItems as { create: Array<{ rate: bigint; qty: number; itemDescription: string }> })
+        .create;
+    expect(created).toHaveLength(1);
+    expect(created[0].rate).toBe(25000n);
+    expect(typeof created[0].rate).toBe("bigint");
+    expect(created[0].qty).toBe(10);
+    expect(created[0].itemDescription).toBe("Gold chain");
     expect(revalidatePath).toHaveBeenCalledWith("/sales");
   });
 
   it("walk-in happy path — passes through partyName, leaves phone null when not provided", async () => {
-    // Phase 6: walk-ins WITH a phone now trigger auto-promotion (see the
-    // Phase 6 RBAC block below). This test covers the pure walk-in case
-    // (no phone) which still stays as a snapshot-only row with customerId
-    // remaining null.
+    // Phase 6: walk-ins WITH a phone trigger auto-promotion. This test covers
+    // the pure walk-in case (no phone) which stays snapshot-only.
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
     await createSale(
@@ -169,11 +196,9 @@ describe("createSale", () => {
       }),
     );
 
-    // Server queried the customer with deletedAt:null guard
     expect(prisma.customer.findUnique).toHaveBeenCalledWith({
       where: { id: "cust-real", deletedAt: null },
     });
-    // The Prisma create call should have snapshot values, not the form-typed ones
     const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
     expect(call.data.partyName).toBe("Real Customer Name");
     expect(call.data.partyPhone).toBe("8888888888");
@@ -195,7 +220,6 @@ describe("createSale", () => {
   });
 
   it("treats a soft-deleted customer as not found (deletedAt:null guard)", async () => {
-    // Mock returns null because the WHERE clause filters out deletedAt != null.
     vi.mocked(prisma.customer.findUnique).mockResolvedValue(null);
 
     const result = await createSale(
@@ -208,33 +232,43 @@ describe("createSale", () => {
     }
   });
 
-  it("rejects when discount exceeds qty × rate (action-layer guard)", async () => {
-    // qty=2, rate=100 → 200; discount=500 → total = 20000 - 50000 = -30000 paise
+  it("rejects when discount exceeds subtotal (action-layer guard)", async () => {
+    // subtotal = 2 * 100 = 200; discount = 500 → discount > subtotal
     const result = await createSale(
-      validInput({ qty: 2, rate: 100, discount: 500 }),
+      validInput({
+        lineItems: [{ itemDescription: "x", qty: 2, rate: 100 }],
+        discount: 500,
+      }),
     );
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.discount).toContain(
-        "Discount cannot exceed line total",
+        "Discount cannot exceed line item subtotal",
       );
     }
     expect(prisma.sale.create).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("computes total in BigInt paise (no float math)", async () => {
+  it("computes total in BigInt paise across line items (no float math)", async () => {
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
-    // 3 × 99.99 - 9.99 = 299.97 - 9.99 = 289.98 → 28998 paise
+    // line 1: 3 × 99.99 = 299.97; line 2: 5 × 49.99 = 249.95
+    // subtotal = 549.92 → 54992 paise; discount = 9.99 → 999 paise
+    // total = 54992 - 999 = 53993 paise
     await createSale(
-      validInput({ qty: 3, rate: 99.99, discount: 9.99 }),
+      validInput({
+        lineItems: [
+          { itemDescription: "A", qty: 3, rate: 99.99 },
+          { itemDescription: "B", qty: 5, rate: 49.99 },
+        ],
+        discount: 9.99,
+      }),
     );
 
     const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
-    // 3 * 9999 - 999 = 29997 - 999 = 28998
-    expect(call.data.total).toBe(28998n);
+    expect(call.data.total).toBe(53993n);
   });
 
   it("schema rejection — returns field errors without touching the DB", async () => {
@@ -250,22 +284,52 @@ describe("createSale", () => {
     expect(prisma.customer.findUnique).not.toHaveBeenCalled();
   });
 
-  it("returned sale.rate, discount, total are Number (paise), not BigInt", async () => {
+  it("returned sale.discount, total are Number (paise); lineItems[].rate is Number paise", async () => {
     vi.mocked(prisma.sale.create).mockResolvedValue(
-      makeSale({ rate: 25000n, discount: 10000n, total: 240000n }),
+      makeSale(
+        { discount: 10000n, total: 240000n },
+        [makeSaleLineItem({ rate: 25000n, qty: 10 })],
+      ),
     );
 
     const result = await createSale(validInput());
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(typeof result.sale.rate).toBe("number");
       expect(typeof result.sale.discount).toBe("number");
       expect(typeof result.sale.total).toBe("number");
       expect(result.sale.total).toBe(240000);
-      // Phase 3.1 — status always "pending" until payments + returns land
+      expect(result.sale.lineItems).toHaveLength(1);
+      expect(typeof result.sale.lineItems[0].rate).toBe("number");
+      expect(result.sale.lineItems[0].rate).toBe(25000);
+      // Without payments/returns mocked, status defaults to "pending".
       expect(result.sale.status).toBe("pending");
     }
+  });
+
+  it("creates one SaleLineItem per input line", async () => {
+    vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
+
+    await createSale(
+      validInput({
+        lineItems: [
+          { itemDescription: "A", qty: 1, rate: 100 },
+          { itemDescription: "B", qty: 2, rate: 200 },
+          { itemDescription: "C", qty: 3, rate: 300 },
+        ],
+      }),
+    );
+
+    const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
+    const created =
+      (call.data.lineItems as { create: unknown[] }).create;
+    expect(created).toHaveLength(3);
+  });
+
+  it("rejects an empty lineItems array (schema-level minimum 1)", async () => {
+    const result = await createSale(validInput({ lineItems: [] }));
+    expect(result.ok).toBe(false);
+    expect(prisma.sale.create).not.toHaveBeenCalled();
   });
 
   it("propagates auth failure (requireRole throws)", async () => {
@@ -278,33 +342,46 @@ describe("createSale", () => {
 });
 
 describe("updateSale", () => {
-  it("happy path — Prisma update called with where.deletedAt=null + recomputed total", async () => {
+  it("happy path — deletes old line items, recreates new ones, recomputes total", async () => {
+    vi.mocked(prisma.saleLineItem.deleteMany).mockResolvedValue({ count: 1 });
     vi.mocked(prisma.sale.update).mockResolvedValue(
-      makeSale({ id: "sale-abc", total: 600_00n }),
+      makeSale({ id: "sale-abc", total: 60000n, discount: 15000n }),
     );
 
     await updateSale(
       "sale-abc",
-      validInput({ qty: 3, rate: 250, discount: 150 }),
+      validInput({
+        lineItems: [{ itemDescription: "X", qty: 3, rate: 250 }],
+        discount: 150,
+      }),
     );
 
+    // deleteMany should fire BEFORE update
+    expect(prisma.saleLineItem.deleteMany).toHaveBeenCalledWith({
+      where: { saleId: "sale-abc" },
+    });
     expect(prisma.sale.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "sale-abc", deletedAt: null },
         data: expect.objectContaining({
           // 3 × 25000 - 15000 = 60000
           total: 60000n,
-          rate: 25000n,
           discount: 15000n,
         }),
       }),
     );
+    const updateCall = vi.mocked(prisma.sale.update).mock.calls[0][0];
+    const created =
+      (updateCall.data.lineItems as { create: Array<{ rate: bigint }> }).create;
+    expect(created).toHaveLength(1);
+    expect(created[0].rate).toBe(25000n);
   });
 
   it("re-snapshots customer when customerId changes during update", async () => {
     vi.mocked(prisma.customer.findUnique).mockResolvedValue(
       makeCustomer({ id: "cust-new", name: "Newly Linked", phone: "7777" }),
     );
+    vi.mocked(prisma.saleLineItem.deleteMany).mockResolvedValue({ count: 0 });
     vi.mocked(prisma.sale.update).mockResolvedValue(makeSale());
 
     await updateSale(
@@ -321,19 +398,23 @@ describe("updateSale", () => {
     expect(call.data.partyPhone).toBe("7777");
   });
 
-  it("rejects discount-exceeds-total on update too", async () => {
+  it("rejects discount-exceeds-subtotal on update too", async () => {
     const result = await updateSale(
       "sale-abc",
-      validInput({ qty: 1, rate: 100, discount: 200 }),
+      validInput({
+        lineItems: [{ itemDescription: "x", qty: 1, rate: 100 }],
+        discount: 200,
+      }),
     );
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.discount).toContain(
-        "Discount cannot exceed line total",
+        "Discount cannot exceed line item subtotal",
       );
     }
     expect(prisma.sale.update).not.toHaveBeenCalled();
+    expect(prisma.saleLineItem.deleteMany).not.toHaveBeenCalled();
   });
 
   it("propagates auth failure", async () => {
@@ -382,7 +463,6 @@ describe("softDeleteSale", () => {
 
 // =====================================================================
 // Phase 5 RBAC — parameterised role matrix.
-// Sales are ADMIN-only. 3 actions × 4 roles = 12 tests.
 // =====================================================================
 
 const SALE_ROLE_MATRIX = [
@@ -419,6 +499,7 @@ describe.each(SALE_ROLE_MATRIX)("updateSale role access — %s", (role, allowed)
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.saleLineItem.deleteMany).mockResolvedValue({ count: 0 });
       vi.mocked(prisma.sale.update).mockResolvedValue(makeSale());
       const r = await updateSale("sale-abc", validInput());
       expect(r.ok).toBe(true);
@@ -449,21 +530,13 @@ describe.each(SALE_ROLE_MATRIX)("softDeleteSale role access — %s", (role, allo
 
 // =====================================================================
 // Phase 6 — walk-in auto-promotion.
-// When customerId is null AND partyPhone is non-null, the action does a
-// lookup-by-phone and either links to an existing customer or auto-creates
-// a new one. Walk-ins WITHOUT a phone stay snapshot-only.
 // =====================================================================
 
 describe("createSale auto-promotion (Phase 6)", () => {
   it("walk-in + new phone → auto-creates customer and links the sale", async () => {
-    // No existing customer matches the phone.
     vi.mocked(prisma.customer.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.customer.create).mockResolvedValue(
-      makeCustomer({
-        id: "auto-cust-1",
-        name: "New Walkin",
-        phone: "9876500001",
-      }),
+      makeCustomer({ id: "auto-cust-1", name: "New Walkin", phone: "9876500001" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(
       makeSale({ customerId: "auto-cust-1", partyName: "New Walkin", partyPhone: "9876500001" }),
@@ -474,11 +547,9 @@ describe("createSale auto-promotion (Phase 6)", () => {
     );
 
     expect(result.ok).toBe(true);
-    // Lookup ran with normalised phone + deletedAt guard.
     expect(prisma.customer.findFirst).toHaveBeenCalledWith({
       where: { phone: "9876500001", deletedAt: null },
     });
-    // Customer create ran with the typed name + normalised phone.
     expect(prisma.customer.create).toHaveBeenCalledWith({
       data: {
         name: "New Walkin",
@@ -488,8 +559,6 @@ describe("createSale auto-promotion (Phase 6)", () => {
         notes: null,
       },
     });
-    // Sale row links to the auto-created customer; partyName/Phone snapshot
-    // canonicalised from the freshly-created row.
     const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
     expect(saleCall.data.customerId).toBe("auto-cust-1");
     expect(saleCall.data.partyName).toBe("New Walkin");
@@ -498,11 +567,7 @@ describe("createSale auto-promotion (Phase 6)", () => {
 
   it("walk-in + existing phone → links to existing customer, no new customer created", async () => {
     vi.mocked(prisma.customer.findFirst).mockResolvedValue(
-      makeCustomer({
-        id: "existing-cust",
-        name: "Canonical Name",
-        phone: "9876500001",
-      }),
+      makeCustomer({ id: "existing-cust", name: "Canonical Name", phone: "9876500001" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
@@ -512,9 +577,7 @@ describe("createSale auto-promotion (Phase 6)", () => {
 
     expect(result.ok).toBe(true);
     expect(prisma.customer.findFirst).toHaveBeenCalledOnce();
-    // No new customer.
     expect(prisma.customer.create).not.toHaveBeenCalled();
-    // Sale row links and uses CANONICAL name, ignoring the typed value.
     const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
     expect(saleCall.data.customerId).toBe("existing-cust");
     expect(saleCall.data.partyName).toBe("Canonical Name");
@@ -522,7 +585,6 @@ describe("createSale auto-promotion (Phase 6)", () => {
   });
 
   it("walk-in + existing phone, typed name differs → canonical name wins", async () => {
-    // Explicit name-override scenario, the core of step-2 walkthrough check.
     vi.mocked(prisma.customer.findFirst).mockResolvedValue(
       makeCustomer({ id: "c", name: "Real Customer", phone: "9876500001" }),
     );
@@ -558,10 +620,6 @@ describe("createSale auto-promotion (Phase 6)", () => {
   });
 
   it("normalised phone — dashes/spaces in the input still match a clean stored phone", async () => {
-    // Schema normalises partyPhone before the action sees it — so by the
-    // time findFirst runs, the lookup is by clean digits. This test confirms
-    // the schema+action pipeline together: typed "9876-500-001" lands as
-    // "9876500001" in the lookup.
     vi.mocked(prisma.customer.findFirst).mockResolvedValue(
       makeCustomer({ id: "c", name: "Existing", phone: "9876500001" }),
     );

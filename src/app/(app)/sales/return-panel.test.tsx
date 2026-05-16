@@ -20,28 +20,44 @@ import type {
   SaleReturnForClient,
 } from "./sale-helpers";
 
-function makeSale(overrides: Partial<SaleForClient> = {}): SaleForClient {
+// Phase 7: legacy `qty` overrides are translated to a single-line lineItems
+// fixture so the "available to return" maths still uses `qty` from a known
+// line. Tests that explicitly pass `lineItems` short-circuit this default.
+function makeSale(
+  overrides: Partial<SaleForClient> & { qty?: number } = {},
+): SaleForClient {
+  const { qty, lineItems, ...rest } = overrides;
+  const defaultLineItems =
+    lineItems ??
+    [
+      {
+        id: "line-1",
+        saleId: "s-1",
+        itemDescription: "Gold chain",
+        qty: qty ?? 10,
+        rate: 25000,
+        createdAt: new Date("2026-05-10T12:00:00Z"),
+      },
+    ];
   return {
     id: "s-1",
     date: new Date("2026-05-10T00:00:00Z"),
     customerId: null,
     partyName: "Test Walkin",
     partyPhone: null,
-    itemDescription: "Gold chain",
-    qty: 10,
-    rate: 25000,
     discount: 0,
     total: 250000,
     notes: null,
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    lineItems: defaultLineItems,
     paidAmount: 0,
     returnTotal: 0,
     status: "pending",
     payments: [],
     returns: [],
-    ...overrides,
+    ...rest,
   };
 }
 
