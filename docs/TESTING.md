@@ -301,6 +301,93 @@ The flip pattern per action (which roles get `true`) maps directly to
 the action's `requireRole([...])` list — Customers/Sales: only ADMIN;
 Suppliers/Purchases: ADMIN + PURCHASE_DEPT; Employees: ADMIN + LABOUR_MGMT.
 
+### Mocking SDK constructors (AWS S3 / R2)
+
+The Phase 8 `@aws-sdk/client-s3` mock uses a constructor pattern not seen
+elsewhere in the codebase. Tests on `src/lib/r2.ts` (and any future SDK
+wrapper) need this idiom.
+
+**Problem**: the wrapper calls `new S3Client(config)`, `new HeadObjectCommand(...)`,
+etc. — these MUST be invokable as constructors. Vitest's `vi.fn()` IS
+constructible by default, but `.mockImplementation(arrow_fn)` replaces the
+inner function with an arrow, and **arrow functions can't be `new`'d in
+JS**. The error is `TypeError: () => (...) is not a constructor`.
+
+**Fix**: in the `vi.mock()` factory, use `vi.fn(function (input) { ... })`
+with a regular function expression. JS lets constructors that explicitly
+return an object override `this` with that object — which is exactly what
+we want for capturing the constructor args:
+
+```typescript
+vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
+  const actual =
+    (await importOriginal()) as typeof import("@aws-sdk/client-s3");
+  // Each Command mock must be CONSTRUCTIBLE. Regular `function` expressions
+  // work as constructors; the `function (input)` form's explicit object
+  // return becomes the instance when called with `new`.
+  return {
+    ...actual,                      // pass through error classes (NotFound, etc.)
+    S3Client: vi.fn(),
+    PutObjectCommand: vi.fn(function (input: unknown) {
+      return { __cmd: "Put", input };
+    }),
+    HeadObjectCommand: vi.fn(function (input: unknown) {
+      return { __cmd: "Head", input };
+    }),
+    // ...
+  };
+});
+```
+
+For `S3Client` itself (which the wrapper does `new S3Client(config)` →
+calls `.send(cmd)` on the result), use a `function` expression that
+attaches `send` to `this`:
+
+```typescript
+let sendMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  sendMock = vi.fn();
+  vi.mocked(S3Client).mockImplementation(function (
+    this: { send: typeof sendMock },
+  ) {
+    this.send = sendMock;
+  } as unknown as typeof S3Client);
+});
+```
+
+Per-test, configure the send mock to return what the test needs:
+
+```typescript
+sendMock.mockResolvedValueOnce({ ContentType: "application/pdf", ContentLength: 4096 });
+```
+
+**Pass through error classes via `...actual`** — `NotFound`, `S3ServiceException`,
+etc. are checked via `instanceof` in production code. Spreading
+`importOriginal()` keeps them as the real constructors so the `instanceof
+NotFound` branch in `headObject` / `deleteObject` works in tests.
+
+**Clear the wrapper's singleton cache between tests.** The lazy-init
+Proxy in `src/lib/r2.ts` caches the client on `globalThis` after first
+use — without resetting, every test after the first gets the same
+S3Client instance with the same (potentially stale) sendMock binding:
+
+```typescript
+function clearR2Cache() {
+  const g = globalThis as unknown as { r2Client: unknown; r2Bucket: unknown };
+  delete (g as Record<string, unknown>).r2Client;
+  delete (g as Record<string, unknown>).r2Bucket;
+}
+
+beforeEach(() => {
+  clearR2Cache();
+  // ...
+});
+```
+
+Pattern established Phase 8 (`src/lib/r2.test.ts`). Same approach works
+for any future SDK wrapper that lazy-initialises a constructible client.
+
 ### 3. Component tests — `@testing-library/react` + `user-event`
 
 For interactive components. Render, query, simulate user behavior, assert

@@ -56,3 +56,8 @@ src/generated/
 # Playwright walkthrough screenshots — verification artifacts, not source.
 # Each walkthrough run regenerates them; keep the scripts but not the PNGs.
 scripts/walkthrough*out/
+
+# Underscore-prefixed scratch scripts (one-off tools, may contain creds or
+# perform bucket/env-management). Naming convention: keep them locally,
+# never commit.
+scripts/_*.mjs
