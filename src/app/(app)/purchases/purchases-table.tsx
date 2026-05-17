@@ -306,7 +306,7 @@ export function PurchasesTable({ purchases }: Props) {
 
       {paymentRow && (
         <PaymentActionModal
-          entityType="sale"
+          entityType="purchase"
           entityId={paymentRow.id}
           entityTotal={paymentRow.total - paymentRow.returnTotal}
           entityPaidAmount={paymentRow.paidAmount}
@@ -332,7 +332,7 @@ export function PurchasesTable({ purchases }: Props) {
         // (no `billId` FK on the Purchase row), so no onAttach/onDetach
         // props — the modal short-circuits both calls.
         <BillActionModal
-          entityType="sale"
+          entityType="purchase"
           entityId={billRowId}
           open={billRowId !== null}
           onClose={() => setBillRowId(null)}
@@ -341,7 +341,7 @@ export function PurchasesTable({ purchases }: Props) {
 
       {returnRowId && (
         <ReturnActionModal
-          entityType="sale"
+          entityType="purchase"
           entityId={returnRowId}
           open={returnRowId !== null}
           onClose={() => setReturnRowId(null)}
