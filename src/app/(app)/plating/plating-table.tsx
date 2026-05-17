@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   flexRender,
   getCoreRowModel,
@@ -15,31 +17,56 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  DollarSign,
+  Edit3,
+  Link as LinkIcon,
+  Loader2,
+  Paperclip,
   Plus,
+  Trash2,
 } from "lucide-react";
 
-import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
+import {
+  PaymentActionModal,
+} from "@/components/action-modals/payment-action-modal";
+import {
+  BillActionModal,
+} from "@/components/action-modals/bill-action-modal";
 
+import {
+  attachBillToPlatingEntry,
+  detachBillFromPlatingEntry,
+  softDeletePlatingEntry,
+} from "./actions";
+import { createPlatingPayment } from "./payment-actions";
 import { PlatingDetailModal } from "./plating-detail-modal";
-import { PlatingFormModal } from "./plating-form-modal";
-import type { VendorOption } from "./party-picker";
+import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import type { PlatingEntryForClient } from "./plating-helpers";
 
 type Props = {
   entries: PlatingEntryForClient[];
-  vendors: VendorOption[];
 };
 
-export function PlatingTable({ entries, vendors }: Props) {
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [viewingId, setViewingId] = useState<string | null>(null);
+export function PlatingTable({ entries }: Props) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
-  // Live-derive the viewed entity from the parent array (Phase 3.2 pattern)
-  // so the detail modal re-renders with fresh data after router.refresh().
-  const viewing = viewingId ? entries.find((e) => e.id === viewingId) : null;
-  const editing = editingId ? entries.find((e) => e.id === editingId) : null;
+  // Phase 10.6: derive viewing entry from id (live-update pattern).
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = viewingId
+    ? (entries.find((e) => e.id === viewingId) ?? null)
+    : null;
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Phase 10.6: TWO action-modal state slots (Pay, Bill) — Plating has
+  // no Returns workflow so there's no third slot.
+  const [paymentRowId, setPaymentRowId] = useState<string | null>(null);
+  const [billRowId, setBillRowId] = useState<string | null>(null);
+
+  const paymentRow = paymentRowId
+    ? (entries.find((e) => e.id === paymentRowId) ?? null)
+    : null;
 
   const [sorting, setSorting] = useState<SortingState>([
     { id: "date", desc: true },
@@ -52,7 +79,7 @@ export function PlatingTable({ entries, vendors }: Props) {
       header: "Date",
       enableSorting: true,
       cell: ({ row }) => (
-        <span className="text-on-surface-variant tabular-nums text-xs">
+        <span className="text-on-surface-variant tabular-nums">
           {formatDate(row.original.date)}
         </span>
       ),
@@ -63,12 +90,22 @@ export function PlatingTable({ entries, vendors }: Props) {
       enableSorting: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <span className="text-on-surface">{row.original.partyName}</span>
-          {!row.original.vendor && (
-            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 bg-surface-container-high text-on-surface-variant border border-outline-variant">
-              Walk-in
-            </span>
+          {row.original.vendorId !== null && (
+            <LinkIcon
+              className="size-3 text-secondary shrink-0"
+              aria-label="Linked vendor"
+            />
           )}
+          <div className="min-w-0">
+            <div className="text-on-surface truncate">
+              {row.original.partyName}
+            </div>
+            {row.original.partyPhone && (
+              <div className="text-on-surface-variant tabular-nums text-xs truncate">
+                {row.original.partyPhone}
+              </div>
+            )}
+          </div>
         </div>
       ),
     },
@@ -78,7 +115,8 @@ export function PlatingTable({ entries, vendors }: Props) {
       enableSorting: false,
       cell: ({ row }) => {
         const lines = row.original.lineItems;
-        if (lines.length === 0) return <span>—</span>;
+        if (lines.length === 0)
+          return <span className="text-on-surface-variant">—</span>;
         const first = lines[0].materialDescription;
         const extra = lines.length - 1;
         return (
@@ -107,6 +145,32 @@ export function PlatingTable({ entries, vendors }: Props) {
       enableSorting: false,
       cell: ({ row }) => <TransactionStatusChip status={row.original.status} />,
     },
+    {
+      id: "quickActions",
+      header: "Actions",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <QuickActions
+          onPay={() => setPaymentRowId(row.original.id)}
+          onBill={() => setBillRowId(row.original.id)}
+        />
+      ),
+    },
+    {
+      id: "rowActions",
+      header: "",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <RowActions
+          entryId={row.original.id}
+          isConfirming={confirmDeleteId === row.original.id}
+          isPending={isPending}
+          onRequestDelete={() => setConfirmDeleteId(row.original.id)}
+          onCancelDelete={() => setConfirmDeleteId(null)}
+          onConfirmDelete={() => handleDelete(row.original.id)}
+        />
+      ),
+    },
   ];
 
   const table = useReactTable({
@@ -131,6 +195,14 @@ export function PlatingTable({ entries, vendors }: Props) {
     },
   });
 
+  function handleDelete(id: string) {
+    startTransition(async () => {
+      await softDeletePlatingEntry(id);
+      setConfirmDeleteId(null);
+      router.refresh();
+    });
+  }
+
   const rows = table.getRowModel().rows;
   const hasEntries = entries.length > 0;
   const hasMatches = rows.length > 0;
@@ -145,14 +217,13 @@ export function PlatingTable({ entries, vendors }: Props) {
           onChange={(e) => setGlobalFilter(e.target.value)}
           className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
         />
-        <button
-          type="button"
-          onClick={() => setIsAddOpen(true)}
+        <Link
+          href="/plating/new"
           className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
         >
           <Plus className="size-4" />
           <span>Add plating entry</span>
-        </button>
+        </Link>
       </div>
 
       <div className="border border-outline-variant bg-surface-container-low">
@@ -198,7 +269,7 @@ export function PlatingTable({ entries, vendors }: Props) {
                 <EntryRow
                   key={row.id}
                   row={row}
-                  onClick={(e) => setViewingId(e.id)}
+                  onRowClick={(e) => setViewingId(e.id)}
                 />
               ))}
             </tbody>
@@ -221,29 +292,53 @@ export function PlatingTable({ entries, vendors }: Props) {
         )}
       </div>
 
-      <PlatingFormModal
-        open={isAddOpen}
-        onOpenChange={setIsAddOpen}
-        entry={undefined}
-        vendors={vendors}
-      />
-      <PlatingFormModal
-        open={editing !== undefined && editing !== null}
-        onOpenChange={(open) => !open && setEditingId(null)}
-        entry={editing ?? undefined}
-        vendors={vendors}
-      />
       <PlatingDetailModal
         open={viewing !== null}
         onOpenChange={(open) => !open && setViewingId(null)}
-        entry={viewing ?? null}
-        onEdit={() => {
-          if (viewing) {
-            setEditingId(viewing.id);
-            setViewingId(null);
-          }
-        }}
+        entry={viewing}
       />
+
+      {paymentRow && (
+        <PaymentActionModal
+          entityType="plating"
+          entityId={paymentRow.id}
+          entityTotal={paymentRow.total}
+          entityPaidAmount={paymentRow.paidAmount}
+          open={paymentRowId !== null}
+          onClose={() => setPaymentRowId(null)}
+          // Prop-injection dispatch (Phase 10.5 pattern). The modal stays
+          // entity-agnostic; we close over the plating-specific server
+          // action here.
+          onSave={(data) =>
+            createPlatingPayment({
+              platingEntryId: paymentRow.id,
+              date: data.date,
+              amount: data.amount,
+              type: data.type,
+              note: data.note,
+            })
+          }
+        />
+      )}
+
+      {billRowId && (
+        // Plating bill flow uses the FK-based attachment pattern (the
+        // PlatingEntry row carries a `billId @unique` FK), so the modal
+        // gets the onAttach/onDetach callbacks. The modal still runs the
+        // discriminator-side `getBillForEntity` to load the existing
+        // bill (via attachedToType="PLATING_ENTRY" + attachedToId), then
+        // attaches/detaches the FK on either side of the upload.
+        <BillActionModal
+          entityType="plating"
+          entityId={billRowId}
+          open={billRowId !== null}
+          onClose={() => setBillRowId(null)}
+          onAttach={(entityId, billId) =>
+            attachBillToPlatingEntry(entityId, billId)
+          }
+          onDetach={(entityId) => detachBillFromPlatingEntry(entityId)}
+        />
+      )}
     </>
   );
 }
@@ -256,15 +351,22 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
 
 function EntryRow({
   row,
-  onClick,
+  onRowClick,
 }: {
   row: Row<PlatingEntryForClient>;
-  onClick: (entry: PlatingEntryForClient) => void;
+  onRowClick?: (entry: PlatingEntryForClient) => void;
 }) {
   return (
     <tr
-      onClick={() => onClick(row.original)}
-      className="odd:bg-surface-container-low even:bg-surface-container hover:bg-surface-container-high cursor-pointer border-b border-outline-variant last:border-b-0 transition-colors"
+      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+      className={`
+        group
+        odd:bg-surface-container-low even:bg-surface-container
+        hover:bg-surface-container-high
+        ${onRowClick ? "cursor-pointer" : ""}
+        border-b border-outline-variant last:border-b-0
+        transition-colors
+      `}
     >
       {row.getVisibleCells().map((cell) => (
         <td key={cell.id} className="px-4 py-3 align-middle">
@@ -272,5 +374,107 @@ function EntryRow({
         </td>
       ))}
     </tr>
+  );
+}
+
+function QuickActions({
+  onPay,
+  onBill,
+}: {
+  onPay: () => void;
+  onBill: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={onPay}
+        aria-label="Add payment"
+        title="Add payment"
+        className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+      >
+        <DollarSign className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onBill}
+        aria-label="Manage bill"
+        title="Manage bill"
+        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+      >
+        <Paperclip className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+function RowActions({
+  entryId,
+  isConfirming,
+  isPending,
+  onRequestDelete,
+  onCancelDelete,
+  onConfirmDelete,
+}: {
+  entryId: string;
+  isConfirming: boolean;
+  isPending: boolean;
+  onRequestDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}) {
+  if (isConfirming) {
+    return (
+      <div
+        className="flex items-center justify-end gap-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="text-xs uppercase tracking-wider text-error">
+          Delete?
+        </span>
+        <button
+          type="button"
+          onClick={onCancelDelete}
+          disabled={isPending}
+          className="px-2 py-1 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirmDelete}
+          disabled={isPending}
+          className="min-w-[70px] h-7 px-2 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors flex items-center justify-center gap-1.5"
+        >
+          {isPending ? <Loader2 className="size-3 animate-spin" /> : "Delete"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Link
+        href={`/plating/${entryId}/edit`}
+        aria-label="Edit plating entry"
+        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+      >
+        <Edit3 className="size-4" />
+      </Link>
+      <button
+        type="button"
+        onClick={onRequestDelete}
+        aria-label="Delete plating entry"
+        className="p-1.5 text-on-surface-variant hover:text-error hover:bg-surface-container transition-colors"
+      >
+        <Trash2 className="size-4" />
+      </button>
+    </div>
   );
 }

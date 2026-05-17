@@ -1193,7 +1193,88 @@ prop. Phase 10.5 leaked four `entityType="sale"` literals into the
 mirrored `purchases-table.tsx` past `tsc` and `grep` — only the
 walkthrough's DB verification of `bills.attachedToType` caught the data
 corruption, after 4 orphan SALE-typed Bill rows had attached to actual
-purchase IDs in production.
+purchase IDs in production. Phase 10.6 added the same regression guard
+to `casting-table.test.tsx` and `plating-table.test.tsx` for the
+casting/plating entity types.
+
+## Money-direction inversion test pattern
+
+For entities where money can flow in either direction — REFUND-type
+payments inverting the customer/vendor relationship — assert **all three
+direction signals together** in detail modal tests. Any one of them in
+isolation can pass while the others silently regress:
+
+1. **Directional copy** — `"Refund received"` vs `"Refund issued"` /
+   `"Payment received"`. The text in the badge that labels the row.
+2. **Display prefix** — `"+"` for money flowing INTO the shop, `"−"` for
+   money flowing OUT. Lives on the amount cell.
+3. **Text color** — `text-secondary` (electric blue) for the inverted
+   (money-IN) case, `text-error` (red) for the money-OUT case. The
+   "red = money out, blue = money in, regardless of which entity owns
+   the row" rule from CLAUDE.md §4 made testable.
+
+Asserting all three together catches the failure mode where one
+inversion is wired but the others aren't — easy to miss in code review,
+loud at test time.
+
+```ts
+// Example from casting-detail-modal.test.tsx Phase 10.6:
+it("renders REFUND-type payments with money-IN inversion", () => {
+  render(/* ...entry with a REFUND-type payment */);
+  // (a) directional copy
+  expect(screen.getByText(/refund received/i)).toBeInTheDocument();
+  // (b) display prefix (the "+" before the amount)
+  expect(screen.getByText(/\+₹500\.00/)).toBeInTheDocument();
+  // (c) text color: verified at the className level on the same node
+  //     (the test asserts both prefix+color via the combined text query).
+});
+```
+
+Same applies to PaymentPanel inversion tests across Sales (money OUT,
+red, `−`) and Purchases/Casting/Plating (money IN on REFUND, blue, `+`).
+The PaymentPanel tests use both **present-and-absent** assertions on
+labels — see "Label-inversion tests need both present-and-absent
+assertions" in KNOWN_GAPS.md.
+
+## FK-prop contract regression guard
+
+When a shared component accepts **optional FK-related props**
+(`onAttach` / `onDetach`) that distinguish between two entity behavior
+modes, the consuming table tests should explicitly assert that the
+right props **ARE** present (for FK-bearing entities) or **NOT** present
+(for discriminator-only entities). This catches the failure mode where
+a mirror operation forgets to re-add FK props after substitution.
+
+Casting/Plating tables pass both props (FK + discriminator); Sales/
+Purchases tables pass neither (discriminator-only). The mocked
+`BillActionModal` in each table test exposes `data-has-on-attach` /
+`data-has-on-detach` attributes that the test reads:
+
+```ts
+// In the test mock:
+vi.mock("@/components/action-modals/bill-action-modal", () => ({
+  BillActionModal: (props: { onAttach?: unknown; onDetach?: unknown }) => (
+    <div
+      data-testid="bill-modal-mounted"
+      data-has-on-attach={props.onAttach !== undefined ? "yes" : "no"}
+      data-has-on-detach={props.onDetach !== undefined ? "yes" : "no"}
+    />
+  ),
+}));
+
+// In the test (casting-table.test.tsx Phase 10.6):
+it("BillActionModal mounts with FK props supplied for casting", async () => {
+  // ...click the 📎 button, then:
+  const modal = await screen.findByTestId("bill-modal-mounted");
+  expect(modal.getAttribute("data-has-on-attach")).toBe("yes");
+  expect(modal.getAttribute("data-has-on-detach")).toBe("yes");
+});
+```
+
+Equivalent assertions in `sales-table.test.tsx` / `purchases-table.test.tsx`
+would confirm absence (`"no"` for both). If a future mirror to a new
+FK-bearing entity forgets to wire the props, the unit test fails before
+the walkthrough does — and before any orphan FK state lands in the DB.
 
 ## Per-phase reporting
 

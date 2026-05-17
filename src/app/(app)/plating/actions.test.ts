@@ -167,7 +167,7 @@ describe("createPlatingEntry — happy path with vendor link", () => {
     );
 
     const call = vi.mocked(prisma.platingEntry.create).mock.calls[0][0];
-    //  is typed as a union (single-or-array) — narrow
+    // `lineItems.create` is typed as a union (single-or-array) — narrow
     // via an explicit array cast for indexing.
     const lineCreates = (
       call.data.lineItems as {

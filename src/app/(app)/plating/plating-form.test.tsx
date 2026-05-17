@@ -1,10 +1,12 @@
-// Smoke tests for PurchaseForm — mirror of sale-form.test.tsx scope,
-// extended Phase 10.6 with bill-in-form retrofit coverage.
+// Smoke tests for PlatingForm — Phase 10.6 mirror of sale-form.test.tsx
+// adapted for plating-specific shape: weight inputs (Decimal, step="0.001"),
+// vendor picker (#plating-party-name), FK-based bill attach via
+// attachBillToPlatingEntry AFTER confirmUpload.
 //
 // The form's RHF + useFieldArray internals are covered by the Phase 7
-// purchase-form-modal.test.tsx suite (now retired); these tests verify
-// the standalone form renders cleanly, dispatches the right action
-// based on `mode`, and runs the discriminator-only bill chain on save.
+// plating-form-modal.test.tsx suite (now retired); these tests verify
+// the standalone form renders cleanly and dispatches the right action
+// based on `mode`.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -17,23 +19,28 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("./actions", () => ({
-  createPurchase: vi.fn(),
-  updatePurchase: vi.fn(),
+  createPlatingEntry: vi.fn(),
+  updatePlatingEntry: vi.fn(),
+  attachBillToPlatingEntry: vi.fn(),
 }));
-// Phase 10.6: PurchaseForm now imports prepareUpload/confirmUpload for
-// the inline bill section. Mock the bills action module so the test
-// doesn't pull next-auth's runtime into the jsdom environment.
+// Phase 10.6: PlatingForm imports prepareUpload/confirmUpload for the
+// inline bill section. Mock the bills action module so the test doesn't
+// pull next-auth's runtime into jsdom.
 vi.mock("@/app/(app)/bills/actions", () => ({
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
 }));
 
-import { createPurchase, updatePurchase } from "./actions";
+import {
+  attachBillToPlatingEntry,
+  createPlatingEntry,
+  updatePlatingEntry,
+} from "./actions";
 import { confirmUpload, prepareUpload } from "@/app/(app)/bills/actions";
 
-import { PurchaseForm } from "./purchase-form";
+import { PlatingForm } from "./plating-form";
 
-// XHR stub for the browser-side R2 PUT inside PurchaseForm.onSubmit.
+// XHR stub for the browser-side R2 PUT inside PlatingForm.onSubmit.
 class StubXHR {
   static failNext = false;
   upload = { onprogress: null };
@@ -58,12 +65,8 @@ class StubXHR {
   }
 }
 
-function makeFile(name: string, type: string): File {
-  return new File(["bytes"], name, { type });
-}
-
-const suppliers = [
-  { id: "sup-1", name: "Existing Supplier", phone: "9999999999" },
+const vendors = [
+  { id: "vendor-1", name: "Existing Vendor", phone: "9999999999" },
 ];
 
 beforeEach(() => {
@@ -81,19 +84,28 @@ beforeEach(() => {
   );
 });
 
-describe("PurchaseForm — create mode", () => {
+function makeFile(name: string, type: string): File {
+  return new File(["bytes"], name, { type });
+}
+
+describe("PlatingForm — create mode", () => {
   it("renders with default empty values and one empty line item", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
-    expect(
-      screen.getByRole("group", { name: /^Line 1$/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("group", { name: /^Line 2$/i }),
-    ).not.toBeInTheDocument();
+    render(<PlatingForm mode="create" vendors={vendors} />);
+    expect(screen.getByRole("group", { name: /^Line 1$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /^Line 2$/i })).not.toBeInTheDocument();
+  });
+
+  it("renders weight input with step='0.001' for gram precision", () => {
+    render(<PlatingForm mode="create" vendors={vendors} />);
+    const weightInput = document.querySelector(
+      "#plating-line-0-weight",
+    ) as HTMLInputElement;
+    expect(weightInput).toBeInTheDocument();
+    expect(weightInput.getAttribute("step")).toBe("0.001");
   });
 
   it("renders the SaveDropdown split button", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     expect(
       screen.getByRole("button", { name: /save and return/i }),
     ).toBeInTheDocument();
@@ -103,151 +115,159 @@ describe("PurchaseForm — create mode", () => {
   });
 
   it("renders a Cancel button that's not the form submit", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     const cancel = screen.getByRole("button", { name: /^cancel$/i });
     expect(cancel.getAttribute("type")).toBe("button");
   });
 
-  it("dispatches createPurchase on Save and return", async () => {
+  it("dispatches createPlatingEntry on Save and return", async () => {
     const user = userEvent.setup();
-    vi.mocked(createPurchase).mockResolvedValue({
+    vi.mocked(createPlatingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase", supplierId: null } as any,
+      entry: { id: "new-plating", vendorId: null } as any,
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
 
     await user.type(
-      document.querySelector("#party-name-input") as HTMLInputElement,
+      document.querySelector("#plating-party-name") as HTMLInputElement,
       "Walk-in",
     );
     await user.type(
-      document.querySelector("#purchase-line-0-item") as HTMLInputElement,
-      "Test",
+      document.querySelector("#plating-line-0-material") as HTMLInputElement,
+      "Brass",
     );
     await user.type(
-      document.querySelector("#purchase-line-0-rate") as HTMLInputElement,
-      "100",
+      document.querySelector("#plating-line-0-weight") as HTMLInputElement,
+      "2.500",
+    );
+    await user.type(
+      document.querySelector("#plating-line-0-rate") as HTMLInputElement,
+      "400",
     );
 
-    await user.click(
-      screen.getByRole("button", { name: /save and return/i }),
-    );
+    await user.click(screen.getByRole("button", { name: /save and return/i }));
 
     await vi.waitFor(() => {
-      expect(createPurchase).toHaveBeenCalledOnce();
+      expect(createPlatingEntry).toHaveBeenCalledOnce();
     });
-    expect(updatePurchase).not.toHaveBeenCalled();
+    expect(updatePlatingEntry).not.toHaveBeenCalled();
   });
 });
 
-describe("PurchaseForm — edit mode", () => {
-  const existingPurchase = {
-    id: "purchase-1",
+describe("PlatingForm — edit mode", () => {
+  const existingEntry = {
+    id: "plating-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    supplierId: "sup-1",
-    partyName: "Existing Supplier",
+    vendorId: "vendor-1",
+    partyName: "Existing Vendor",
     partyPhone: "9999999999",
-    discount: 5000, // ₹50 in paise
-    total: 95000, // ₹950 in paise
+    discount: 10000, // ₹100 in paise
+    total: 90000, // ₹900 in paise
     notes: "Test note",
+    billId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
     lineItems: [
       {
         id: "li-1",
-        purchaseId: "purchase-1",
-        itemDescription: "Existing item",
-        qty: 2,
-        rate: 50000, // ₹500/unit in paise
+        platingEntryId: "plating-1",
+        materialDescription: "Brass",
+        weightKg: "2.500", // serialised as string per plating-helpers
+        ratePerKg: 40000, // ₹400/kg in paise/kg
+        lineTotal: 100000,
         createdAt: new Date(),
       },
     ],
     paidAmount: 0,
-    returnTotal: 0,
     status: "pending" as const,
     payments: [],
-    returns: [],
+    vendor: null,
+    bill: null,
   };
 
-  it("prefills line-item values from the purchase prop (rates converted paise → rupees)", async () => {
+  it("prefills line-item values from the entry prop (weight as decimal, rate paise → rupees)", async () => {
     render(
-      <PurchaseForm
+      <PlatingForm
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        purchase={existingPurchase as any}
-        suppliers={suppliers}
+        entry={existingEntry as any}
+        vendors={vendors}
       />,
     );
 
+    // PlatingForm seeds defaults inside a useEffect after first render,
+    // so wait for the rate input to receive the prefilled rupee value.
     await vi.waitFor(() => {
       const lineRate = document.querySelector(
-        "#purchase-line-0-rate",
+        "#plating-line-0-rate",
       ) as HTMLInputElement | null;
-      expect(lineRate?.value).toBe("500");
+      expect(lineRate?.value).toBe("400");
     });
 
-    const lineItem = document.querySelector(
-      "#purchase-line-0-item",
+    const lineMaterial = document.querySelector(
+      "#plating-line-0-material",
     ) as HTMLInputElement;
-    expect(lineItem.value).toBe("Existing item");
-    const lineQty = document.querySelector(
-      "#purchase-line-0-qty",
+    expect(lineMaterial.value).toBe("Brass");
+    const lineWeight = document.querySelector(
+      "#plating-line-0-weight",
     ) as HTMLInputElement;
-    expect(lineQty.value).toBe("2");
+    expect(Number(lineWeight.value)).toBe(2.5);
     const discount = document.querySelector(
-      "#purchase-discount",
+      "#plating-discount",
     ) as HTMLInputElement;
-    expect(discount.value).toBe("50");
+    expect(discount.value).toBe("100");
   });
 
-  it("dispatches updatePurchase (not createPurchase) on save", async () => {
+  it("dispatches updatePlatingEntry (not createPlatingEntry) on save", async () => {
     const user = userEvent.setup();
-    vi.mocked(updatePurchase).mockResolvedValue({
+    vi.mocked(updatePlatingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "purchase-1", supplierId: "sup-1" } as any,
+      entry: { id: "plating-1", vendorId: "vendor-1" } as any,
     });
     render(
-      <PurchaseForm
+      <PlatingForm
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        purchase={existingPurchase as any}
-        suppliers={suppliers}
+        entry={existingEntry as any}
+        vendors={vendors}
       />,
     );
 
-    await user.click(
-      screen.getByRole("button", { name: /save and return/i }),
-    );
+    await user.click(screen.getByRole("button", { name: /save and return/i }));
 
     await vi.waitFor(() => {
-      expect(updatePurchase).toHaveBeenCalledOnce();
+      expect(updatePlatingEntry).toHaveBeenCalledOnce();
     });
-    expect(createPurchase).not.toHaveBeenCalled();
-    expect(vi.mocked(updatePurchase).mock.calls[0][0]).toBe("purchase-1");
+    expect(createPlatingEntry).not.toHaveBeenCalled();
+    expect(vi.mocked(updatePlatingEntry).mock.calls[0][0]).toBe("plating-1");
   });
 });
 
 // =====================================================================
-// Phase 10.6 bill-in-form retrofit — Purchases uses discriminator-only
+// Phase 10.6 bill-in-form retrofit — Plating uses FK-based attach
 // =====================================================================
 
-describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
+describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
   function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
     return (async () => {
       await user.type(
-        document.querySelector("#party-name-input") as HTMLInputElement,
+        document.querySelector("#plating-party-name") as HTMLInputElement,
         "Walk-in",
       );
       await user.type(
-        document.querySelector("#purchase-line-0-item") as HTMLInputElement,
-        "Test",
+        document.querySelector("#plating-line-0-material") as HTMLInputElement,
+        "Brass",
       );
       await user.type(
-        document.querySelector("#purchase-line-0-rate") as HTMLInputElement,
+        document.querySelector("#plating-line-0-weight") as HTMLInputElement,
+        "1.250",
+      );
+      await user.type(
+        document.querySelector("#plating-line-0-rate") as HTMLInputElement,
         "100",
       );
     })();
@@ -258,14 +278,14 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
   }
 
   it("renders the inline 'Attach bill (optional)' section", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     expect(screen.getByText(/attach bill \(optional\)/i)).toBeInTheDocument();
     expect(getFileInput()).toBeInTheDocument();
   });
 
   it("picking a valid file shows the filename + Remove button", async () => {
     const user = userEvent.setup();
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
 
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
 
@@ -276,7 +296,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
   });
 
   it("rejects unsupported MIME types client-side without calling prepareUpload", async () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
 
     fireEvent.change(getFileInput(), {
       target: { files: [makeFile("doc.txt", "text/plain")] },
@@ -286,15 +306,15 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     expect(prepareUpload).not.toHaveBeenCalled();
   });
 
-  it("on successful save+upload: runs createPurchase → prepareUpload(PURCHASE) → confirmUpload, then navigates (NO attach call — discriminator only)", async () => {
+  it("on successful save+upload: runs createPlatingEntry → prepareUpload(PLATING_ENTRY) → confirmUpload → attachBillToPlatingEntry, in order", async () => {
     const user = userEvent.setup();
     const callOrder: string[] = [];
-    vi.mocked(createPurchase).mockImplementation(async () => {
-      callOrder.push("createPurchase");
+    vi.mocked(createPlatingEntry).mockImplementation(async () => {
+      callOrder.push("createPlatingEntry");
       return {
         ok: true as const,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        purchase: { id: "new-purchase-id", supplierId: null } as any,
+        entry: { id: "new-plating-id", vendorId: null } as any,
       };
     });
     vi.mocked(prepareUpload).mockImplementation(async () => {
@@ -313,76 +333,88 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
         bill: { id: "bill-id", status: "READY" } as any,
       };
     });
+    vi.mocked(attachBillToPlatingEntry).mockImplementation(async () => {
+      callOrder.push("attachBillToPlatingEntry");
+      return { ok: true as const };
+    });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
     await vi.waitFor(() => {
       expect(callOrder).toEqual([
-        "createPurchase",
+        "createPlatingEntry",
         "prepareUpload",
         "confirmUpload",
+        "attachBillToPlatingEntry",
       ]);
     });
-    // prepareUpload called with the right discriminator + saved id.
+    // Verify the discriminator + savedEntryId flow through correctly.
     const prepArg = vi.mocked(prepareUpload).mock.calls[0][0];
-    expect(prepArg.attachedToType).toBe("PURCHASE");
-    expect(prepArg.attachedToId).toBe("new-purchase-id");
-    // Navigation to /purchases happens after the upload chain.
-    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith("/purchases"));
+    expect(prepArg.attachedToType).toBe("PLATING_ENTRY");
+    expect(prepArg.attachedToId).toBe("new-plating-id");
+    // FK attach gets the new entry id + the new bill id.
+    expect(attachBillToPlatingEntry).toHaveBeenCalledWith(
+      "new-plating-id",
+      "bill-id",
+    );
+    // Navigation runs after the chain completes.
+    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith("/plating"));
   });
 
   it("saves without firing upload chain when no file is picked", async () => {
     const user = userEvent.setup();
-    vi.mocked(createPurchase).mockResolvedValue({
+    vi.mocked(createPlatingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase", supplierId: null } as any,
+      entry: { id: "new-plating", vendorId: null } as any,
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
-    await vi.waitFor(() => expect(createPurchase).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(createPlatingEntry).toHaveBeenCalledOnce());
     expect(prepareUpload).not.toHaveBeenCalled();
     expect(confirmUpload).not.toHaveBeenCalled();
+    expect(attachBillToPlatingEntry).not.toHaveBeenCalled();
   });
 
-  it("on upload failure: purchase stays saved, error banner appears, NO navigation", async () => {
+  it("on upload failure: entry stays saved, error banner appears, NO navigation, NO attach call", async () => {
     const user = userEvent.setup();
-    vi.mocked(createPurchase).mockResolvedValue({
+    vi.mocked(createPlatingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase-id", supplierId: null } as any,
+      entry: { id: "new-plating-id", vendorId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: false as const,
       errors: { mimeType: ["Unsupported file type."] },
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
     await vi.waitFor(() => expect(prepareUpload).toHaveBeenCalledOnce());
-    expect(createPurchase).toHaveBeenCalledOnce();
+    expect(createPlatingEntry).toHaveBeenCalledOnce();
     expect(confirmUpload).not.toHaveBeenCalled();
+    expect(attachBillToPlatingEntry).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
     expect(
-      await screen.findByText(/purchase saved, but bill upload failed/i),
+      await screen.findByText(/plating entry saved, but bill upload failed/i),
     ).toBeInTheDocument();
   });
 
-  it("R2 PUT network failure halts the chain before confirmUpload", async () => {
+  it("R2 PUT network failure halts the chain before confirmUpload and attach", async () => {
     const user = userEvent.setup();
-    vi.mocked(createPurchase).mockResolvedValue({
+    vi.mocked(createPlatingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase-id", supplierId: null } as any,
+      entry: { id: "new-plating-id", vendorId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
@@ -391,16 +423,17 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     });
     StubXHR.failNext = true;
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PlatingForm mode="create" vendors={vendors} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
     await vi.waitFor(() => {
       expect(
-        screen.getByText(/purchase saved, but bill upload failed/i),
+        screen.getByText(/plating entry saved, but bill upload failed/i),
       ).toBeInTheDocument();
     });
     expect(confirmUpload).not.toHaveBeenCalled();
+    expect(attachBillToPlatingEntry).not.toHaveBeenCalled();
   });
 });

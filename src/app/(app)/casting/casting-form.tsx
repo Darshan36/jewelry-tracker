@@ -1,12 +1,18 @@
 "use client";
 
-// Standalone purchase form — extracted from purchase-form-modal.tsx in Phase 10.
-// Phase 10.6: bill-in-form retrofit. Mirrors the Sales-form pattern from
-// Phase 10.5 — inline bill picker between line items and totals, file
-// preview via BillPreview, R2 upload chain runs AFTER the createPurchase
-// / updatePurchase succeeds. Purchases use the discriminator-only
-// attachment (no `billId` FK on the Purchase row), so the chain stops
-// at confirmUpload — no attach step.
+// Standalone casting-entry form — Phase 10.6 mirror of sale-form.tsx
+// (Phase 10/10.5) with casting-specific adaptations:
+//   - Line items use weightKg (Decimal, step="0.001") + ratePerKg
+//     instead of qty (Int) + rate.
+//   - Live preview math uses Math.round(weight × rate × 100) instead of
+//     qty × rate × 100 because weight can be fractional.
+//   - Vendor picker (VendorOption) instead of customer picker.
+//   - Bill attachment uses FK-based attach AFTER confirmUpload:
+//       prepareUpload → R2 PUT → confirmUpload → attachBillToCastingEntry
+//     Sales uses discriminator-only and skips the attach step.
+//
+// Renders without a Dialog wrapper for use inside dedicated form pages
+// at /casting/new and /casting/[id]/edit.
 
 import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
@@ -34,18 +40,22 @@ import {
   prepareUpload,
 } from "@/app/(app)/bills/actions";
 
-import { createPurchase, updatePurchase } from "./actions";
-import { PartyPicker, type SupplierOption } from "./party-picker";
-import { purchaseInputSchema } from "./schema";
-import type { PurchaseForClient } from "./purchase-helpers";
+import {
+  attachBillToCastingEntry,
+  createCastingEntry,
+  updateCastingEntry,
+} from "./actions";
+import { PartyPicker, type VendorOption } from "./party-picker";
+import { castingEntryInputSchema } from "./schema";
+import type { CastingEntryForClient } from "./casting-helpers";
 
-type FormInputT = z.input<typeof purchaseInputSchema>;
-type FormOutput = z.output<typeof purchaseInputSchema>;
+type FormInputT = z.input<typeof castingEntryInputSchema>;
+type FormOutput = z.output<typeof castingEntryInputSchema>;
 
 type Props = {
   mode: "create" | "edit";
-  purchase?: PurchaseForClient;
-  suppliers: SupplierOption[];
+  entry?: CastingEntryForClient;
+  vendors: VendorOption[];
 };
 
 function todayISO(): string {
@@ -63,11 +73,12 @@ function dateToISO(date: Date | string | null | undefined): string {
 function emptyDefaults(): FormInputT {
   return {
     date: todayISO() as unknown as Date,
-    supplierId: null,
+    vendorId: null,
     partyName: "",
     partyPhone: "",
-    lineItems: [{ itemDescription: "", qty: 1, rate: 0 }],
+    lineItems: [{ materialDescription: "", weightKg: 0, ratePerKg: 0 }],
     discount: 0,
+    billId: null,
     notes: "",
   };
 }
@@ -96,14 +107,14 @@ function putToR2(presignedUrl: string, file: File): Promise<void> {
   });
 }
 
-export function PurchaseForm({ mode, purchase, suppliers }: Props) {
+export function CastingForm({ mode, entry, vendors }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const saveModeRef = useRef<SaveMode>("return");
   const [pickedBillFile, setPickedBillFile] = useState<File | null>(null);
   const [billPickerError, setBillPickerError] = useState<string | null>(null);
   const [billUploadStatus, setBillUploadStatus] = useState<
-    "idle" | "preparing" | "uploading" | "confirming"
+    "idle" | "preparing" | "uploading" | "confirming" | "attaching"
   >("idle");
   const billInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -117,7 +128,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
     setValue,
     watch,
   } = useForm<FormInputT, unknown, FormOutput>({
-    resolver: zodResolver(purchaseInputSchema),
+    resolver: zodResolver(castingEntryInputSchema),
     defaultValues: emptyDefaults(),
   });
 
@@ -129,33 +140,34 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
 
   useEffect(() => {
     reset({
-      date: dateToISO(purchase?.date) as unknown as Date,
-      supplierId: purchase?.supplierId ?? null,
-      partyName: purchase?.partyName ?? "",
-      partyPhone: purchase?.partyPhone ?? "",
-      lineItems: purchase
-        ? purchase.lineItems.map((li) => ({
-            itemDescription: li.itemDescription,
-            qty: li.qty,
-            rate: li.rate / 100,
+      date: dateToISO(entry?.date) as unknown as Date,
+      vendorId: entry?.vendorId ?? null,
+      partyName: entry?.partyName ?? "",
+      partyPhone: entry?.partyPhone ?? "",
+      lineItems: entry
+        ? entry.lineItems.map((li) => ({
+            materialDescription: li.materialDescription,
+            weightKg: parseFloat(li.weightKg),
+            ratePerKg: li.ratePerKg / 100,
           }))
-        : [{ itemDescription: "", qty: 1, rate: 0 }],
-      discount: purchase ? purchase.discount / 100 : 0,
-      notes: purchase?.notes ?? "",
+        : [{ materialDescription: "", weightKg: 0, ratePerKg: 0 }],
+      discount: entry ? entry.discount / 100 : 0,
+      billId: entry?.billId ?? null,
+      notes: entry?.notes ?? "",
     });
-  }, [purchase, reset]);
+  }, [entry, reset]);
 
   const watchedLineItems = watch("lineItems") ?? [];
   const watchedDiscount = watch("discount");
-  const watchedSupplierId = watch("supplierId");
+  const watchedVendorId = watch("vendorId");
   const watchedPartyName = watch("partyName");
   const watchedPartyPhone = watch("partyPhone");
 
   const subtotal = watchedLineItems.reduce((sum, li) => {
-    const q = Number(li?.qty ?? 0);
-    const r = Number(li?.rate ?? 0);
-    if (!Number.isFinite(q) || !Number.isFinite(r)) return sum;
-    return sum + Math.max(0, q) * Math.max(0, r);
+    const w = Number(li?.weightKg ?? 0);
+    const r = Number(li?.ratePerKg ?? 0);
+    if (!Number.isFinite(w) || !Number.isFinite(r)) return sum;
+    return sum + Math.max(0, w) * Math.max(0, r);
   }, 0);
   const discountNum = Number(watchedDiscount ?? 0);
   const finalTotal =
@@ -166,10 +178,15 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
   const onSubmit = async (data: FormOutput) => {
     setFormError(null);
 
+    // Stage 1: save the entry. If a new bill is picked, we exclude
+    // billId from the initial save — the bill row doesn't exist yet.
+    // The FK gets attached after upload via attachBillToCastingEntry.
+    const dataForSave = pickedBillFile ? { ...data, billId: null } : data;
+
     const result =
-      mode === "edit" && purchase
-        ? await updatePurchase(purchase.id, data)
-        : await createPurchase(data);
+      mode === "edit" && entry
+        ? await updateCastingEntry(entry.id, dataForSave)
+        : await createCastingEntry(dataForSave);
 
     if (!result.ok) {
       const flat = result.errors;
@@ -186,10 +203,10 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
       return;
     }
 
-    // Entry is saved. If a bill is picked, run the upload chain attached
-    // to the entry's id. On failure, leave the entry saved and surface
-    // a banner — the user can retry via the row-level 📎 BillActionModal.
-    const savedPurchaseId = result.purchase.id;
+    // Stage 2: if a bill was picked, run the upload chain with FK
+    // attach at the end. On failure, leave the entry saved and surface
+    // a banner — the user can retry via the row-level 📎 modal.
+    const savedEntryId = result.entry.id;
     if (pickedBillFile) {
       try {
         setBillUploadStatus("preparing");
@@ -197,8 +214,8 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
           originalFilename: pickedBillFile.name,
           mimeType: pickedBillFile.type as AllowedMimeType,
           sizeBytes: pickedBillFile.size,
-          attachedToType: "PURCHASE",
-          attachedToId: savedPurchaseId,
+          attachedToType: "CASTING_ENTRY",
+          attachedToId: savedEntryId,
         });
         if (!prep.ok) {
           const first = Object.values(prep.errors).flat().find(Boolean);
@@ -212,13 +229,16 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
           const first = Object.values(conf.errors).flat().find(Boolean);
           throw new Error(first ?? "Bill confirmation failed");
         }
+        setBillUploadStatus("attaching");
+        const attach = await attachBillToCastingEntry(savedEntryId, prep.billId);
+        if (!attach.ok) throw new Error("Failed to attach bill");
         setBillUploadStatus("idle");
       } catch (err) {
         setBillUploadStatus("idle");
         setFormError(
-          `Purchase saved, but bill upload failed: ${
+          `Casting entry saved, but bill upload failed: ${
             err instanceof Error ? err.message : String(err)
-          }. Use the 📎 button in the purchases list to retry.`,
+          }. Use the 📎 button in the casting list to retry.`,
         );
         router.refresh();
         return;
@@ -226,7 +246,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
     }
 
     if (saveModeRef.current === "return") {
-      router.push("/purchases");
+      router.push("/casting");
       router.refresh();
     } else {
       reset(emptyDefaults());
@@ -274,7 +294,9 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         ? "Uploading bill"
         : billUploadStatus === "confirming"
           ? "Confirming bill"
-          : "";
+          : billUploadStatus === "attaching"
+            ? "Attaching bill"
+            : "";
 
   return (
     <form
@@ -289,11 +311,11 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
       )}
 
       <div>
-        <FormLabel htmlFor="purchase-date" required>
+        <FormLabel htmlFor="casting-date" required>
           Date
         </FormLabel>
         <FormInput
-          id="purchase-date"
+          id="casting-date"
           type="date"
           aria-invalid={!!errors.date}
           {...register("date")}
@@ -303,33 +325,34 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         </FormError>
       </div>
 
-      <input type="hidden" {...register("supplierId")} />
+      <input type="hidden" {...register("vendorId")} />
       <input type="hidden" {...register("partyName")} />
       <input type="hidden" {...register("partyPhone")} />
+      <input type="hidden" {...register("billId")} />
 
       <PartyPicker
-        suppliers={suppliers}
+        vendors={vendors}
         value={{
-          supplierId: (watchedSupplierId as string | null) ?? null,
+          vendorId: (watchedVendorId as string | null) ?? null,
           partyName: (watchedPartyName as string | undefined) ?? "",
           partyPhone:
             (watchedPartyPhone as string | null | undefined) ?? null,
         }}
         onChange={(v) => {
-          setValue("supplierId", v.supplierId);
+          setValue("vendorId", v.vendorId);
           setValue("partyName", v.partyName, { shouldValidate: true });
           setValue("partyPhone", v.partyPhone);
         }}
-        error={errors.partyName?.message ?? errors.supplierId?.message}
+        error={errors.partyName?.message ?? errors.vendorId?.message}
       />
 
       <div>
         <div className="flex items-center justify-between mb-2">
-          <FormLabel>Items</FormLabel>
+          <FormLabel>Materials</FormLabel>
           <button
             type="button"
             onClick={() =>
-              append({ itemDescription: "", qty: 1, rate: 0 })
+              append({ materialDescription: "", weightKg: 0, ratePerKg: 0 })
             }
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wider font-display bg-surface-container-high text-on-surface hover:bg-surface-container-highest border border-outline-variant transition-colors"
           >
@@ -339,20 +362,20 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         </div>
 
         <div className="border border-outline-variant divide-y divide-outline-variant/50">
-          <div className="grid grid-cols-[1fr_80px_120px_120px_40px] gap-2 px-3 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
-            <span>Description</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Rate (₹)</span>
+          <div className="grid grid-cols-[1fr_110px_130px_130px_40px] gap-2 px-3 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
+            <span>Material</span>
+            <span className="text-right">Weight (kg)</span>
+            <span className="text-right">Rate (₹/kg)</span>
             <span className="text-right">Line total</span>
             <span></span>
           </div>
 
           {fields.map((field, idx) => {
-            const q = Number(watchedLineItems[idx]?.qty ?? 0);
-            const r = Number(watchedLineItems[idx]?.rate ?? 0);
+            const w = Number(watchedLineItems[idx]?.weightKg ?? 0);
+            const r = Number(watchedLineItems[idx]?.ratePerKg ?? 0);
             const lineTotalPaise =
-              Number.isFinite(q) && Number.isFinite(r)
-                ? Math.max(0, q) * Math.max(0, r) * 100
+              Number.isFinite(w) && Number.isFinite(r)
+                ? Math.round(Math.max(0, w) * Math.max(0, r) * 100)
                 : 0;
 
             const lineErrors = errors.lineItems?.[idx];
@@ -362,61 +385,61 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
                 key={field.id}
                 role="group"
                 aria-label={`Line ${idx + 1}`}
-                className="grid grid-cols-[1fr_80px_120px_120px_40px] gap-2 px-3 py-2 items-start"
+                className="grid grid-cols-[1fr_110px_130px_130px_40px] gap-2 px-3 py-2 items-start"
               >
                 <div>
                   <FormInput
-                    id={`purchase-line-${idx}-item`}
+                    id={`casting-line-${idx}-material`}
                     type="text"
                     autoComplete="off"
-                    placeholder="Item description"
-                    aria-invalid={!!lineErrors?.itemDescription}
-                    {...register(`lineItems.${idx}.itemDescription`)}
+                    placeholder="e.g. Brass, Aluminium"
+                    aria-invalid={!!lineErrors?.materialDescription}
+                    {...register(`lineItems.${idx}.materialDescription`)}
                   />
-                  {lineErrors?.itemDescription?.message && (
+                  {lineErrors?.materialDescription?.message && (
                     <FormError>
-                      {lineErrors.itemDescription.message}
+                      {lineErrors.materialDescription.message}
                     </FormError>
                   )}
                 </div>
                 <div>
                   <FormInput
-                    id={`purchase-line-${idx}-qty`}
+                    id={`casting-line-${idx}-weight`}
                     type="number"
-                    min="1"
-                    step="1"
-                    inputMode="numeric"
+                    min="0"
+                    step="0.001"
+                    inputMode="decimal"
                     className="text-right tabular-nums"
-                    aria-invalid={!!lineErrors?.qty}
-                    {...register(`lineItems.${idx}.qty`, {
+                    aria-invalid={!!lineErrors?.weightKg}
+                    {...register(`lineItems.${idx}.weightKg`, {
                       setValueAs: (v) =>
                         v === "" || v === null || v === undefined
                           ? 0
                           : Number(v),
                     })}
                   />
-                  {lineErrors?.qty?.message && (
-                    <FormError>{lineErrors.qty.message}</FormError>
+                  {lineErrors?.weightKg?.message && (
+                    <FormError>{lineErrors.weightKg.message}</FormError>
                   )}
                 </div>
                 <div>
                   <FormInput
-                    id={`purchase-line-${idx}-rate`}
+                    id={`casting-line-${idx}-rate`}
                     type="number"
                     min="0"
                     step="0.01"
                     inputMode="decimal"
                     className="text-right tabular-nums"
-                    aria-invalid={!!lineErrors?.rate}
-                    {...register(`lineItems.${idx}.rate`, {
+                    aria-invalid={!!lineErrors?.ratePerKg}
+                    {...register(`lineItems.${idx}.ratePerKg`, {
                       setValueAs: (v) =>
                         v === "" || v === null || v === undefined
                           ? 0
                           : Number(v),
                     })}
                   />
-                  {lineErrors?.rate?.message && (
-                    <FormError>{lineErrors.rate.message}</FormError>
+                  {lineErrors?.ratePerKg?.message && (
+                    <FormError>{lineErrors.ratePerKg.message}</FormError>
                   )}
                 </div>
                 <div className="h-10 flex items-center justify-end pr-1 text-on-surface tabular-nums font-mono text-sm">
@@ -451,11 +474,11 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
           </span>
         </FormLabel>
         <div className="border border-outline-variant bg-surface-container-low p-3 space-y-3">
-          {mode === "edit" && purchase && (
+          {mode === "edit" && entry && (
             <p className="text-xs text-on-surface-variant italic">
-              To replace or remove an existing bill on this purchase, use
-              the 📎 button on the purchases list row. Picking a file here
-              adds a new bill alongside.
+              To replace or remove an existing bill on this casting entry,
+              use the 📎 button on the casting list row. Picking a file
+              here adds a new bill alongside.
             </p>
           )}
           {!pickedBillFile && (
@@ -504,18 +527,18 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         <div className="flex items-center justify-between text-sm">
           <span className="text-on-surface-variant">Subtotal</span>
           <span className="tabular-nums font-mono text-on-surface">
-            {formatCurrency(subtotal * 100)}
+            {formatCurrency(Math.round(subtotal * 100))}
           </span>
         </div>
         <div className="grid grid-cols-[1fr_140px] gap-3 items-center">
           <FormLabel
-            htmlFor="purchase-discount"
+            htmlFor="casting-discount"
             className="!mb-0 text-sm normal-case tracking-normal text-on-surface-variant"
           >
             Discount (₹)
           </FormLabel>
           <FormInput
-            id="purchase-discount"
+            id="casting-discount"
             type="number"
             min="0"
             step="0.01"
@@ -539,7 +562,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
               isNegativeTotal ? "text-error" : "text-on-surface"
             }`}
           >
-            {formatCurrency(finalTotal * 100)}
+            {formatCurrency(Math.round(finalTotal * 100))}
           </span>
         </div>
         {isNegativeTotal && (
@@ -550,9 +573,9 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
       </div>
 
       <div>
-        <FormLabel htmlFor="purchase-notes">Notes</FormLabel>
+        <FormLabel htmlFor="casting-notes">Notes</FormLabel>
         <FormTextarea
-          id="purchase-notes"
+          id="casting-notes"
           rows={2}
           aria-invalid={!!errors.notes}
           {...register("notes")}
@@ -563,7 +586,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
       <div className="flex items-center justify-end gap-3 pt-4 border-t border-outline-variant">
         <button
           type="button"
-          onClick={() => router.push("/purchases")}
+          onClick={() => router.push("/casting")}
           disabled={isSubmitting}
           className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
         >
@@ -584,11 +607,12 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
 
 const FORM_FIELDS = [
   "date",
-  "supplierId",
+  "vendorId",
   "partyName",
   "partyPhone",
   "lineItems",
   "discount",
+  "billId",
   "notes",
 ] as const;
 type FormField = (typeof FORM_FIELDS)[number];

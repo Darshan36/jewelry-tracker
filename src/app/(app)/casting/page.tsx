@@ -4,23 +4,16 @@ import { CastingTable } from "./casting-table";
 import { serializeCastingEntry } from "./casting-helpers";
 
 export default async function CastingPage() {
-  const [entries, vendors] = await Promise.all([
-    prisma.castingEntry.findMany({
-      where: { deletedAt: null },
-      orderBy: { date: "desc" },
-      include: {
-        lineItems: { orderBy: { createdAt: "asc" } },
-        payments: true,
-        vendor: true,
-        bill: true,
-      },
-    }),
-    prisma.castingPlatingVendor.findMany({
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, phone: true },
-    }),
-  ]);
+  const entries = await prisma.castingEntry.findMany({
+    where: { deletedAt: null },
+    orderBy: { date: "desc" },
+    include: {
+      lineItems: { orderBy: { createdAt: "asc" } },
+      payments: true,
+      vendor: true,
+      bill: true,
+    },
+  });
 
   const serialized = entries.map(serializeCastingEntry);
 
@@ -33,7 +26,7 @@ export default async function CastingPage() {
         </p>
       </header>
 
-      <CastingTable entries={serialized} vendors={vendors} />
+      <CastingTable entries={serialized} />
     </div>
   );
 }

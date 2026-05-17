@@ -243,44 +243,55 @@ describe("BillActionModal — first upload, Sales/Purchases (discriminator-only)
 });
 
 describe("BillActionModal — first upload, Casting/Plating (FK via onAttach)", () => {
-  it("calls onAttach AFTER confirmUpload when supplied", async () => {
-    const user = userEvent.setup();
-    const callOrder: string[] = [];
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
-    vi.mocked(prepareUpload).mockImplementation(async () => {
-      callOrder.push("prepareUpload");
-      return RESOLVED_PREPARE_OK;
-    });
-    vi.mocked(confirmUpload).mockImplementation(async () => {
-      callOrder.push("confirmUpload");
-      return RESOLVED_CONFIRM_OK;
-    });
-    const onAttach = vi.fn(async () => {
-      callOrder.push("onAttach");
-      return { ok: true as const };
-    });
+  // Phase 10.6: parameterise across both FK-bearing entity types so any
+  // future divergence in their chain semantics fails loudly.
+  it.each([
+    ["casting", "CASTING_ENTRY"] as const,
+    ["plating", "PLATING_ENTRY"] as const,
+  ])(
+    "entityType=%s calls onAttach AFTER confirmUpload with the right discriminator",
+    async (entityType, attachedToType) => {
+      const user = userEvent.setup();
+      const callOrder: string[] = [];
+      vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+      vi.mocked(prepareUpload).mockImplementation(async () => {
+        callOrder.push("prepareUpload");
+        return RESOLVED_PREPARE_OK;
+      });
+      vi.mocked(confirmUpload).mockImplementation(async () => {
+        callOrder.push("confirmUpload");
+        return RESOLVED_CONFIRM_OK;
+      });
+      const onAttach = vi.fn(async () => {
+        callOrder.push("onAttach");
+        return { ok: true as const };
+      });
 
-    render(
-      <BillActionModal
-        entityType="casting"
-        entityId="cast-1"
-        open
-        onClose={vi.fn()}
-        onAttach={onAttach}
-      />,
-    );
+      render(
+        <BillActionModal
+          entityType={entityType}
+          entityId={`${entityType}-1`}
+          open
+          onClose={vi.fn()}
+          onAttach={onAttach}
+        />,
+      );
 
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
-    await user.upload(
-      document.querySelector('input[type="file"]') as HTMLInputElement,
-      makeFile("x.png", "image/png"),
-    );
-    await user.click(screen.getByRole("button", { name: /^upload$/i }));
+      await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+      await user.upload(
+        document.querySelector('input[type="file"]') as HTMLInputElement,
+        makeFile("x.png", "image/png"),
+      );
+      await user.click(screen.getByRole("button", { name: /^upload$/i }));
 
-    await vi.waitFor(() => expect(onAttach).toHaveBeenCalledOnce());
-    expect(callOrder).toEqual(["prepareUpload", "confirmUpload", "onAttach"]);
-    expect(onAttach).toHaveBeenCalledWith("cast-1", "new-bill-id");
-  });
+      await vi.waitFor(() => expect(onAttach).toHaveBeenCalledOnce());
+      expect(callOrder).toEqual(["prepareUpload", "confirmUpload", "onAttach"]);
+      expect(onAttach).toHaveBeenCalledWith(`${entityType}-1`, "new-bill-id");
+      expect(vi.mocked(prepareUpload).mock.calls[0][0].attachedToType).toBe(
+        attachedToType,
+      );
+    },
+  );
 });
 
 // =====================================================================
@@ -341,61 +352,68 @@ describe("BillActionModal — replace flow", () => {
     expect(softDeleteBill).toHaveBeenCalledWith({ billId: "old-bill-id" });
   });
 
-  it("Casting/Plating (with onDetach): onDetach → softDeleteBill → prepareUpload → confirmUpload → onAttach", async () => {
-    const user = userEvent.setup();
-    const callOrder: string[] = [];
-    vi.mocked(getBillForEntity).mockResolvedValue({
-      ok: true as const,
-      bill: EXISTING_BILL,
-    });
-    const onDetach = vi.fn(async () => {
-      callOrder.push("onDetach");
-      return { ok: true as const };
-    });
-    vi.mocked(softDeleteBill).mockImplementation(async () => {
-      callOrder.push("softDeleteBill");
-      return { ok: true as const };
-    });
-    vi.mocked(prepareUpload).mockImplementation(async () => {
-      callOrder.push("prepareUpload");
-      return RESOLVED_PREPARE_OK;
-    });
-    vi.mocked(confirmUpload).mockImplementation(async () => {
-      callOrder.push("confirmUpload");
-      return RESOLVED_CONFIRM_OK;
-    });
-    const onAttach = vi.fn(async () => {
-      callOrder.push("onAttach");
-      return { ok: true as const };
-    });
+  // Phase 10.6: parameterise across both FK-bearing entity types so the
+  // replace ordering contract is pinned per-entity. The Phase 10.5 leak
+  // would have surfaced here if entityType="sale" had snuck into the
+  // mirrored side.
+  it.each(["casting", "plating"] as const)(
+    "entityType=%s replace chain: onDetach → softDeleteBill → prepareUpload → confirmUpload → onAttach",
+    async (entityType) => {
+      const user = userEvent.setup();
+      const callOrder: string[] = [];
+      vi.mocked(getBillForEntity).mockResolvedValue({
+        ok: true as const,
+        bill: EXISTING_BILL,
+      });
+      const onDetach = vi.fn(async () => {
+        callOrder.push("onDetach");
+        return { ok: true as const };
+      });
+      vi.mocked(softDeleteBill).mockImplementation(async () => {
+        callOrder.push("softDeleteBill");
+        return { ok: true as const };
+      });
+      vi.mocked(prepareUpload).mockImplementation(async () => {
+        callOrder.push("prepareUpload");
+        return RESOLVED_PREPARE_OK;
+      });
+      vi.mocked(confirmUpload).mockImplementation(async () => {
+        callOrder.push("confirmUpload");
+        return RESOLVED_CONFIRM_OK;
+      });
+      const onAttach = vi.fn(async () => {
+        callOrder.push("onAttach");
+        return { ok: true as const };
+      });
 
-    render(
-      <BillActionModal
-        entityType="plating"
-        entityId="plat-1"
-        open
-        onClose={vi.fn()}
-        onAttach={onAttach}
-        onDetach={onDetach}
-      />,
-    );
+      render(
+        <BillActionModal
+          entityType={entityType}
+          entityId={`${entityType}-1`}
+          open
+          onClose={vi.fn()}
+          onAttach={onAttach}
+          onDetach={onDetach}
+        />,
+      );
 
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
-    await user.upload(
-      document.querySelector('input[type="file"]') as HTMLInputElement,
-      makeFile("new.png", "image/png"),
-    );
-    await user.click(screen.getByRole("button", { name: /^upload$/i }));
+      await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+      await user.upload(
+        document.querySelector('input[type="file"]') as HTMLInputElement,
+        makeFile("new.png", "image/png"),
+      );
+      await user.click(screen.getByRole("button", { name: /^upload$/i }));
 
-    await vi.waitFor(() => expect(onAttach).toHaveBeenCalledOnce());
-    expect(callOrder).toEqual([
-      "onDetach",
-      "softDeleteBill",
-      "prepareUpload",
-      "confirmUpload",
-      "onAttach",
-    ]);
-  });
+      await vi.waitFor(() => expect(onAttach).toHaveBeenCalledOnce());
+      expect(callOrder).toEqual([
+        "onDetach",
+        "softDeleteBill",
+        "prepareUpload",
+        "confirmUpload",
+        "onAttach",
+      ]);
+    },
+  );
 });
 
 // =====================================================================
@@ -459,6 +477,51 @@ describe("BillActionModal — failure modes halt the chain", () => {
       expect(screen.getByText(/network error during upload/i)).toBeInTheDocument();
     });
     expect(confirmUpload).not.toHaveBeenCalled();
+  });
+
+  it("onDetach failure (FK chain) halts before softDeleteBill", async () => {
+    const user = userEvent.setup();
+    const callOrder: string[] = [];
+    vi.mocked(getBillForEntity).mockResolvedValue({
+      ok: true as const,
+      bill: EXISTING_BILL,
+    });
+    const onDetach = vi.fn(async () => {
+      callOrder.push("onDetach");
+      throw new Error("Detach failed");
+    });
+    vi.mocked(softDeleteBill).mockImplementation(async () => {
+      callOrder.push("softDeleteBill");
+      return { ok: true as const };
+    });
+
+    render(
+      <BillActionModal
+        entityType="casting"
+        entityId="cast-1"
+        open
+        onClose={vi.fn()}
+        onAttach={vi.fn(async () => ({ ok: true as const }))}
+        onDetach={onDetach}
+      />,
+    );
+    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      makeFile("new.png", "image/png"),
+    );
+    await user.click(screen.getByRole("button", { name: /^upload$/i }));
+
+    await vi.waitFor(() => expect(onDetach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => {
+      expect(screen.getByText(/detach failed/i)).toBeInTheDocument();
+    });
+    // The rest of the chain MUST NOT run when detach fails — otherwise we'd
+    // tombstone the old bill while the entity's FK still pointed at it.
+    expect(softDeleteBill).not.toHaveBeenCalled();
+    expect(prepareUpload).not.toHaveBeenCalled();
+    expect(confirmUpload).not.toHaveBeenCalled();
+    expect(callOrder).toEqual(["onDetach"]);
   });
 
   it("confirmUpload failure: onAttach NOT called even when supplied", async () => {

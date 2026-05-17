@@ -4,23 +4,16 @@ import { PlatingTable } from "./plating-table";
 import { serializePlatingEntry } from "./plating-helpers";
 
 export default async function PlatingPage() {
-  const [entries, vendors] = await Promise.all([
-    prisma.platingEntry.findMany({
-      where: { deletedAt: null },
-      orderBy: { date: "desc" },
-      include: {
-        lineItems: { orderBy: { createdAt: "asc" } },
-        payments: true,
-        vendor: true,
-        bill: true,
-      },
-    }),
-    prisma.castingPlatingVendor.findMany({
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, phone: true },
-    }),
-  ]);
+  const entries = await prisma.platingEntry.findMany({
+    where: { deletedAt: null },
+    orderBy: { date: "desc" },
+    include: {
+      lineItems: { orderBy: { createdAt: "asc" } },
+      payments: true,
+      vendor: true,
+      bill: true,
+    },
+  });
 
   const serialized = entries.map(serializePlatingEntry);
 
@@ -33,7 +26,7 @@ export default async function PlatingPage() {
         </p>
       </header>
 
-      <PlatingTable entries={serialized} vendors={vendors} />
+      <PlatingTable entries={serialized} />
     </div>
   );
 }

@@ -191,6 +191,37 @@ describe("PaymentActionModal — refund mode auto-detection", () => {
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0][0].type).toBe("REFUND");
   });
+
+  // Phase 10.6: extend REFUND-mode dispatch coverage to casting/plating
+  // so each new entity type gets its own dispatch assertion. The modal
+  // itself is entity-agnostic, but this pins the contract — REFUND mode
+  // produces a type=REFUND payload regardless of which entity's onSave
+  // is injected.
+  it.each(["casting", "plating"] as const)(
+    "entityType=%s in refund mode dispatches type=REFUND",
+    async (entityType) => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockResolvedValue({ ok: true });
+
+      render(
+        <PaymentActionModal
+          entityType={entityType}
+          entityId={`${entityType}-1`}
+          entityTotal={50000}
+          entityPaidAmount={60000}
+          open
+          onClose={vi.fn()}
+          onSave={onSave}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: /refund full/i }));
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+      await vi.waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+      expect(onSave.mock.calls[0][0].type).toBe("REFUND");
+    },
+  );
 });
 
 describe("PaymentActionModal — direction labels", () => {
