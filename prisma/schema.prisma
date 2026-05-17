@@ -26,7 +26,37 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  uploadedBills Bill[]
+
   @@map("users")
+}
+
+enum BillStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+model Bill {
+  id               String     @id @default(cuid())
+  r2Key            String     @unique
+  mimeType         String
+  sizeBytes        Int
+  originalFilename String
+  uploadedById     String
+  uploadedBy       User       @relation(fields: [uploadedById], references: [id])
+  attachedToType   String?
+  attachedToId     String?
+  status           BillStatus @default(PENDING)
+  uploadedAt       DateTime   @default(now())
+  confirmedAt      DateTime?
+  deletedAt        DateTime?
+
+  @@index([uploadedById])
+  @@index([attachedToType, attachedToId])
+  @@index([deletedAt])
+  @@index([status])
+  @@map("bills")
 }
 
 model Customer {

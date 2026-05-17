@@ -68,7 +68,7 @@ function Card({
 async function AdminDashboard({ name }: { name: string }) {
   const monthRange = currentMonthRange();
 
-  const [customerCount, supplierCount, salesAgg, purchasesAgg] =
+  const [customerCount, supplierCount, salesAgg, purchasesAgg, billsReady] =
     await Promise.all([
       prisma.customer.count({ where: { deletedAt: null } }),
       prisma.supplier.count({ where: { deletedAt: null } }),
@@ -82,6 +82,7 @@ async function AdminDashboard({ name }: { name: string }) {
         _count: { _all: true },
         _sum: { total: true },
       }),
+      prisma.bill.count({ where: { deletedAt: null, status: "READY" } }),
     ]);
 
   return (
@@ -99,6 +100,11 @@ async function AdminDashboard({ name }: { name: string }) {
           label="Purchases (this month)"
           value={formatCurrency(Number(purchasesAgg._sum.total ?? 0n))}
           hint={`${purchasesAgg._count._all} transactions`}
+        />
+        <Card
+          label="Bills stored"
+          value={String(billsReady)}
+          hint="Active receipts in R2"
         />
       </div>
     </div>
