@@ -223,17 +223,21 @@ export function SalesTable({ sales }: Props) {
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-4">
+      {/* Phase 11.1 hotfix: stack vertically on mobile so the Add button
+          doesn't compete with the search input for horizontal space.
+          min-w-0 on the input lets it shrink past its intrinsic 20-char
+          default in flex-row mode at sm+ widths. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
         <input
           type="search"
           placeholder="Search by party, phone, or item…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
-          className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
+          className="w-full sm:flex-1 min-w-0 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
         />
         <Link
           href="/sales/new"
-          className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
+          className="h-11 sm:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto"
         >
           <Plus className="size-4" />
           <span>Add sale</span>
