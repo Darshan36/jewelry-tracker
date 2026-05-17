@@ -173,16 +173,44 @@ async function LabourDashboard({ name }: { name: string }) {
   );
 }
 
-function CastingPlatingDashboard({ name }: { name: string }) {
+async function CastingPlatingDashboard({ name }: { name: string }) {
+  const monthRange = currentMonthRange();
+
+  const [castingAgg, platingAgg, vendorCount, owed] = await Promise.all([
+    prisma.castingEntry.aggregate({
+      where: { deletedAt: null, date: monthRange },
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    prisma.platingEntry.aggregate({
+      where: { deletedAt: null, date: monthRange },
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    prisma.castingPlatingVendor.count({ where: { deletedAt: null } }),
+    sumOwedToCastingPlatingVendors(),
+  ]);
+
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Casting & Plating" />
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         <Card
-          label="Coming soon"
-          value="—"
-          hint="Casting and Plating tracking are scheduled for a future phase."
+          label="Casting (this month)"
+          value={formatCurrency(Number(castingAgg._sum.total ?? 0n))}
+          hint={`${castingAgg._count._all} entries`}
         />
+        <Card
+          label="Plating (this month)"
+          value={formatCurrency(Number(platingAgg._sum.total ?? 0n))}
+          hint={`${platingAgg._count._all} entries`}
+        />
+        <Card
+          label="Total owed"
+          value={formatCurrency(Number(owed))}
+          hint="Across all open casting/plating entries"
+        />
+        <Card label="Vendors" value={String(vendorCount)} />
       </div>
     </div>
   );
@@ -210,6 +238,38 @@ function currentMonthRange() {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   return { gte: start, lt: end };
+}
+
+async function sumOwedToCastingPlatingVendors(): Promise<bigint> {
+  const [casting, plating] = await Promise.all([
+    prisma.castingEntry.findMany({
+      where: { deletedAt: null },
+      include: { payments: { where: { deletedAt: null } } },
+    }),
+    prisma.platingEntry.findMany({
+      where: { deletedAt: null },
+      include: { payments: { where: { deletedAt: null } } },
+    }),
+  ]);
+
+  let owed = 0n;
+  for (const e of casting) {
+    const netPaid = e.payments.reduce(
+      (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
+      0n,
+    );
+    const remaining = e.total - netPaid;
+    if (remaining > 0n) owed += remaining;
+  }
+  for (const e of plating) {
+    const netPaid = e.payments.reduce(
+      (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
+      0n,
+    );
+    const remaining = e.total - netPaid;
+    if (remaining > 0n) owed += remaining;
+  }
+  return owed;
 }
 
 async function sumOwedToSuppliers(): Promise<bigint> {

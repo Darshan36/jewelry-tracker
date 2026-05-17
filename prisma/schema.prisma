@@ -52,6 +52,9 @@ model Bill {
   confirmedAt      DateTime?
   deletedAt        DateTime?
 
+  castingEntry CastingEntry?
+  platingEntry PlatingEntry?
+
   @@index([uploadedById])
   @@index([attachedToType, attachedToId])
   @@index([deletedAt])
@@ -265,4 +268,137 @@ model PurchaseReturn {
   @@index([purchaseId])
   @@index([deletedAt])
   @@map("purchase_returns")
+}
+
+model CastingPlatingVendor {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  castingEntries CastingEntry[]
+  platingEntries PlatingEntry[]
+
+  @@index([phone])
+  @@index([deletedAt])
+  @@index([name])
+  @@map("casting_plating_vendors")
+}
+
+model CastingEntry {
+  id         String                @id @default(cuid())
+  date       DateTime
+  vendorId   String?
+  vendor     CastingPlatingVendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  partyName  String
+  partyPhone String?
+  discount   BigInt                @default(0)
+  total      BigInt
+  notes      String?
+  billId     String?               @unique
+  bill       Bill?                 @relation(fields: [billId], references: [id])
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  deletedAt  DateTime?
+
+  lineItems CastingLineItem[]
+  payments  CastingPayment[]
+
+  @@index([vendorId])
+  @@index([deletedAt])
+  @@index([date])
+  @@map("casting_entries")
+}
+
+model CastingLineItem {
+  id                  String       @id @default(cuid())
+  castingEntryId      String
+  castingEntry        CastingEntry @relation(fields: [castingEntryId], references: [id], onDelete: Cascade)
+  materialDescription String
+  weightKg            Decimal      @db.Decimal(10, 3)
+  ratePerKg           BigInt
+  lineTotal           BigInt
+  createdAt           DateTime     @default(now())
+
+  @@index([castingEntryId])
+  @@map("casting_line_items")
+}
+
+model CastingPayment {
+  id             String       @id @default(cuid())
+  castingEntryId String
+  castingEntry   CastingEntry @relation(fields: [castingEntryId], references: [id], onDelete: Cascade)
+  date           DateTime
+  amount         BigInt
+  type           PaymentType  @default(PAYMENT)
+  note           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([castingEntryId])
+  @@index([castingEntryId, type])
+  @@index([deletedAt])
+  @@map("casting_payments")
+}
+
+model PlatingEntry {
+  id         String                @id @default(cuid())
+  date       DateTime
+  vendorId   String?
+  vendor     CastingPlatingVendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  partyName  String
+  partyPhone String?
+  discount   BigInt                @default(0)
+  total      BigInt
+  notes      String?
+  billId     String?               @unique
+  bill       Bill?                 @relation(fields: [billId], references: [id])
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  deletedAt  DateTime?
+
+  lineItems PlatingLineItem[]
+  payments  PlatingPayment[]
+
+  @@index([vendorId])
+  @@index([deletedAt])
+  @@index([date])
+  @@map("plating_entries")
+}
+
+model PlatingLineItem {
+  id                  String       @id @default(cuid())
+  platingEntryId      String
+  platingEntry        PlatingEntry @relation(fields: [platingEntryId], references: [id], onDelete: Cascade)
+  materialDescription String
+  weightKg            Decimal      @db.Decimal(10, 3)
+  ratePerKg           BigInt
+  lineTotal           BigInt
+  createdAt           DateTime     @default(now())
+
+  @@index([platingEntryId])
+  @@map("plating_line_items")
+}
+
+model PlatingPayment {
+  id             String       @id @default(cuid())
+  platingEntryId String
+  platingEntry   PlatingEntry @relation(fields: [platingEntryId], references: [id], onDelete: Cascade)
+  date           DateTime
+  amount         BigInt
+  type           PaymentType  @default(PAYMENT)
+  note           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([platingEntryId])
+  @@index([platingEntryId, type])
+  @@index([deletedAt])
+  @@map("plating_payments")
 }

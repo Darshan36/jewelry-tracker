@@ -1,0 +1,75 @@
+// Zod schema for the Casting entry add/edit form.
+//
+// Mirrors the Sales schema shape (date + party + lineItems + discount +
+// notes) with weight-based line items instead of qty-based. Wire-format
+// rules carry over:
+//   - `weightKg`, `ratePerKg`, `discount` stay as `number` here. Do NOT
+//     transform to Decimal/BigInt in the schema — the client form would
+//     emit the wrapped type and the server-action re-parse would reject
+//     it ("Expected number, received bigint"). Conversion happens in the
+//     action's `buildCastingEntryData` at the Prisma boundary.
+//   - Empty-string-to-null for optional strings (partyPhone, notes).
+//   - `date` uses z.coerce.date() for symmetric form-input round-tripping.
+//
+// `ratePerKg` is in rupees-per-kg on the wire (e.g., 400 = ₹400/kg). The
+// action converts to paise-per-kg via × 100 + Math.round.
+// `weightKg` is in kg on the wire (e.g., 2.5 = 2.5 kg). The action wraps
+// in Decimal for the multiplication step.
+
+import { z } from "zod";
+
+import { normalizePhone } from "@/lib/phone";
+
+export const castingLineItemSchema = z.object({
+  materialDescription: z
+    .string()
+    .trim()
+    .min(1, "Material description is required")
+    .max(500),
+  weightKg: z
+    .number()
+    .nonnegative("Weight cannot be negative")
+    .refine((v) => v > 0, "Weight must be greater than zero"),
+  ratePerKg: z.number().nonnegative("Rate cannot be negative"),
+});
+
+export const castingEntryInputSchema = z.object({
+  date: z.coerce.date({ message: "Date is required" }),
+
+  vendorId: z.string().min(1).nullable(),
+
+  partyName: z
+    .string()
+    .trim()
+    .min(1, "Vendor name is required")
+    .max(200),
+
+  partyPhone: z
+    .string()
+    .trim()
+    .max(20)
+    .nullish()
+    .transform((v) => normalizePhone(v)),
+
+  lineItems: z
+    .array(castingLineItemSchema)
+    .min(1, "At least one line item is required"),
+
+  discount: z.number().nonnegative("Discount cannot be negative").default(0),
+
+  // Optional billId — when set, links a previously-uploaded Bill to this
+  // entry. Bill upload happens AFTER entry creation (the bill needs
+  // attachedToId = entry.id), so the create flow leaves this null; the
+  // form's bill picker runs a follow-up `updateCastingEntry` to attach.
+  billId: z.string().min(1).nullish().transform((v) => v ?? null),
+
+  notes: z
+    .string()
+    .trim()
+    .max(2000)
+    .nullish()
+    .transform((v) => (v === undefined || v === null || v === "" ? null : v)),
+});
+
+export type CastingEntryInput = z.infer<typeof castingEntryInputSchema>;
+export type CastingLineItemInput = z.infer<typeof castingLineItemSchema>;
