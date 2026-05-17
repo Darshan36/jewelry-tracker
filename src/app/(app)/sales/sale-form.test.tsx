@@ -5,11 +5,13 @@
 // and dispatches create / update correctly based on `mode`.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+const pushMock = vi.fn();
+const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({ push: pushMock, refresh: refreshMock, back: vi.fn() }),
 }));
 
 vi.mock("./actions", () => ({
@@ -25,8 +27,34 @@ vi.mock("@/app/(app)/bills/actions", () => ({
 }));
 
 import { createSale, updateSale } from "./actions";
+import { confirmUpload, prepareUpload } from "@/app/(app)/bills/actions";
 
 import { SaleForm } from "./sale-form";
+
+// XHR stub for the browser-side R2 PUT inside SaleForm.onSubmit.
+class StubXHR {
+  static failNext = false;
+  upload = { onprogress: null };
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  status = 200;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  open(_: string, __: string, ___: boolean) {}
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  setRequestHeader(_: string, __: string) {}
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  send(_: unknown) {
+    queueMicrotask(() => {
+      if (StubXHR.failNext) {
+        StubXHR.failNext = false;
+        if (this.onerror) this.onerror();
+      } else if (this.onload) {
+        this.status = 200;
+        this.onload();
+      }
+    });
+  }
+}
 
 const customers = [
   { id: "cust-1", name: "Existing Customer", phone: "9999999999" },
@@ -34,7 +62,22 @@ const customers = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  StubXHR.failNext = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.stubGlobal("XMLHttpRequest", StubXHR as unknown as any);
+  let counter = 0;
+  vi.stubGlobal(
+    "URL",
+    Object.assign(globalThis.URL, {
+      createObjectURL: vi.fn(() => `blob:test://${++counter}`),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
 });
+
+function makeFile(name: string, type: string): File {
+  return new File(["bytes"], name, { type });
+}
 
 describe("SaleForm — create mode", () => {
   it("renders with default empty values and one empty line item", () => {
@@ -155,5 +198,193 @@ describe("SaleForm — edit mode", () => {
     expect(createSale).not.toHaveBeenCalled();
     // The first arg is the sale id.
     expect(vi.mocked(updateSale).mock.calls[0][0]).toBe("sale-1");
+  });
+});
+
+// =====================================================================
+// Phase 10.5 bill-in-form retrofit
+// =====================================================================
+
+describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
+  function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
+    return (async () => {
+      await user.type(
+        document.querySelector("#party-name-input") as HTMLInputElement,
+        "Walk-in",
+      );
+      await user.type(
+        document.querySelector("#sale-line-0-item") as HTMLInputElement,
+        "Test",
+      );
+      await user.type(
+        document.querySelector("#sale-line-0-rate") as HTMLInputElement,
+        "100",
+      );
+    })();
+  }
+
+  function getFileInput(): HTMLInputElement {
+    // The inline bill section's file input — narrow by accept attribute
+    // since SaleForm only has one type=file input.
+    return document.querySelector('input[type="file"]') as HTMLInputElement;
+  }
+
+  it("renders the inline 'Attach bill (optional)' section", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+    expect(screen.getByText(/attach bill \(optional\)/i)).toBeInTheDocument();
+    expect(getFileInput()).toBeInTheDocument();
+  });
+
+  it("picking a valid file shows the filename + Remove button", async () => {
+    const user = userEvent.setup();
+    render(<SaleForm mode="create" customers={customers} />);
+
+    await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
+
+    expect(screen.getByText(/receipt\.png/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^remove$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("clicking Remove clears the picked file", async () => {
+    const user = userEvent.setup();
+    render(<SaleForm mode="create" customers={customers} />);
+
+    await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
+    expect(screen.getByText(/receipt\.png/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^remove$/i }));
+    expect(screen.queryByText(/receipt\.png/)).not.toBeInTheDocument();
+  });
+
+  it("rejects unsupported MIME types client-side without calling prepareUpload", async () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    // userEvent.upload respects accept= and would silently drop the file;
+    // bypass via fireEvent.change to simulate a stale-MIME-bypass attempt.
+    fireEvent.change(getFileInput(), {
+      target: { files: [makeFile("doc.txt", "text/plain")] },
+    });
+
+    expect(screen.getByText(/unsupported file type/i)).toBeInTheDocument();
+    expect(prepareUpload).not.toHaveBeenCalled();
+  });
+
+  it("on successful save+upload: runs createSale → prepareUpload → confirmUpload, then navigates", async () => {
+    const user = userEvent.setup();
+    const callOrder: string[] = [];
+    vi.mocked(createSale).mockImplementation(async () => {
+      callOrder.push("createSale");
+      return {
+        ok: true as const,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sale: { id: "new-sale-id", customerId: null } as any,
+      };
+    });
+    vi.mocked(prepareUpload).mockImplementation(async () => {
+      callOrder.push("prepareUpload");
+      return {
+        ok: true as const,
+        billId: "bill-id",
+        presignedUrl: "https://signed.example/put",
+      };
+    });
+    vi.mocked(confirmUpload).mockImplementation(async () => {
+      callOrder.push("confirmUpload");
+      return {
+        ok: true as const,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        bill: { id: "bill-id", status: "READY" } as any,
+      };
+    });
+
+    render(<SaleForm mode="create" customers={customers} />);
+    await fillRequiredFields(user);
+    await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
+    await user.click(screen.getByRole("button", { name: /save and return/i }));
+
+    await vi.waitFor(() => {
+      expect(callOrder).toEqual(["createSale", "prepareUpload", "confirmUpload"]);
+    });
+    // prepareUpload was called with the right discriminator + saved id.
+    const prepArg = vi.mocked(prepareUpload).mock.calls[0][0];
+    expect(prepArg.attachedToType).toBe("SALE");
+    expect(prepArg.attachedToId).toBe("new-sale-id");
+    // Navigation to /sales happens after the upload chain.
+    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith("/sales"));
+  });
+
+  it("saves without firing upload chain when no file is picked", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createSale).mockResolvedValue({
+      ok: true as const,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sale: { id: "new-sale", customerId: null } as any,
+    });
+
+    render(<SaleForm mode="create" customers={customers} />);
+    await fillRequiredFields(user);
+    await user.click(screen.getByRole("button", { name: /save and return/i }));
+
+    await vi.waitFor(() => expect(createSale).toHaveBeenCalledOnce());
+    expect(prepareUpload).not.toHaveBeenCalled();
+    expect(confirmUpload).not.toHaveBeenCalled();
+  });
+
+  it("on upload failure: sale stays saved, error banner appears, NO navigation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createSale).mockResolvedValue({
+      ok: true as const,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sale: { id: "new-sale-id", customerId: null } as any,
+    });
+    vi.mocked(prepareUpload).mockResolvedValue({
+      ok: false as const,
+      errors: { mimeType: ["Unsupported file type."] },
+    });
+
+    render(<SaleForm mode="create" customers={customers} />);
+    await fillRequiredFields(user);
+    await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
+    await user.click(screen.getByRole("button", { name: /save and return/i }));
+
+    // createSale fires (sale saved), prepareUpload fires (and fails),
+    // confirmUpload does NOT fire, and no navigation happens.
+    await vi.waitFor(() => expect(prepareUpload).toHaveBeenCalledOnce());
+    expect(createSale).toHaveBeenCalledOnce();
+    expect(confirmUpload).not.toHaveBeenCalled();
+    expect(pushMock).not.toHaveBeenCalled();
+    // Surfaces the "sale saved but bill upload failed" copy.
+    expect(
+      await screen.findByText(/sale saved, but bill upload failed/i),
+    ).toBeInTheDocument();
+  });
+
+  it("R2 PUT network failure halts the chain at confirmUpload", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createSale).mockResolvedValue({
+      ok: true as const,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sale: { id: "new-sale-id", customerId: null } as any,
+    });
+    vi.mocked(prepareUpload).mockResolvedValue({
+      ok: true as const,
+      billId: "bill-id",
+      presignedUrl: "https://signed.example/put",
+    });
+    StubXHR.failNext = true;
+
+    render(<SaleForm mode="create" customers={customers} />);
+    await fillRequiredFields(user);
+    await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
+    await user.click(screen.getByRole("button", { name: /save and return/i }));
+
+    await vi.waitFor(() => {
+      expect(
+        screen.getByText(/sale saved, but bill upload failed/i),
+      ).toBeInTheDocument();
+    });
+    expect(confirmUpload).not.toHaveBeenCalled();
   });
 });

@@ -1151,6 +1151,50 @@ Skip:
   internal field structure is exercised by clicking through a form — no
   need for a separate test of each `<FormInput>` instance.
 
+## Regression guard for mirror-related string-literal leaks (Phase 10.5)
+
+When mirroring entity types via search-and-replace (sales→purchases,
+casting→plating, etc.), add an explicit test assertion in the **target
+entity's table test** that every action-modal mount receives the correct
+`entityType` prop. Example in `src/app/(app)/purchases/purchases-table.test.tsx`:
+
+```tsx
+// Capture the entityType prop passed to each action modal.
+const paymentModalSpy = vi.fn();
+vi.mock("@/components/action-modals/payment-action-modal", () => ({
+  PaymentActionModal: (props: { entityType: string; entityId: string }) => {
+    paymentModalSpy(props);
+    return (
+      <div
+        data-testid="payment-modal-mounted"
+        data-entity-type={props.entityType}
+        data-entity-id={props.entityId}
+      />
+    );
+  },
+}));
+
+it("clicking the 'Add payment' quick-action mounts PaymentActionModal with entityType='purchase'", async () => {
+  // ...click the button, then:
+  const modal = await screen.findByTestId("payment-modal-mounted");
+  expect(modal.getAttribute("data-entity-type")).toBe("purchase");
+});
+```
+
+This catches the failure mode where a literal `entityType="sale"` leaks
+through into the mirrored Purchases table. `tsc --noEmit` cannot catch
+this — the literal is a legal member of the `BillEntityType` discriminated
+union, so both source and target values pass type-checking. Only an
+explicit run-time assertion against the rendered prop catches the leak.
+
+Apply the same pattern when mirroring across entities for any other
+shared component that takes an `entityType` (or equivalent discriminator)
+prop. Phase 10.5 leaked four `entityType="sale"` literals into the
+mirrored `purchases-table.tsx` past `tsc` and `grep` — only the
+walkthrough's DB verification of `bills.attachedToType` caught the data
+corruption, after 4 orphan SALE-typed Bill rows had attached to actual
+purchase IDs in production.
+
 ## Per-phase reporting
 
 From Phase 2.3 onward, the "Test count delta" line in every phase report
