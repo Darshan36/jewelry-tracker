@@ -61,7 +61,12 @@ export const platingEntryInputSchema = z.object({
   // entry. Bill upload happens AFTER entry creation (the bill needs
   // attachedToId = entry.id), so the create flow leaves this null; the
   // form's bill picker runs a follow-up `updatePlatingEntry` to attach.
-  billId: z.string().min(1).nullish().transform((v) => v ?? null),
+  // Empty-string-to-null matches the pattern used on other optional
+  // fields so a form that submits "" for an unset bill normalises cleanly.
+  billId: z
+    .string()
+    .nullish()
+    .transform((v) => (v === undefined || v === null || v === "" ? null : v)),
 
   notes: z
     .string()

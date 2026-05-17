@@ -23,6 +23,7 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 - **Charts:** Recharts
 - **Excel:** ExcelJS for both export and import
 - **File storage:** Cloudflare R2 (S3-compatible) for bill / receipt scans (Phase 8). `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`. Lazy-init wrapper at `src/lib/r2.ts` mirroring the `prisma.ts` Proxy pattern — env is read on first call, not at module load. Browser uploads directly to R2 via 10-min presigned PUT URLs (two-step prepare/confirm flow); server-side downloads issue 1-hr presigned GET URLs.
+- **Casting & plating (Phase 9):** outsourced casting/plating jobs tracked via separate entity types (`CastingEntry`, `PlatingEntry`) sharing a single `CastingPlatingVendor` master table. Weight-based line items with `Decimal(10, 3)` kg + `BigInt` paise-per-kg rate; line totals computed via `computeLineTotal` helper in `src/lib/weight-helpers.ts` using Decimal.js `mul()` + `toDecimalPlaces(0, ROUND_HALF_EVEN)` (banker's rounding) and returned as `BigInt` paise. Bills integrate via Phase 8's `attachedToType` discriminator (`CASTING_ENTRY`, `PLATING_ENTRY`) with a `billId @unique` FK on each entry side.
 - **Hosting:** Vercel
 - **Package manager:** npm
 - **Testing:** Vitest + `@testing-library/react` + `vitest-mock-extended`, `jsdom` environment, mocked Prisma. No e2e tests yet (Playwright deferred to Phase 8). Test conventions in `docs/TESTING.md`.
@@ -182,6 +183,7 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - **`uploadedById`** is set from the session at `prepareUpload` time. The FK has no cascade — deleting a user requires either deleting their bills or nulling out the link, which neither path currently does (User has no soft-delete anyway — see §4 User).
 - **Indexes:** `@@index([uploadedById])`, `@@index([attachedToType, attachedToId])` (the discriminator-pair lookup is the dominant access pattern: "give me bills attached to purchase X"), `@@index([deletedAt])`, `@@index([status])`.
 - **R2 key format:** `bills/YYYY/MM/<uuid>-<sanitized-filename-prefix>`. UUID via `crypto.randomUUID()` is independent of the Bill row's `id` because Prisma generates the cuid at INSERT time but `r2Key` is required-non-null on the same insert. `@@unique` on `r2Key` is the DB safety net against UUID collision.
+- **Reverse relations (Phase 9 — Prisma-only, no SQL impact).** Bill carries virtual reverse fields `castingEntry: CastingEntry?` and `platingEntry: PlatingEntry?` so the FK relation on the entry side (`billId @unique`) validates. The FK itself lives on the *entity* side, so the Bills SQL row is untouched by this — the reverse fields exist purely for Prisma's schema validator. **The `attachedToType` + `attachedToId` discriminator columns remain the authoritative access-control source.** When Phase 3.4 retrofit lands and Sales / Purchases / payments grow their own `billId` FK, the same reverse-relation pattern repeats. Reading "who owns this bill?" should still go through the discriminator (it's universally populated; the FK side is per-entity-kind).
 
 ### PurchaseReturn (built Phase 4)
 `id, purchaseId (FK → Purchase, onDelete: Cascade), date, qtyReturned (Int, positive), refundAmount (BigInt paise, non-negative), note, createdAt, updatedAt, deletedAt`
@@ -204,6 +206,52 @@ Karigar balance (computed): `sum(WorkEntry.total) − sum(WorkPayment.amount) �
 
 ### FixedSalary
 `id, employee_id, month (YYYY-MM), attendance_days, salary, advances, deductions, net_payable, paid (boolean), paid_date, created_at`
+
+### CastingPlatingVendor (built Phase 9)
+`id, name, phone, address, notes, createdAt, updatedAt, deletedAt`
+
+- **Single shared master table** — used by both `CastingEntry` and `PlatingEntry`. Real workshops often do both services, so duplicating into a `CastingVendor` + `PlatingVendor` pair would have created duplicate records for overlapping vendors. The entry's table determines the workflow type; the vendor record is the same person/shop regardless. See KNOWN_GAPS decision lineage.
+- **No `email` field** (unlike Customer / Supplier — vendor contact is exclusively phone in this workflow).
+- **Soft delete via `deletedAt`** (matches Customer / Supplier / Employee convention).
+- **`phone` normalised on save** via `src/lib/phone.ts#normalizePhone` (Phase 6 identity-anchor pattern). Auto-promotion from walk-in entries uses the same normalised phone for `findFirst` lookup, just like Sales / Purchases.
+- **Indexes:** `@@index([phone])` (auto-promotion lookup is the dominant access pattern), `@@index([deletedAt])`, `@@index([name])` (search).
+- **Walk-in auto-promotion** identical pattern to Sales / Purchases: when an entry is saved with `vendorId IS NULL` AND a populated `partyPhone`, the action looks up an existing vendor by normalised phone; if found, links via FK and snapshots canonical `name`; if not, auto-creates a vendor row. The lookup-or-create runs inside `prisma.$transaction` alongside the entry create.
+
+### CastingEntry / PlatingEntry (built Phase 9)
+`id, date, vendorId (FK → CastingPlatingVendor, nullable, onDelete: SetNull), partyName, partyPhone, discount (BigInt paise, @default(0)), total (BigInt paise, stored), notes, billId (FK → Bill, unique, nullable, onDelete: SetNull), createdAt, updatedAt, deletedAt`
+
+- **Two separate entity types** (not unified with a type discriminator) — separate sidebar items match separate workflow concepts. Structural mirror maintained via a reproducible mirror script (`scripts/_mirror-casting-to-plating.mjs`, gitignored). If future outsource categories emerge (polishing / welding / etc.), the pattern extends by adding new entity types rather than overloading a discriminator column.
+- **Dual-path party model identical to Sale / Purchase.** Either `vendorId` is set with `partyName`/`partyPhone` as server-side snapshots of the linked vendor's `name`/`phone`, OR `vendorId IS NULL` and the two strings are the only identity (walk-in). `onDelete: SetNull` preserves entry history if a vendor is ever hard-deleted.
+- **`total` stored, not derived.** Computed at write time as `SUM(lineItems.lineTotal) − discount`, recomputed on every `updateEntry`. Matches Sale / Purchase convention. Enables straightforward `SUM(total)` aggregates for the dashboard.
+- **Sale-level discount only.** No per-line discount. Same trade-off as Sales / Purchases (workshop invoicing speaks "whole-job discount").
+- **`billId @unique` FK to `Bill`** — each entry can have at most one bill. Bill upload happens *after* entry creation (the bill needs `attachedToType + attachedToId` set to the entry's id), via the prepare → R2 PUT → confirm → `attachBillToCastingEntry` flow. Edit-replace-bill detaches the old `billId` via `detachBillFrom*Entry` first to avoid tripping the unique constraint during the transient state.
+- **No returns workflow.** Outsourced services don't have a returnable-goods analogue to `SaleReturn` / `PurchaseReturn`. Vendor rework is handled either by no transaction change (free rework) or by a `REFUND`-type `*Payment` row (mirrors the Sale / Purchase refund pattern). See KNOWN_GAPS decision lineage.
+- **Status derived via `computeTransactionStatus`** (no `returnTotal` argument — there are no returns). Branches: `pending` / `partial` / `completed` / `refund_due`. Interpretation mirrors Purchases (shop owes vendor money → "Owed to vendor"; `refund_due` means vendor over-refunded the shop).
+- **Currency pipeline** identical to Sale / Purchase — schema validates rupees as `z.number().nonnegative()`; action converts to BigInt paise at the Prisma boundary; `serializeCastingEntry()` / `serializePlatingEntry()` returns `Number` to the client.
+- **Indexes:** `@@index([vendorId])`, `@@index([date])`, `@@index([deletedAt])`, unique on `billId`.
+
+### CastingLineItem / PlatingLineItem (built Phase 9)
+`id, <entry>Id (FK → parent, onDelete: Cascade), materialDescription, weightKg (Decimal(10, 3)), ratePerKg (BigInt paise/kg), lineTotal (BigInt paise, stored), createdAt`
+
+- **`weightKg` is `Decimal(10, 3)`** — kg with 3-decimal-place gram precision. **Stored as kg, not grams** for readability — the workflow speaks kg, the UI accepts kg, the DB column reads kg. Decimal.js handles the arithmetic. See KNOWN_GAPS decision lineage for the trade-off rationale.
+- **`ratePerKg` is `BigInt` paise per kg.** Money pattern preserved across the codebase. A ₹400/kg rate stores as `40000n`.
+- **`lineTotal` is `BigInt` paise, stored.** Computed via `computeLineTotal(weightKg: Decimal, ratePerKg: bigint): bigint` in `src/lib/weight-helpers.ts` — Decimal × BigInt multiplication with `ROUND_HALF_EVEN` (banker's rounding) to integer paise. Stored on the row so parent-total aggregation and per-line audit history are both straightforward.
+- **Same `Cascade`-only-on-actual-delete behaviour as Sale / Purchase line items.** Soft-deleting a parent (`deletedAt` set) does NOT cascade; line items remain attached and are hidden via the parent's `deletedAt IS NULL` filter in list queries.
+- **Replace-all pattern on edit** — `tx.castingLineItem.deleteMany({ where: { castingEntryId } })` then `tx.castingEntry.update({ data: { ..., lineItems: { create: [...] } } })` inside `prisma.$transaction`. Mirrors Phase 7 Sale / Purchase line-item edit pattern.
+- **No per-line discount** (consistent with Sale / Purchase line items).
+- **Indexes:** `@@index([<entry>Id])` for the dominant join-on-parent-id access pattern.
+
+### CastingPayment / PlatingPayment (built Phase 9)
+`id, <entry>Id (FK → parent, onDelete: Cascade), date, amount (BigInt paise), type (PaymentType: PAYMENT | REFUND, default PAYMENT), note, createdAt, updatedAt, deletedAt`
+
+- **Reuses the `PaymentType` enum** from Sales / Purchases (single enum definition, four payment models). REFUND-type rows reduce the entry's net paid amount in the same `SUM(amount WHERE type=PAYMENT) − SUM(amount WHERE type=REFUND)` aggregation used elsewhere.
+- **REFUND semantics**: vendor refunds money back to the shop (money IN, same direction interpretation as Purchases REFUND).
+- **Payments are immutable** — no `update*Payment` action; wrong payment → soft-delete + create new. Same audit-preservation pattern as Sales / Purchases.
+- **Action-layer validation**:
+  - PAYMENT rejected if `amount > entry.total − netPaid` with `errors.amount = ["Owed to vendor: ₹X"]` ("Owed to vendor" reflects the Purchases-direction inversion — the shop owes the vendor).
+  - REFUND rejected if `amount > netPaid` with `errors.amount = ["Refund exceeds amount paid. Maximum: ₹X"]`.
+- **Currency pipeline** identical to other payment models — `amount` is BigInt paise; `serializeCastingPayment` / `serializePlatingPayment` returns Number at the action boundary.
+- **Indexes:** `@@index([<entry>Id])`, `@@index([<entry>Id, type])` (typed-aggregation speed), `@@index([deletedAt])`.
 
 ## 5. Status Logic
 
@@ -259,6 +307,9 @@ Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − s
 - **Multi-item line items use replace-all on edit.** When updating a `Sale` or `Purchase`, the action runs `tx.saleLineItem.deleteMany({ where: { saleId } })` (or the purchase equivalent) followed by `tx.sale.update({ data: { ..., lineItems: { create: [...] } } })` inside `prisma.$transaction`. Atomicity guarantees either all line items replace cleanly or none do. Line items are subordinate to the parent (no `deletedAt` on `SaleLineItem` / `PurchaseLineItem`); the audit-relevant unit is the parent — `Sale.deletedAt` / `Purchase.deletedAt` is the right granularity. Pattern established Phase 7.
 - **Browser → R2 file uploads use a two-step prepare/confirm flow.** `prepareUpload` (server action) validates the schema → creates a PENDING Bill row → returns a 10-min presigned PUT URL. The browser PUTs the bytes directly to R2 (no Vercel transit, no body size limit at the function layer). `confirmUpload` (server action) re-fetches the Bill row → calls `headObject` against R2 → checks the actual object's mime + size match what was registered at prepare time → flips the row to READY (or FAILED + R2 cleanup on mismatch). Both actions revalidate `/admin/bills-test`. Same pattern is the extension point for Phase 3.4 retrofit (attach a Bill to a Sale / Purchase / payment): the parent entity's form modal triggers `prepareUpload` with the appropriate `attachedToType` + `attachedToId`, the browser PUTs, then `confirmUpload` lands. Pattern established Phase 8.
 - **Lazy-init Proxy wrappers for SDK clients** (Prisma, R2). Any module that constructs an SDK client from env vars must wrap the construction in a `globalThis`-cached `Proxy` so the env read defers until first property access. Next.js 16's build-time page-data collection imports route modules to extract metadata; if construction is eager, missing env at collection time crashes the build even when env is present for runtime requests. See `src/lib/prisma.ts` (Phase 4.5) and `src/lib/r2.ts` (Phase 8) for canonical examples.
+- **Weight pipeline.** Weight stored as `Decimal(10, 3)` kg. Rate stored as `BigInt` paise per kg. Line total computed via `computeLineTotal(weightKg: Decimal, ratePerKg: bigint): bigint` from `src/lib/weight-helpers.ts` — Decimal.js `mul()` + `toDecimalPlaces(0, ROUND_HALF_EVEN)`. Returns `BigInt` paise. **Never inline `weightKg.mul(...)` outside this helper.** Banker's rounding (ROUND_HALF_EVEN) avoids systematic bias accumulating across many rounded transactions. Pattern established Phase 9 (`CastingLineItem` / `PlatingLineItem`).
+- **Decimal serialisation at the action boundary.** Decimal columns serialise as strings at the action boundary (e.g., `weightKg: "2.500"`), not JS numbers. JS Number cannot safely round-trip 3-decimal-place values (`2.500 → 2.5` collapses trailing zeros and loses the gram-precision contract enforced at the DB column level). Use `formatKg(s: string)` from `src/lib/weight-helpers.ts` for display. Never `Number(decimalField)` before display arithmetic. Symmetric pattern with BigInt → Number paise at the action boundary — both are "storage primitives that need precision preservation across the JSON wire."
+- **Phase 9 expanded role-aware feature surface.** `CASTING_PLATING_MGMT` now has real functionality (Casting + Plating + Vendors pages, real dashboard with 4 cards: casting/plating monthly counts + totals, total owed, vendor count). The role's dashboard was a placeholder for four phases; it is now a working surface. Sidebar order: Dashboard → Sales → Customers → Purchases → Suppliers → Employees → Casting → Plating → Vendors → (Soon items).
 - **Path alias:** `@/*` → `src/*`. No relative `../../` imports across feature boundaries.
 
 ## 7. Phase Plan
@@ -293,6 +344,7 @@ Hosted on Vercel; production fed from `main`. Operational reference lives in `do
 - **The `authorize()` callback in `src/lib/auth.ts` console.errors any thrown exception** before rethrowing. Auth.js v5 otherwise hides the underlying cause as a generic `Configuration` error. Keep this wrapper — it's the only diagnostic path for prod auth failures until proper observability is wired in.
 - **Direct user inserts to the production `users` table must specify `role` explicitly** (no DB default since Phase 5). Production currently has 4 users: 1 ADMIN (the owner) + 3 test accounts (one per non-admin role — see [`HANDOFF.md` § Test accounts](./docs/HANDOFF.md)). Test account passwords are in admin's password manager. Until the user-management UI ships, new users go in via Supabase MCP or `pg` + `.env.production.local` with bcrypt-hashed passwords.
 - **Cloudflare R2 bucket configuration (Phase 8).** The prod bucket name and account ID come from the 5 `R2_*` env vars (see `.env.example` for the key list). The bucket needs a one-time CORS policy applied via S3 API (`PutBucketCors`) allowing PUT/GET/HEAD/DELETE from `https://jewlerytracker-darshan-somaiyas-projects.vercel.app`, the git-main alias, `https://*.vercel.app` (preview deploys), and the local dev origins. Setting CORS requires an **Admin Read & Write** R2 token (the regular Object R&W token used by the app gets `AccessDenied`); rotate the app token back to Object R&W after CORS is in place. CORS rules persist independent of the token that set them, so this is a one-time setup. Env-var changes do NOT auto-redeploy on Vercel — after editing R2 keys in the Vercel dashboard, trigger a redeploy from the dashboard or via API.
+- **Phase 9 migration was additive-only.** `20260517135837_add_casting_plating_tables` creates 7 new tables (`casting_plating_vendors` + 6 casting/plating tables) and adds FK constraints on the entry side to `bills(id)`. No existing-table modifications; the migration ran cleanly on both dev and prod via `prisma migrate deploy`. No special procedures or downtime needed. Verified via Supabase MCP that `weightKg` columns are `numeric(10, 3)`.
 
 ---
 

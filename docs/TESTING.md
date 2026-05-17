@@ -299,7 +299,164 @@ running off the file-level `mockResolvedValue(fakeSession)` default.
 
 The flip pattern per action (which roles get `true`) maps directly to
 the action's `requireRole([...])` list — Customers/Sales: only ADMIN;
-Suppliers/Purchases: ADMIN + PURCHASE_DEPT; Employees: ADMIN + LABOUR_MGMT.
+Suppliers/Purchases: ADMIN + PURCHASE_DEPT; Employees: ADMIN + LABOUR_MGMT;
+Vendors / CastingEntry / PlatingEntry: ADMIN + CASTING_PLATING_MGMT.
+
+### Banker's rounding parameterised test pattern
+
+When testing functions that round to an integer via `ROUND_HALF_EVEN`
+(banker's rounding — chosen for the casting/plating weight × rate
+pipeline to avoid systematic bias), the test suite MUST include the
+four canonical inputs that distinguish banker's rounding from
+`ROUND_HALF_UP`:
+
+```typescript
+it("0.5 kg × 1 paise = 0.5 paise → rounds to 0 (nearest even, down)", () => {
+  expect(computeLineTotal(new Decimal("0.5"), 1n)).toBe(0n);
+});
+it("1.5 kg × 1 paise = 1.5 paise → rounds to 2 (nearest even, up)", () => {
+  expect(computeLineTotal(new Decimal("1.5"), 1n)).toBe(2n);
+});
+it("2.5 kg × 1 paise = 2.5 paise → rounds to 2 (nearest even, down)", () => {
+  expect(computeLineTotal(new Decimal("2.5"), 1n)).toBe(2n);
+});
+it("3.5 kg × 1 paise = 3.5 paise → rounds to 4 (nearest even, up)", () => {
+  expect(computeLineTotal(new Decimal("3.5"), 1n)).toBe(4n);
+});
+```
+
+Under `ROUND_HALF_UP` these would yield `1, 2, 3, 4`; under
+`ROUND_HALF_EVEN` they yield `0, 2, 2, 4`. If anyone ever swaps the
+rounding mode, all four cases flip in a single test run. Pair the
+distinguishing cases with **real-data canonical examples** from the
+walkthrough so the test doubles as documentation of the expected math:
+
+```typescript
+it("computes 1.875 kg × ₹350/kg = ₹656.25 (65625 paise) — canonical walkthrough check", () => {
+  expect(computeLineTotal(new Decimal("1.875"), 35000n)).toBe(65625n);
+});
+```
+
+Pattern lives in `src/lib/weight-helpers.test.ts`. Reuse the four
+distinguishing inputs whenever you add a new rounding-aware helper.
+
+### Prisma type narrowing in tests
+
+Two narrowing pinches surface around Prisma's generated types when
+writing action tests. Both are well-defined patterns — apply directly.
+
+**(a) Nested-create indexing.** `prisma.castingEntry.create({ data: { ..., lineItems: { create: [...] } } })` types `data.lineItems.create` as a
+union of "single object OR array of objects." Asserting on
+`call.data.lineItems.create[0]` fails `tsc --noEmit` with "Property
+'0' does not exist on type ..." Apply a narrowing cast at the
+assertion site, not as `any`:
+
+```typescript
+const call = vi.mocked(prisma.castingEntry.create).mock.calls[0][0];
+const lineCreates = (
+  call.data.lineItems as {
+    create: Array<{ weightKg: string; ratePerKg: bigint; lineTotal: bigint }>;
+  }
+).create;
+expect(lineCreates[0].lineTotal).toBe(65625n);
+```
+
+**(b) Different `include` shapes across one mock chain.** Server actions
+sometimes call `prisma.entity.findUnique` twice in sequence with
+different `include` shapes (e.g., first call fetches with `payments`
+only, second call fetches with `lineItems` + `payments` + `vendor` +
+`bill`). When mocking via `vi.mocked(...).mockResolvedValueOnce(...)`,
+TypeScript narrows to the first call's return type, so the second
+`mockResolvedValueOnce(...)` can't carry the extra relation fields
+without a cast. Apply the most-permissive shape at the second call:
+
+```typescript
+vi.mocked(prisma.castingEntry.findUnique)
+  .mockResolvedValueOnce(makeEntry(200000n))
+  .mockResolvedValueOnce({
+    ...makeEntry(200000n),
+    lineItems: [],
+    vendor: null,
+    bill: null,
+  } as unknown as Awaited<ReturnType<typeof prisma.castingEntry.findUnique>>);
+```
+
+The `Awaited<ReturnType<typeof prisma.X.findUnique>>` recipe is
+self-documenting and survives Prisma client regeneration — when the
+include shape changes, the cast still accepts the new shape, and the
+test compiles cleanly. Pattern established Phase 9
+(`casting/payment-actions.test.ts` + `plating/payment-actions.test.ts`).
+
+### Playwright walkthrough discipline
+
+When writing a Playwright walkthrough against prod, follow the
+discipline established Phase 9 to keep runs deterministic and easy
+to clean up.
+
+**Marker pattern.** Every entity created during a walkthrough carries
+a phase-scoped marker prefix in its name / partyName: `__phase{N}walk_`.
+End-of-walkthrough cleanup scrubs everything via a single LIKE filter:
+
+```javascript
+const MARKER = "__phase9walk_";
+// At the start of the run, give every entity a marker-prefixed name:
+await page.locator("#vendor-name").fill(`${MARKER}Mahesh Casting Works`);
+
+// Cleanup (end of walkthrough, OR via _cleanup-pN-walkthrough.mjs scratch):
+await client.query(
+  `DELETE FROM casting_entries WHERE "partyName" LIKE $1`,
+  [`${MARKER}%`],
+);
+```
+
+**Don't gate on intermediate UI states.** React state updates +
+`router.refresh()` are async and timing-sensitive on prod latency.
+Waiting for "the form input disappears" before checking "the status
+chip flipped to Partial" is racy — the intermediate state can flicker
+or skip entirely. Wait directly for the final observable assertion:
+
+```javascript
+// AVOID — racy on prod latency:
+await page.waitForFunction(
+  () => !document.querySelector('[role="dialog"] #cp-amount'),
+  null,
+  { timeout: 10_000 },
+);
+await page.waitForFunction(
+  () => /Partial/i.test(document.querySelector('[role="dialog"]')?.textContent),
+  null,
+  { timeout: 10_000 },
+);
+
+// PREFER — wait for the final post-state directly:
+await page.waitForFunction(
+  () => /Partial/i.test(document.querySelector('[role="dialog"]')?.textContent),
+  null,
+  { timeout: 20_000 },
+);
+```
+
+**Add diagnostic capture on timeout.** Wrap long waits in `try`/`catch`
+that screenshots + logs the relevant DOM state before re-throwing.
+Without this, a timeout produces "page.waitForFunction: Timeout
+10000ms exceeded" with no useful context:
+
+```javascript
+try {
+  await page.waitForFunction(predicate, null, { timeout: 20_000 });
+} catch (err) {
+  const shotPath = join(OUT_DIR, `step${n}-fail.png`);
+  await page.screenshot({ path: shotPath, fullPage: true });
+  const dialogText = await page.locator('[role="dialog"]').innerText().catch(() => "(none)");
+  check("Step N", false, `screenshot=${shotPath} dialog="${dialogText.slice(0, 200)}"`);
+  throw err;
+}
+```
+
+The Phase 9 walkthrough's Step 12 racy-timeout was the canonical case
+that established this pattern. Walkthrough scripts live in
+`scripts/walkthrough-p{N}-*.mjs` and are committed; cleanup helpers
+live in `scripts/_cleanup-p{N}-*.mjs` and are gitignored.
 
 ### Mocking SDK constructors (AWS S3 / R2)
 
