@@ -4,26 +4,15 @@ import { SalesTable } from "./sales-table";
 import { serializeSale, type SaleForClient } from "./sale-helpers";
 
 export default async function SalesPage() {
-  const [saleRows, customerRows] = await Promise.all([
-    prisma.sale.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      // Include non-deleted payments AND returns so serializeSale can
-      // compute net paidAmount (PAYMENT minus REFUND) + returnTotal, and
-      // derive the live status (pending / partial / completed / refund_due)
-      // at the page-render boundary.
-      include: {
-        payments: { where: { deletedAt: null } },
-        returns: { where: { deletedAt: null } },
-        lineItems: { orderBy: { createdAt: "asc" } },
-      },
-    }),
-    prisma.customer.findMany({
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, phone: true },
-    }),
-  ]);
+  const saleRows = await prisma.sale.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      payments: { where: { deletedAt: null } },
+      returns: { where: { deletedAt: null } },
+      lineItems: { orderBy: { createdAt: "asc" } },
+    },
+  });
 
   const sales: SaleForClient[] = saleRows.map(serializeSale);
 
@@ -36,7 +25,7 @@ export default async function SalesPage() {
         </p>
       </header>
 
-      <SalesTable sales={sales} customers={customerRows} />
+      <SalesTable sales={sales} />
     </div>
   );
 }

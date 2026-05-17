@@ -32,6 +32,7 @@ import {
 // Standalone bills (attachedToType = null) are ADMIN-only because the
 // only path that creates them is the /admin/bills-test page.
 const WRITE_MATRIX: Record<AttachedToType, Role[]> = {
+  SALE: ["ADMIN"],
   PURCHASE: ["ADMIN", "PURCHASE_DEPT"],
   PURCHASE_PAYMENT: ["ADMIN", "PURCHASE_DEPT"],
   CASTING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
@@ -217,4 +218,45 @@ export async function getBillViewUrl(billId: string) {
   const url = await getViewableBillUrl(billId, session.user.role);
   if (!url) return { ok: false as const, error: "Not available" };
   return { ok: true as const, url };
+}
+
+// Fetch the bill currently attached to an entity via the
+// (attachedToType, attachedToId) discriminator. Used by Sales / Purchases
+// rows that don't carry a `billId` FK on the entity (Casting / Plating
+// can use either this OR the FK on the entry row — both work). Returns
+// null if no bill is attached or if the caller can't access it.
+export async function getBillForEntity(
+  attachedToType: AttachedToType,
+  attachedToId: string,
+) {
+  const session = await requireSession();
+
+  // Find the most recent READY bill for this discriminator pair.
+  // Bills are 1:1 in practice (the upload flow soft-deletes the prior
+  // bill before attaching a new one); the orderBy is a defensive tie-
+  // breaker.
+  const bill = await prisma.bill.findFirst({
+    where: {
+      attachedToType,
+      attachedToId,
+      status: "READY",
+      deletedAt: null,
+    },
+    orderBy: { uploadedAt: "desc" },
+  });
+
+  if (!bill) return { ok: true as const, bill: null };
+  if (!canAccessBill(session.user.role, bill)) {
+    return { ok: true as const, bill: null };
+  }
+
+  return {
+    ok: true as const,
+    bill: {
+      id: bill.id,
+      originalFilename: bill.originalFilename,
+      mimeType: bill.mimeType,
+      sizeBytes: bill.sizeBytes,
+    },
+  };
 }

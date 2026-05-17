@@ -27,6 +27,7 @@ import {
 // are admin-only since they have no parent to inherit from — the admin
 // test page is the only path that creates these today.
 const ROLE_MATRIX: Record<AttachedToType, Role[]> = {
+  SALE: ["ADMIN"],
   PURCHASE: ["ADMIN", "PURCHASE_DEPT"],
   PURCHASE_PAYMENT: ["ADMIN", "PURCHASE_DEPT"],
   CASTING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
