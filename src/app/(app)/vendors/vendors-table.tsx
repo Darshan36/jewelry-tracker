@@ -200,7 +200,7 @@ export function VendorsTable({ vendors }: Props) {
       {hasVendors && (
         <ResponsiveTable
           desktopTable={
-            <div className="border border-outline-variant bg-surface-container-low">
+            <div className="border border-outline-variant bg-surface-container-low overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-surface-container-high sticky top-0">
                   {table.getHeaderGroups().map((headerGroup) => (
