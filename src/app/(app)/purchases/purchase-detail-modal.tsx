@@ -1,8 +1,27 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Link as LinkIcon, Loader2 } from "lucide-react";
+// Phase 10: PurchaseDetailModal is now read-only. All mutation surfaces
+// (Add Payment, Add Return, Replace Bill, Delete) have moved off the
+// detail modal: payments + returns happen via the inline action
+// buttons in the row's Actions column (which open dedicated modals);
+// the full edit lives at /purchases/[id]/edit; soft-delete is on the row's
+// hover-action cluster.
+//
+// What stays in the detail modal:
+//   - Read-only line items table
+//   - Subtotal / discount / total
+//   - Read-only history of payments + returns
+//   - Notes
+//   - Status chip
+//   - One "Edit" link at the bottom that routes to /purchases/[id]/edit
+//
+// Why: separates view from write. The detail modal was carrying too
+// many responsibilities (view + four kinds of mutation); splitting
+// them gives the user a cleaner mental model and makes mobile
+// adaptation in Phase 11 straightforward.
+
+import Link from "next/link";
+import { Link as LinkIcon } from "lucide-react";
 
 import {
   Dialog,
@@ -11,45 +30,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LabeledField } from "@/components/labeled-field";
+import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
 
-import { softDeletePurchase } from "./actions";
-import { PaymentPanel } from "./payment-panel";
-import { ReturnPanel } from "./return-panel";
-import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import type { PurchaseForClient } from "./purchase-helpers";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   purchase: PurchaseForClient | null;
-  onEdit: () => void;
 };
 
-export function PurchaseDetailModal({
-  open,
-  onOpenChange,
-  purchase,
-  onEdit,
-}: Props) {
-  const router = useRouter();
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (!open) setConfirmingDelete(false);
-  }, [open, purchase?.id]);
-
+export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
   if (!purchase) return null;
-
-  const handleDelete = () => {
-    startTransition(async () => {
-      await softDeletePurchase(purchase.id);
-      setConfirmingDelete(false);
-      onOpenChange(false);
-      router.refresh();
-    });
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,7 +68,7 @@ export function PurchaseDetailModal({
             <LabeledField label="Phone" value={purchase.partyPhone} />
           </div>
 
-          {/* Line items table */}
+          {/* Line items (read-only) */}
           <div>
             <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
               Items
@@ -127,6 +120,7 @@ export function PurchaseDetailModal({
             </div>
           </div>
 
+          {/* Subtotal / Discount / Final total */}
           <div className="border-t border-outline-variant pt-4 space-y-1">
             <div className="flex items-center justify-between text-sm">
               <span className="text-on-surface-variant">Subtotal</span>
@@ -154,57 +148,142 @@ export function PurchaseDetailModal({
             <LabeledField label="Notes" value={purchase.notes} multiline />
           )}
 
-          <PaymentPanel purchase={purchase} payments={purchase.payments} />
-          <ReturnPanel purchase={purchase} returns={purchase.returns} />
+          {/* Payments history (read-only) */}
+          <ReadOnlyPaymentsList payments={purchase.payments} paidAmount={purchase.paidAmount} />
+
+          {/* Returns history (read-only) */}
+          {purchase.returns.length > 0 && (
+            <ReadOnlyReturnsList returns={purchase.returns} returnTotal={purchase.returnTotal} />
+          )}
         </div>
 
-        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant">
-          {confirmingDelete ? (
-            <div className="flex items-center gap-3">
-              <p className="flex-1 text-sm text-on-surface">
-                Delete purchase? This can be undone by an admin.
-              </p>
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={isPending}
-                className="px-3 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isPending}
-                className="min-w-[100px] h-9 px-3 font-display text-sm font-medium uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors flex items-center justify-center gap-2"
-              >
-                {isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  "Delete"
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="px-3 py-2 text-sm text-error hover:bg-surface-container transition-colors"
-              >
-                Delete
-              </button>
-              <button
-                type="button"
-                onClick={onEdit}
-                className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors"
-              >
-                Edit
-              </button>
-            </div>
-          )}
+        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-end">
+          <Link
+            href={`/purchases/${purchase.id}/edit`}
+            onClick={() => onOpenChange(false)}
+            className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors flex items-center"
+          >
+            Edit
+          </Link>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ReadOnlyPaymentsList({
+  payments,
+  paidAmount,
+}: {
+  payments: PurchaseForClient["payments"];
+  paidAmount: number;
+}) {
+  if (payments.length === 0) {
+    return (
+      <div>
+        <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+          Payments
+        </p>
+        <p className="text-sm text-on-surface-variant italic">
+          No payments recorded yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant">
+          Payments
+        </p>
+        <p className="text-xs text-on-surface-variant">
+          Net paid:{" "}
+          <span className="tabular-nums font-mono text-on-surface">
+            {formatCurrency(paidAmount)}
+          </span>
+        </p>
+      </div>
+      <div className="border border-outline-variant divide-y divide-outline-variant/40">
+        {payments.map((p) => {
+          const isRefund = p.type === "REFUND";
+          return (
+            <div
+              key={p.id}
+              className="grid grid-cols-[100px_70px_1fr_120px] gap-2 items-center text-sm px-3 py-2"
+            >
+              <span className="text-xs text-on-surface-variant tabular-nums">
+                {formatDate(p.date)}
+              </span>
+              <span
+                className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 inline-block w-fit ${
+                  isRefund
+                    ? "bg-error/20 text-error"
+                    : "bg-surface-container-high text-on-surface-variant"
+                }`}
+              >
+                {p.type}
+              </span>
+              <span className="text-xs text-on-surface-variant truncate">
+                {p.note ?? ""}
+              </span>
+              <span
+                className={`text-right tabular-nums font-mono text-sm ${
+                  isRefund ? "text-error" : ""
+                }`}
+              >
+                {isRefund ? "−" : ""}
+                {formatCurrency(p.amount)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ReadOnlyReturnsList({
+  returns,
+  returnTotal,
+}: {
+  returns: PurchaseForClient["returns"];
+  returnTotal: number;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant">
+          Returns
+        </p>
+        <p className="text-xs text-on-surface-variant">
+          Total refunded:{" "}
+          <span className="tabular-nums font-mono text-on-surface">
+            {formatCurrency(returnTotal)}
+          </span>
+        </p>
+      </div>
+      <div className="border border-outline-variant divide-y divide-outline-variant/40">
+        {returns.map((r) => (
+          <div
+            key={r.id}
+            className="grid grid-cols-[100px_70px_1fr_120px] gap-2 items-center text-sm px-3 py-2"
+          >
+            <span className="text-xs text-on-surface-variant tabular-nums">
+              {formatDate(r.date)}
+            </span>
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 inline-block w-fit bg-surface-container-high text-on-surface-variant tabular-nums">
+              {r.qtyReturned}x
+            </span>
+            <span className="text-xs text-on-surface-variant truncate">
+              {r.note ?? ""}
+            </span>
+            <span className="text-right tabular-nums font-mono text-sm">
+              {formatCurrency(r.refundAmount)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

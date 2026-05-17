@@ -7,26 +7,15 @@ import {
 } from "./purchase-helpers";
 
 export default async function PurchasesPage() {
-  const [purchaseRows, supplierRows] = await Promise.all([
-    prisma.purchase.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      // Include non-deleted payments AND returns so serializePurchase can
-      // compute net paidAmount (PAYMENT minus REFUND) + returnTotal, and
-      // derive the live status (pending / partial / completed / refund_due)
-      // at the page-render boundary.
-      include: {
-        payments: { where: { deletedAt: null } },
-        returns: { where: { deletedAt: null } },
-        lineItems: { orderBy: { createdAt: "asc" } },
-      },
-    }),
-    prisma.supplier.findMany({
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, phone: true },
-    }),
-  ]);
+  const purchaseRows = await prisma.purchase.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      payments: { where: { deletedAt: null } },
+      returns: { where: { deletedAt: null } },
+      lineItems: { orderBy: { createdAt: "asc" } },
+    },
+  });
 
   const purchases: PurchaseForClient[] = purchaseRows.map(serializePurchase);
 
@@ -39,7 +28,7 @@ export default async function PurchasesPage() {
         </p>
       </header>
 
-      <PurchasesTable purchases={purchases} suppliers={supplierRows} />
+      <PurchasesTable purchases={purchases} />
     </div>
   );
 }

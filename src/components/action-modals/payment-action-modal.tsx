@@ -1,10 +1,14 @@
 "use client";
 
 // Shared inline payment modal — opens from the Actions column on any
-// transaction-table row. Records a PAYMENT or REFUND against the
-// underlying entity (Sale today; Purchase/Casting/Plating wireable
-// when the mirror happens). Server actions stay where they are; this
-// component just dispatches by entityType.
+// transaction-table row.
+//
+// Phase 10.5: refactored to prop-injection dispatch. Previously had an
+// internal `switch (entityType)` that called `createSalePayment`
+// directly and surfaced "not wired yet" for other entity kinds. Now
+// the caller injects the action via the `onSave` prop, making the
+// modal entity-agnostic. `entityType` stays on the prop set for the
+// UI-side discriminator (label direction, currency-direction copy).
 
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -28,8 +32,6 @@ import {
 } from "@/components/form-controls";
 import { formatCurrency } from "@/lib/format";
 
-import { createSalePayment } from "@/app/(app)/sales/payment-actions";
-
 export type PaymentEntityType = "sale" | "purchase" | "casting" | "plating";
 
 // Local zod schema — keeps the modal self-contained. The server-action
@@ -49,6 +51,25 @@ const paymentFormSchema = z.object({
 type FormInputT = z.input<typeof paymentFormSchema>;
 type FormOutput = z.output<typeof paymentFormSchema>;
 
+// Server-action result shape — every create*Payment action across
+// Sales / Purchases / Casting / Plating returns this same union, so
+// the modal can surface field-level errors uniformly.
+export type PaymentSaveResult =
+  | { ok: true }
+  | {
+      ok: false;
+      errors: Partial<
+        Record<"amount" | "date" | "note" | "type" | string, string[]>
+      >;
+    };
+
+export type PaymentSaveData = {
+  date: Date;
+  amount: number; // rupees (server converts to paise)
+  type: "PAYMENT" | "REFUND";
+  note: string | null;
+};
+
 type Props = {
   entityType: PaymentEntityType;
   entityId: string;
@@ -56,6 +77,8 @@ type Props = {
   entityPaidAmount: number; // paise (net = PAYMENT − REFUND)
   open: boolean;
   onClose: () => void;
+  /** Entity-specific server-action wrapper. Caller closes over entityId. */
+  onSave: (data: PaymentSaveData) => Promise<PaymentSaveResult>;
 };
 
 function todayISO(): string {
@@ -78,11 +101,12 @@ function owedLabel(entityType: PaymentEntityType): string {
 
 export function PaymentActionModal({
   entityType,
-  entityId,
+  entityId: _entityId,
   entityTotal,
   entityPaidAmount,
   open,
   onClose,
+  onSave,
 }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -115,30 +139,12 @@ export function PaymentActionModal({
   const onSubmit = async (data: FormOutput) => {
     setFormError(null);
 
-    // Dispatch by entityType. Today only sale is wired; the other
-    // entity types will dispatch to their respective actions when the
-    // mirror happens. Each entity's create*Payment action shape is
-    // identical (date, amount as rupees, type, note), so the dispatch
-    // is a pass-through.
-    let result;
-    switch (entityType) {
-      case "sale":
-        result = await createSalePayment({
-          saleId: entityId,
-          date: data.date,
-          amount: data.amount,
-          type: data.type,
-          note: data.note,
-        });
-        break;
-      case "purchase":
-      case "casting":
-      case "plating":
-        setFormError(
-          `Payment actions for ${entityType} entities are not wired yet (Phase 10 scoped to sales).`,
-        );
-        return;
-    }
+    const result = await onSave({
+      date: data.date,
+      amount: data.amount,
+      type: data.type,
+      note: data.note,
+    });
 
     if (!result.ok) {
       const flat = result.errors;

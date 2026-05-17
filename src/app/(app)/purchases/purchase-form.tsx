@@ -1,26 +1,20 @@
 "use client";
 
-// Standalone sale form — extracted from sale-form-modal.tsx in Phase 10.
+// Standalone purchase form — extracted from purchase-form-modal.tsx in Phase 10.
 // Renders without a Dialog wrapper for use inside dedicated form pages
-// at /sales/new and /sales/[id]/edit.
+// at /purchases/new and /purchases/[id]/edit.
 //
-// Phase 10.5: bill-in-form retrofit. The form now has an inline bill
-// attach section after the line items. The bill upload happens AFTER
-// the entry create/update (the entry needs an id before the bill can
-// be attached). Flow on submit:
-//   1. createSale / updateSale → entry.id
-//   2. If a file is picked: prepareUpload (attachedToType="SALE",
-//      attachedToId=entry.id) → R2 PUT → confirmUpload
-//   3. Navigate via SaveMode (return) or reset (another)
-// If step 2 fails, the entry IS saved — error banner shows + the user
-// can use the inline 📎 BillActionModal from the row to retry. No
-// rollback of step 1 (the entry stands on its own).
+// The form's internals — RHF, useFieldArray, zodResolver, the live
+// subtotal/discount/total preview — are unchanged from the modal era;
+// what changed is the surrounding container (page vs Dialog) and the
+// save-flow choice ("Save and return" vs "Save and add another") via
+// SaveDropdown.
 
 import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Paperclip, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { type z } from "zod";
 
 import {
@@ -30,30 +24,20 @@ import {
   FormTextarea,
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
-import { BillPreview } from "@/components/bill-preview";
 import { formatCurrency } from "@/lib/format";
-import {
-  ALLOWED_MIME_TYPES,
-  MAX_FILE_SIZE_BYTES,
-  type AllowedMimeType,
-} from "@/app/(app)/bills/schema";
-import {
-  confirmUpload,
-  prepareUpload,
-} from "@/app/(app)/bills/actions";
 
-import { createSale, updateSale } from "./actions";
-import { PartyPicker, type CustomerOption } from "./party-picker";
-import { saleInputSchema } from "./schema";
-import type { SaleForClient } from "./sale-helpers";
+import { createPurchase, updatePurchase } from "./actions";
+import { PartyPicker, type SupplierOption } from "./party-picker";
+import { purchaseInputSchema } from "./schema";
+import type { PurchaseForClient } from "./purchase-helpers";
 
-type FormInputT = z.input<typeof saleInputSchema>;
-type FormOutput = z.output<typeof saleInputSchema>;
+type FormInputT = z.input<typeof purchaseInputSchema>;
+type FormOutput = z.output<typeof purchaseInputSchema>;
 
 type Props = {
   mode: "create" | "edit";
-  sale?: SaleForClient;
-  customers: CustomerOption[];
+  purchase?: PurchaseForClient;
+  suppliers: SupplierOption[];
 };
 
 function todayISO(): string {
@@ -71,7 +55,7 @@ function dateToISO(date: Date | string | null | undefined): string {
 function emptyDefaults(): FormInputT {
   return {
     date: todayISO() as unknown as Date,
-    customerId: null,
+    supplierId: null,
     partyName: "",
     partyPhone: "",
     lineItems: [{ itemDescription: "", qty: 1, rate: 0 }],
@@ -80,31 +64,7 @@ function emptyDefaults(): FormInputT {
   };
 }
 
-function isAllowedMime(t: string): t is AllowedMimeType {
-  return (ALLOWED_MIME_TYPES as readonly string[]).includes(t);
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function putToR2(presignedUrl: string, file: File): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", presignedUrl, true);
-    xhr.setRequestHeader("Content-Type", file.type);
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`R2 PUT failed (${xhr.status})`));
-    };
-    xhr.onerror = () => reject(new Error("Network error during upload"));
-    xhr.send(file);
-  });
-}
-
-export function SaleForm({ mode, sale, customers }: Props) {
+export function PurchaseForm({ mode, purchase, suppliers }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   // saveMode read inside onSubmit via a ref because setSaveMode + the
@@ -112,16 +72,6 @@ export function SaleForm({ mode, sale, customers }: Props) {
   // submit closure captures the previous state value before React's
   // re-render. Refs give synchronous read/write semantics.
   const saveModeRef = useRef<SaveMode>("return");
-  // Phase 10.5: optional bill-in-form. Picked file lives in state;
-  // upload runs after the entry create/update succeeds. Replacing an
-  // existing bill from the form page isn't supported — that flow lives
-  // in the row-level BillActionModal.
-  const [pickedBillFile, setPickedBillFile] = useState<File | null>(null);
-  const [billPickerError, setBillPickerError] = useState<string | null>(null);
-  const [billUploadStatus, setBillUploadStatus] = useState<
-    "idle" | "preparing" | "uploading" | "confirming"
-  >("idle");
-  const billInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     control,
@@ -133,7 +83,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
     setValue,
     watch,
   } = useForm<FormInputT, unknown, FormOutput>({
-    resolver: zodResolver(saleInputSchema),
+    resolver: zodResolver(purchaseInputSchema),
     defaultValues: emptyDefaults(),
   });
 
@@ -146,25 +96,25 @@ export function SaleForm({ mode, sale, customers }: Props) {
   // Seed the form once on mount (edit) or with defaults (create).
   useEffect(() => {
     reset({
-      date: dateToISO(sale?.date) as unknown as Date,
-      customerId: sale?.customerId ?? null,
-      partyName: sale?.partyName ?? "",
-      partyPhone: sale?.partyPhone ?? "",
-      lineItems: sale
-        ? sale.lineItems.map((li) => ({
+      date: dateToISO(purchase?.date) as unknown as Date,
+      supplierId: purchase?.supplierId ?? null,
+      partyName: purchase?.partyName ?? "",
+      partyPhone: purchase?.partyPhone ?? "",
+      lineItems: purchase
+        ? purchase.lineItems.map((li) => ({
             itemDescription: li.itemDescription,
             qty: li.qty,
             rate: li.rate / 100,
           }))
         : [{ itemDescription: "", qty: 1, rate: 0 }],
-      discount: sale ? sale.discount / 100 : 0,
-      notes: sale?.notes ?? "",
+      discount: purchase ? purchase.discount / 100 : 0,
+      notes: purchase?.notes ?? "",
     });
-  }, [sale, reset]);
+  }, [purchase, reset]);
 
   const watchedLineItems = watch("lineItems") ?? [];
   const watchedDiscount = watch("discount");
-  const watchedCustomerId = watch("customerId");
+  const watchedSupplierId = watch("supplierId");
   const watchedPartyName = watch("partyName");
   const watchedPartyPhone = watch("partyPhone");
 
@@ -184,9 +134,9 @@ export function SaleForm({ mode, sale, customers }: Props) {
     setFormError(null);
 
     const result =
-      mode === "edit" && sale
-        ? await updateSale(sale.id, data)
-        : await createSale(data);
+      mode === "edit" && purchase
+        ? await updatePurchase(purchase.id, data)
+        : await createPurchase(data);
 
     if (!result.ok) {
       const flat = result.errors;
@@ -203,57 +153,11 @@ export function SaleForm({ mode, sale, customers }: Props) {
       return;
     }
 
-    // Entry is saved. If a bill is picked, run the upload chain
-    // attached to the entry's id. On failure, leave the entry saved
-    // and surface a banner — the user can retry via the row-level
-    // BillActionModal.
-    const savedSaleId = result.sale.id;
-    if (pickedBillFile) {
-      try {
-        setBillUploadStatus("preparing");
-        const prep = await prepareUpload({
-          originalFilename: pickedBillFile.name,
-          mimeType: pickedBillFile.type as AllowedMimeType,
-          sizeBytes: pickedBillFile.size,
-          attachedToType: "SALE",
-          attachedToId: savedSaleId,
-        });
-        if (!prep.ok) {
-          const first = Object.values(prep.errors).flat().find(Boolean);
-          throw new Error(first ?? "Bill preparation failed");
-        }
-        setBillUploadStatus("uploading");
-        await putToR2(prep.presignedUrl, pickedBillFile);
-        setBillUploadStatus("confirming");
-        const conf = await confirmUpload({ billId: prep.billId });
-        if (!conf.ok) {
-          const first = Object.values(conf.errors).flat().find(Boolean);
-          throw new Error(first ?? "Bill confirmation failed");
-        }
-        setBillUploadStatus("idle");
-      } catch (err) {
-        setBillUploadStatus("idle");
-        setFormError(
-          `Sale saved, but bill upload failed: ${
-            err instanceof Error ? err.message : String(err)
-          }. Use the 📎 button in the sales list to retry.`,
-        );
-        // Don't navigate away — leave the user on the form so they
-        // can see the error. The sale is saved; they can also use the
-        // row-level modal from /sales.
-        router.refresh();
-        return;
-      }
-    }
-
     if (saveModeRef.current === "return") {
-      router.push("/sales");
+      router.push("/purchases");
       router.refresh();
     } else {
       reset(emptyDefaults());
-      setPickedBillFile(null);
-      setBillPickerError(null);
-      if (billInputRef.current) billInputRef.current.value = "";
       router.refresh();
       // Scroll to top so the user sees the freshly cleared form.
       if (typeof window !== "undefined") {
@@ -261,42 +165,6 @@ export function SaleForm({ mode, sale, customers }: Props) {
       }
     }
   };
-
-  const onPickBillFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setBillPickerError(null);
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
-      setPickedBillFile(null);
-      return;
-    }
-    if (!isAllowedMime(file.type)) {
-      setPickedBillFile(null);
-      setBillPickerError(
-        `Unsupported file type "${file.type || "unknown"}". PDF, JPEG, PNG, WebP only.`,
-      );
-      if (billInputRef.current) billInputRef.current.value = "";
-      return;
-    }
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      setPickedBillFile(null);
-      setBillPickerError(
-        `File too large (${formatBytes(file.size)}). Max ${formatBytes(MAX_FILE_SIZE_BYTES)}.`,
-      );
-      if (billInputRef.current) billInputRef.current.value = "";
-      return;
-    }
-    setPickedBillFile(file);
-  };
-
-  const billBusy = billUploadStatus !== "idle";
-  const billBusyLabel =
-    billUploadStatus === "preparing"
-      ? "Preparing bill"
-      : billUploadStatus === "uploading"
-        ? "Uploading bill"
-        : billUploadStatus === "confirming"
-          ? "Confirming bill"
-          : "";
 
   return (
     <form
@@ -311,11 +179,11 @@ export function SaleForm({ mode, sale, customers }: Props) {
       )}
 
       <div>
-        <FormLabel htmlFor="sale-date" required>
+        <FormLabel htmlFor="purchase-date" required>
           Date
         </FormLabel>
         <FormInput
-          id="sale-date"
+          id="purchase-date"
           type="date"
           aria-invalid={!!errors.date}
           {...register("date")}
@@ -325,24 +193,24 @@ export function SaleForm({ mode, sale, customers }: Props) {
         </FormError>
       </div>
 
-      <input type="hidden" {...register("customerId")} />
+      <input type="hidden" {...register("supplierId")} />
       <input type="hidden" {...register("partyName")} />
       <input type="hidden" {...register("partyPhone")} />
 
       <PartyPicker
-        customers={customers}
+        suppliers={suppliers}
         value={{
-          customerId: (watchedCustomerId as string | null) ?? null,
+          supplierId: (watchedSupplierId as string | null) ?? null,
           partyName: (watchedPartyName as string | undefined) ?? "",
           partyPhone:
             (watchedPartyPhone as string | null | undefined) ?? null,
         }}
         onChange={(v) => {
-          setValue("customerId", v.customerId);
+          setValue("supplierId", v.supplierId);
           setValue("partyName", v.partyName, { shouldValidate: true });
           setValue("partyPhone", v.partyPhone);
         }}
-        error={errors.partyName?.message ?? errors.customerId?.message}
+        error={errors.partyName?.message ?? errors.supplierId?.message}
       />
 
       <div>
@@ -388,7 +256,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
               >
                 <div>
                   <FormInput
-                    id={`sale-line-${idx}-item`}
+                    id={`purchase-line-${idx}-item`}
                     type="text"
                     autoComplete="off"
                     placeholder="Item description"
@@ -403,7 +271,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
                 </div>
                 <div>
                   <FormInput
-                    id={`sale-line-${idx}-qty`}
+                    id={`purchase-line-${idx}-qty`}
                     type="number"
                     min="1"
                     step="1"
@@ -423,7 +291,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
                 </div>
                 <div>
                   <FormInput
-                    id={`sale-line-${idx}-rate`}
+                    id={`purchase-line-${idx}-rate`}
                     type="number"
                     min="0"
                     step="0.01"
@@ -465,63 +333,6 @@ export function SaleForm({ mode, sale, customers }: Props) {
         )}
       </div>
 
-      <div>
-        <FormLabel>
-          <span className="inline-flex items-center gap-1.5">
-            <Paperclip className="size-3.5" />
-            Attach bill (optional)
-          </span>
-        </FormLabel>
-        <div className="border border-outline-variant bg-surface-container-low p-3 space-y-3">
-          {mode === "edit" && sale && (
-            <p className="text-xs text-on-surface-variant italic">
-              To replace or remove an existing bill on this sale, use the
-              📎 button on the sales list row. Picking a file here adds a
-              new bill alongside.
-            </p>
-          )}
-          {!pickedBillFile && (
-            <input
-              ref={billInputRef}
-              type="file"
-              accept={ALLOWED_MIME_TYPES.join(",")}
-              onChange={onPickBillFile}
-              disabled={isSubmitting || billBusy}
-              className="text-sm text-on-surface file:mr-3 file:py-2 file:px-4 file:border-0 file:bg-surface-container-high file:text-on-surface file:font-display file:uppercase file:tracking-wider file:text-xs hover:file:bg-surface-container-highest"
-            />
-          )}
-          {billPickerError && (
-            <p className="text-xs text-error">{billPickerError}</p>
-          )}
-          {pickedBillFile && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-mono text-xs text-on-surface truncate">
-                  {pickedBillFile.name} · {formatBytes(pickedBillFile.size)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPickedBillFile(null);
-                    setBillPickerError(null);
-                    if (billInputRef.current)
-                      billInputRef.current.value = "";
-                  }}
-                  disabled={billBusy}
-                  className="text-xs uppercase tracking-wider text-on-surface-variant hover:text-error transition-colors"
-                >
-                  Remove
-                </button>
-              </div>
-              <BillPreview file={pickedBillFile} />
-            </div>
-          )}
-          <p className="text-[10px] text-on-surface-variant uppercase tracking-wider">
-            Max {formatBytes(MAX_FILE_SIZE_BYTES)}. PDF, JPEG, PNG, WebP.
-          </p>
-        </div>
-      </div>
-
       <div className="border border-outline-variant bg-surface-container-high p-4 space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="text-on-surface-variant">Subtotal</span>
@@ -531,13 +342,13 @@ export function SaleForm({ mode, sale, customers }: Props) {
         </div>
         <div className="grid grid-cols-[1fr_140px] gap-3 items-center">
           <FormLabel
-            htmlFor="sale-discount"
+            htmlFor="purchase-discount"
             className="!mb-0 text-sm normal-case tracking-normal text-on-surface-variant"
           >
             Discount (₹)
           </FormLabel>
           <FormInput
-            id="sale-discount"
+            id="purchase-discount"
             type="number"
             min="0"
             step="0.01"
@@ -572,9 +383,9 @@ export function SaleForm({ mode, sale, customers }: Props) {
       </div>
 
       <div>
-        <FormLabel htmlFor="sale-notes">Notes</FormLabel>
+        <FormLabel htmlFor="purchase-notes">Notes</FormLabel>
         <FormTextarea
-          id="sale-notes"
+          id="purchase-notes"
           rows={2}
           aria-invalid={!!errors.notes}
           {...register("notes")}
@@ -585,17 +396,14 @@ export function SaleForm({ mode, sale, customers }: Props) {
       <div className="flex items-center justify-end gap-3 pt-4 border-t border-outline-variant">
         <button
           type="button"
-          onClick={() => router.push("/sales")}
+          onClick={() => router.push("/purchases")}
           disabled={isSubmitting}
           className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
         >
           Cancel
         </button>
         <SaveDropdown
-          saving={isSubmitting || billBusy}
-          primaryLabel={
-            billBusy ? billBusyLabel : "Save and return"
-          }
+          saving={isSubmitting}
           // The dropdown picks "return" or "another"; we stash the chosen
           // mode in state so the (separate) form-submit handler can read
           // it. SaveDropdown.onSave is what actually triggers the form
@@ -612,7 +420,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
 
 const FORM_FIELDS = [
   "date",
-  "customerId",
+  "supplierId",
   "partyName",
   "partyPhone",
   "lineItems",

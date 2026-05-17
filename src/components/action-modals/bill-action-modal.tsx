@@ -39,22 +39,33 @@ import {
   prepareUpload,
   softDeleteBill,
 } from "@/app/(app)/bills/actions";
-import {
-  attachBillToCastingEntry,
-  detachBillFromCastingEntry,
-} from "@/app/(app)/casting/actions";
-import {
-  attachBillToPlatingEntry,
-  detachBillFromPlatingEntry,
-} from "@/app/(app)/plating/actions";
 
 export type BillEntityType = "sale" | "purchase" | "casting" | "plating";
 
+// Phase 10.5: the modal is entity-agnostic. The bill-preparation
+// chain — `getBillForEntity` (discriminator lookup), `softDeleteBill`,
+// `prepareUpload`, the browser-side R2 PUT, and `confirmUpload` — is
+// the same for every entity type, so those calls stay internal.
+//
+// For Casting/Plating, the entry row carries a `billId @unique` FK
+// that must be CLEARED before the old bill can be soft-deleted (to
+// avoid tripping the unique constraint during the replace transient
+// state) and SET after the new bill confirms. Sales/Purchases don't
+// have that FK — the discriminator-only link is set at prepare time
+// and picked up by the next `getBillForEntity` call.
+//
+// `onAttach` / `onDetach` are the entity-specific FK actions; absent
+// for Sales/Purchases, present for Casting/Plating. The modal calls
+// them iff they're supplied — no internal `switch (entityType)`.
 type Props = {
   entityType: BillEntityType;
   entityId: string;
   open: boolean;
   onClose: () => void;
+  /** Sets the entity's `billId` FK after a new bill is confirmed. Casting/Plating only. */
+  onAttach?: (entityId: string, billId: string) => Promise<{ ok: boolean }>;
+  /** Clears the entity's `billId` FK before a soft-delete + new upload. Casting/Plating only. */
+  onDetach?: (entityId: string) => Promise<{ ok: boolean }>;
 };
 
 function attachedToTypeFor(entityType: BillEntityType): AttachedToType {
@@ -92,6 +103,8 @@ export function BillActionModal({
   entityId,
   open,
   onClose,
+  onAttach,
+  onDetach,
 }: Props) {
   const router = useRouter();
   const [existing, setExisting] = useState<ExistingBill | null>(null);
@@ -158,14 +171,10 @@ export function BillActionModal({
       // If replacing an existing bill, detach + soft-delete the old one
       // first so the entity's billId FK (Casting/Plating) is cleared
       // before we attempt to attach the new one. For Sales/Purchases
-      // there's no FK to clear, so we just soft-delete the prior bill
-      // row so the discriminator lookup picks up the new one.
+      // there's no FK to clear (no onDetach prop supplied); soft-delete
+      // alone is enough — the discriminator lookup picks up the new bill.
       if (existing) {
-        if (entityType === "casting") {
-          await detachBillFromCastingEntry(entityId);
-        } else if (entityType === "plating") {
-          await detachBillFromPlatingEntry(entityId);
-        }
+        if (onDetach) await onDetach(entityId);
         await softDeleteBill({ billId: existing.id });
       }
 
@@ -192,16 +201,13 @@ export function BillActionModal({
         throw new Error(first ?? "Bill confirmation failed");
       }
 
-      // For entities with a billId FK (Casting/Plating), attach the new
-      // bill's id back to the entity. Sales/Purchases skip this step —
-      // the discriminator-only link is already established by
-      // prepareUpload's attachedToId arg.
-      if (entityType === "casting") {
+      // For entities with a billId FK (Casting/Plating — they pass an
+      // onAttach prop), set the new bill's id on the entry row.
+      // Sales/Purchases skip this — the discriminator-only link is
+      // already established by prepareUpload's attachedToId arg.
+      if (onAttach) {
         setUploadStatus("attaching");
-        await attachBillToCastingEntry(entityId, prep.billId);
-      } else if (entityType === "plating") {
-        setUploadStatus("attaching");
-        await attachBillToPlatingEntry(entityId, prep.billId);
+        await onAttach(entityId, prep.billId);
       }
 
       setUploadStatus("idle");

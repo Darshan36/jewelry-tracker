@@ -2,9 +2,12 @@
 
 // Shared inline return modal — opens from the Actions column on Sale
 // or Purchase rows (Casting/Plating have no returns workflow per
-// Phase 9 lineage). User enters a single qty + refund amount + note;
-// the server-action enforces the cumulative-qty + cumulative-refund
-// limits already.
+// Phase 9 lineage).
+//
+// Phase 10.5: refactored to prop-injection. Caller passes `onSave`
+// closing over the entity id and the right server action; the modal
+// is entity-agnostic. `entityType` stays for any future UI-side
+// label-direction logic.
 
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -27,8 +30,6 @@ import {
   FormTextarea,
 } from "@/components/form-controls";
 
-import { createSaleReturn } from "@/app/(app)/sales/return-actions";
-
 export type ReturnEntityType = "sale" | "purchase";
 
 const returnFormSchema = z.object({
@@ -49,11 +50,32 @@ const returnFormSchema = z.object({
 type FormInputT = z.input<typeof returnFormSchema>;
 type FormOutput = z.output<typeof returnFormSchema>;
 
+export type ReturnSaveResult =
+  | { ok: true }
+  | {
+      ok: false;
+      errors: Partial<
+        Record<
+          "qtyReturned" | "refundAmount" | "date" | "note" | string,
+          string[]
+        >
+      >;
+    };
+
+export type ReturnSaveData = {
+  date: Date;
+  qtyReturned: number;
+  refundAmount: number; // rupees
+  note: string | null;
+};
+
 type Props = {
   entityType: ReturnEntityType;
   entityId: string;
   open: boolean;
   onClose: () => void;
+  /** Entity-specific server-action wrapper. */
+  onSave: (data: ReturnSaveData) => Promise<ReturnSaveResult>;
 };
 
 function todayISO(): string {
@@ -71,10 +93,11 @@ function emptyDefaults(): FormInputT {
 }
 
 export function ReturnActionModal({
-  entityType,
-  entityId,
+  entityType: _entityType,
+  entityId: _entityId,
   open,
   onClose,
+  onSave,
 }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -100,23 +123,12 @@ export function ReturnActionModal({
   const onSubmit = async (data: FormOutput) => {
     setFormError(null);
 
-    let result;
-    switch (entityType) {
-      case "sale":
-        result = await createSaleReturn({
-          saleId: entityId,
-          date: data.date,
-          qtyReturned: data.qtyReturned,
-          refundAmount: data.refundAmount,
-          note: data.note,
-        });
-        break;
-      case "purchase":
-        setFormError(
-          "Return actions for purchases are not wired yet (Phase 10 scoped to sales).",
-        );
-        return;
-    }
+    const result = await onSave({
+      date: data.date,
+      qtyReturned: data.qtyReturned,
+      refundAmount: data.refundAmount,
+      note: data.note,
+    });
 
     if (!result.ok) {
       const flat = result.errors;

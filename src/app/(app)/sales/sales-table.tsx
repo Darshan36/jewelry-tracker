@@ -39,6 +39,8 @@ import {
 } from "@/components/action-modals/return-action-modal";
 
 import { softDeleteSale } from "./actions";
+import { createSalePayment } from "./payment-actions";
+import { createSaleReturn } from "./return-actions";
 import { SaleDetailModal } from "./sale-detail-modal";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import type { SaleForClient } from "./sale-helpers";
@@ -310,10 +312,25 @@ export function SalesTable({ sales }: Props) {
           entityPaidAmount={paymentRow.paidAmount}
           open={paymentRowId !== null}
           onClose={() => setPaymentRowId(null)}
+          // Prop-injection dispatch (Phase 10.5). Sales server actions
+          // take a single object that includes the saleId; we close over
+          // it from the captured row and the modal stays entity-agnostic.
+          onSave={(data) =>
+            createSalePayment({
+              saleId: paymentRow.id,
+              date: data.date,
+              amount: data.amount,
+              type: data.type,
+              note: data.note,
+            })
+          }
         />
       )}
 
       {billRowId && (
+        // Sales bill flow uses the discriminator-only attachment pattern
+        // (no `billId` FK on the Sale row), so no onAttach/onDetach
+        // props — the modal short-circuits both calls.
         <BillActionModal
           entityType="sale"
           entityId={billRowId}
@@ -328,6 +345,15 @@ export function SalesTable({ sales }: Props) {
           entityId={returnRowId}
           open={returnRowId !== null}
           onClose={() => setReturnRowId(null)}
+          onSave={(data) =>
+            createSaleReturn({
+              saleId: returnRowId,
+              date: data.date,
+              qtyReturned: data.qtyReturned,
+              refundAmount: data.refundAmount,
+              note: data.note,
+            })
+          }
         />
       )}
     </>

@@ -16,6 +16,13 @@ vi.mock("./actions", () => ({
   createSale: vi.fn(),
   updateSale: vi.fn(),
 }));
+// Phase 10.5: SaleForm now imports prepareUpload/confirmUpload for the
+// inline bill section. Mock the bills action module so the test
+// doesn't pull next-auth's runtime into the jsdom environment.
+vi.mock("@/app/(app)/bills/actions", () => ({
+  prepareUpload: vi.fn(),
+  confirmUpload: vi.fn(),
+}));
 
 import { createSale, updateSale } from "./actions";
 
