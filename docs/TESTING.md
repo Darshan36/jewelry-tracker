@@ -873,6 +873,127 @@ the same reason. **Rule**: if you write `[X-Y]` in a character class
 where either X or Y is a codepoint above U+00FF, double-check the
 order and prefer the leading-`-`-as-literal idiom.
 
+### Stale-closure regression tests for `useRef` patterns
+
+When a component uses `useRef` to capture a value that must be read
+**synchronously** in an async callback (instead of `useState` which
+batches state updates asynchronously), explicit regression tests are
+required because the failure mode is silent — the value flip is
+ignored, the callback reads the previous value, and the only symptom
+is incorrect behaviour with no error.
+
+Phase 10's canonical case: `SaveDropdown.onSave` callback fires
+synchronously from the menu-item click. The consumer (`sale-form.tsx`)
+needs to read which mode was clicked when the submit's `onSubmit`
+closure runs — but `onSubmit` is a closure captured at the prior
+render. If the consumer does:
+
+```typescript
+const [saveMode, setSaveMode] = useState<SaveMode>("return");
+// ...
+onSave={(m) => {
+  setSaveMode(m);             // React state — async, batched
+  handleSubmit(onSubmit)();   // sync — onSubmit captures previous saveMode
+}}
+```
+
+then `onSubmit` reads the *previous* `saveMode` value. "Save and add
+another" silently behaves like "Save and return." The fix is `useRef`:
+
+```typescript
+const saveModeRef = useRef<SaveMode>("return");
+onSave={(m) => {
+  saveModeRef.current = m;     // synchronous write
+  handleSubmit(onSubmit)();    // onSubmit reads saveModeRef.current (latest)
+}}
+```
+
+**Required test cases** (cover all four to prove the contract):
+
+1. Primary action button → callback fires with primary mode
+2. Secondary action button → callback fires with secondary mode
+3. Repeated secondary clicks → each call carries the secondary mode
+   (rules out a "remember last click" short-circuit refactor)
+4. Synchronous-callback contract — the callback receives the right
+   mode in the same tick, not after a microtask
+
+If anyone refactors the ref back to state in a future cleanup, the
+silent-failure mode returns. The dropdown-side contract assertions
+still pass (the dropdown itself just fires `onSave(mode)`); the
+*integration* breaks. Document the consumer's ref usage explicitly
+in the dropdown test's docblock so the cross-reference is discoverable.
+
+Canonical example: `src/components/save-dropdown.test.tsx`'s
+`stale-closure regression coverage` describe block, with the
+consumer's ref pattern named in the test docblock.
+
+### Chain-ordering accumulator pattern
+
+When a server-action chain has multiple ordered calls (replace flow:
+`softDeleteBill` → `prepareUpload` → R2 PUT → `confirmUpload` →
+`attach*Entry`), individual call-count assertions catch presence but
+miss order. Use a `callOrder: string[]` accumulator at the test scope,
+push the call name from inside each mock's `mockImplementation`, then
+assert the full sequence:
+
+```typescript
+const callOrder: string[] = [];
+vi.mocked(softDeleteBill).mockImplementation(async () => {
+  callOrder.push("softDeleteBill");
+  return { ok: true as const };
+});
+vi.mocked(prepareUpload).mockImplementation(async () => {
+  callOrder.push("prepareUpload");
+  return RESOLVED_PREPARE_OK;
+});
+// ... etc
+
+// Trigger the action chain
+await user.click(uploadButton);
+
+await vi.waitFor(() => {
+  expect(callOrder).toEqual([
+    "softDeleteBill",
+    "prepareUpload",
+    "confirmUpload",
+  ]);
+});
+```
+
+Catches regressions where a refactor changes the order even when
+individual calls all succeed. In the bill-replace case specifically:
+running `prepareUpload` BEFORE `softDeleteBill` would leak R2 objects
+(the old bill's R2 stays around) AND trip `@unique billId` on
+casting/plating. The chain-ordering test pins the contract.
+
+Canonical example: `src/components/action-modals/bill-action-modal.test.tsx`'s
+`replace flow chain` describe block. Apply anywhere a test needs to
+prove "these calls happen in this order" without per-call timing.
+
+### Playwright walkthrough — dropdown click-outside timing
+
+For Radix / shadcn / homegrown dropdowns that close on click-outside,
+add a small `waitForTimeout(100-150ms)` between the trigger click
+(opens the dropdown) and the menu-item click (selects an option):
+
+```javascript
+await page.locator('button[aria-label="More save options"]').click();
+// Click-outside catcher mounts after setOpen(true) commits. Give React
+// a frame to commit before clicking the menu item.
+await page.waitForTimeout(150);
+await page.locator('button[role="menuitem"]:has-text("Save and add another")').click();
+```
+
+The click-outside catcher is rendered conditional on `open === true`.
+Playwright's clicks fire back-to-back faster than React commits state,
+so the menu-item click sometimes lands on the catcher (which closes
+the menu) before the menu item exists in the DOM. Not a real-user
+concern — humans don't double-click in < 100ms — but a Playwright
+timing artifact worth handling.
+
+Discovered Phase 10 walkthrough Step 2 (the "Save and add another"
+selection that drives the form's save-mode dispatch).
+
 ### Component tests vs Playwright walkthroughs — `router.refresh()` timing
 
 The two test layers differ in how they handle Next.js's
