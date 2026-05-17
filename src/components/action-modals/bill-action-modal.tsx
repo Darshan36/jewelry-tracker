@@ -19,12 +19,12 @@ import { useRouter } from "next/navigation";
 import { ExternalLink, Loader2, Upload } from "lucide-react";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from "@/components/responsive-dialog";
 import { BillPreview } from "@/components/bill-preview";
 import {
   ALLOWED_MIME_TYPES,
@@ -254,13 +254,16 @@ export function BillActionModal({
             : "Saving";
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
-      <DialogContent className="w-full max-w-[600px] bg-surface-container border border-outline-variant p-6 gap-0 max-h-[90vh] overflow-y-auto">
-        <DialogHeader className="mb-6">
-          <DialogTitle className="text-lg font-semibold tracking-tight text-on-surface">
+    <ResponsiveDialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
+      <ResponsiveDialogContent
+        desktopClassName="md:max-w-[600px] md:p-6"
+        className="bg-surface-container border-outline-variant p-6 gap-0"
+      >
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>
             {existing ? "Replace bill" : "Upload bill"}
-          </DialogTitle>
-        </DialogHeader>
+          </ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
 
         <div className="space-y-5">
           {loadingExisting && (
@@ -342,12 +345,12 @@ export function BillActionModal({
           )}
         </div>
 
-        <DialogFooter className="mt-6 -mx-6 -mb-6 px-6 py-4 bg-transparent border-t border-outline-variant flex flex-row justify-end gap-3">
+        <ResponsiveDialogFooter className="-mx-6 -mb-6 px-6 py-4">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+            className="min-h-[44px] md:min-h-0 px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
           >
             Cancel
           </button>
@@ -355,7 +358,7 @@ export function BillActionModal({
             type="button"
             onClick={handleUpload}
             disabled={!pickedFile || busy}
-            className="min-w-[140px] h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="min-w-[140px] min-h-[44px] md:min-h-0 md:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {busy ? (
               <>
@@ -366,9 +369,9 @@ export function BillActionModal({
               "Upload"
             )}
           </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
 

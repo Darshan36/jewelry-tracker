@@ -17,12 +17,12 @@ import { Loader2 } from "lucide-react";
 import { z } from "zod";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from "@/components/responsive-dialog";
 import {
   FormError,
   FormInput,
@@ -156,13 +156,14 @@ export function ReturnActionModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="w-full max-w-[500px] bg-surface-container border border-outline-variant p-6 gap-0">
-        <DialogHeader className="mb-6">
-          <DialogTitle className="text-lg font-semibold tracking-tight text-on-surface">
-            Record return
-          </DialogTitle>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveDialogContent
+        desktopClassName="md:max-w-[500px] md:p-6"
+        className="bg-surface-container border-outline-variant p-6 gap-0"
+      >
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>Record return</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           {formError && (
@@ -232,19 +233,19 @@ export function ReturnActionModal({
             <FormTextarea id="return-note" rows={2} {...register("note")} />
           </div>
 
-          <DialogFooter className="mt-6 -mx-6 -mb-6 px-6 py-4 bg-transparent border-t border-outline-variant flex flex-row justify-end gap-3">
+          <ResponsiveDialogFooter className="-mx-6 -mb-6 px-6 py-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+              className="min-h-[44px] md:min-h-0 px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="min-w-[120px] h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className="min-w-[120px] min-h-[44px] md:min-h-0 md:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
                 <>
@@ -255,9 +256,9 @@ export function ReturnActionModal({
                 "Save"
               )}
             </button>
-          </DialogFooter>
+          </ResponsiveDialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }

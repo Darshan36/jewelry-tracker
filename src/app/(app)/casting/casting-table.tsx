@@ -26,6 +26,8 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { formatKg } from "@/lib/weight-helpers";
+
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
   PaymentActionModal,
@@ -33,6 +35,13 @@ import {
 import {
   BillActionModal,
 } from "@/components/action-modals/bill-action-modal";
+import {
+  ResponsiveTable,
+  MobileCard,
+  MobileCardHeader,
+  MobileCardTitle,
+  MobileCardActions,
+} from "@/components/responsive-table";
 
 import {
   attachBillToCastingEntry,
@@ -226,71 +235,88 @@ export function CastingTable({ entries }: Props) {
         </Link>
       </div>
 
-      <div className="border border-outline-variant bg-surface-container-low">
-        {hasEntries && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high sticky top-0">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <th
-                        key={header.id}
-                        className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
-                      >
-                        {header.isPlaceholder ? null : canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+      {hasEntries && (
+        <ResponsiveTable
+          desktopTable={
+            <div className="border border-outline-variant bg-surface-container-low">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high sticky top-0">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort();
+                        const sorted = header.column.getIsSorted();
+                        return (
+                          <th
+                            key={header.id}
+                            className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
                           >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
+                            {header.isPlaceholder ? null : canSort ? (
+                              <button
+                                type="button"
+                                onClick={header.column.getToggleSortingHandler()}
+                                className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                <SortIndicator sorted={sorted} />
+                              </button>
+                            ) : (
+                              flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )
                             )}
-                            <SortIndicator sorted={sorted} />
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <EntryRow
+                      key={row.id}
+                      row={row}
+                      onClick={(e) => setViewingId(e.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+          mobileCards={
+            <>
               {rows.map((row) => (
-                <EntryRow
+                <CastingMobileCard
                   key={row.id}
-                  row={row}
-                  onRowClick={(e) => setViewingId(e.id)}
+                  entry={row.original}
+                  onCardClick={() => setViewingId(row.original.id)}
+                  onPay={() => setPaymentRowId(row.original.id)}
+                  onBill={() => setBillRowId(row.original.id)}
                 />
               ))}
-            </tbody>
-          </table>
-        )}
+            </>
+          }
+        />
+      )}
 
-        {!hasEntries && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No casting entries yet. Add your first one to get started.
-            </p>
-          </div>
-        )}
-        {hasEntries && !hasMatches && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No casting entries match your search.
-            </p>
-          </div>
-        )}
-      </div>
+      {!hasEntries && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No casting entries yet. Add your first one to get started.
+          </p>
+        </div>
+      )}
+      {hasEntries && !hasMatches && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No casting entries match your search.
+          </p>
+        </div>
+      )}
 
       <CastingDetailModal
         open={viewing !== null}
@@ -351,22 +377,15 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
 
 function EntryRow({
   row,
-  onRowClick,
+  onClick,
 }: {
   row: Row<CastingEntryForClient>;
-  onRowClick?: (entry: CastingEntryForClient) => void;
+  onClick: (entry: CastingEntryForClient) => void;
 }) {
   return (
     <tr
-      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-      className={`
-        group
-        odd:bg-surface-container-low even:bg-surface-container
-        hover:bg-surface-container-high
-        ${onRowClick ? "cursor-pointer" : ""}
-        border-b border-outline-variant last:border-b-0
-        transition-colors
-      `}
+      onClick={() => onClick(row.original)}
+      className="group odd:bg-surface-container-low even:bg-surface-container hover:bg-surface-container-high cursor-pointer border-b border-outline-variant last:border-b-0 transition-colors"
     >
       {row.getVisibleCells().map((cell) => (
         <td key={cell.id} className="px-4 py-3 align-middle">
@@ -476,5 +495,92 @@ function RowActions({
         <Trash2 className="size-4" />
       </button>
     </div>
+  );
+}
+
+// Phase 11 mobile card — TWO action buttons (Pay, Bill). Casting has
+// no Returns workflow (Phase 9 decision: outsourced services).
+function CastingMobileCard({
+  entry,
+  onCardClick,
+  onPay,
+  onBill,
+}: {
+  entry: CastingEntryForClient;
+  onCardClick: () => void;
+  onPay: () => void;
+  onBill: () => void;
+}) {
+  const firstLine = entry.lineItems[0];
+  const extra = Math.max(0, entry.lineItems.length - 1);
+  return (
+    <MobileCard
+      clickable
+      onClick={onCardClick}
+      data-testid={`casting-mobile-card-${entry.id}`}
+    >
+      <MobileCardHeader>
+        <MobileCardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="truncate">{entry.partyName}</span>
+            {!entry.vendor && (
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 bg-surface-container-high text-on-surface-variant border border-outline-variant">
+                Walk-in
+              </span>
+            )}
+          </div>
+          {entry.partyPhone && (
+            <div className="text-xs text-on-surface-variant tabular-nums mt-0.5">
+              {entry.partyPhone}
+            </div>
+          )}
+        </MobileCardTitle>
+        <TransactionStatusChip status={entry.status} />
+      </MobileCardHeader>
+
+      <div className="text-sm text-on-surface-variant">
+        {firstLine ? (
+          <>
+            {firstLine.materialDescription}{" "}
+            <span className="text-on-surface-variant/70 tabular-nums font-mono text-xs">
+              ({formatKg(firstLine.weightKg)} kg)
+            </span>
+            {extra > 0 && <span> + {extra} more</span>}
+          </>
+        ) : (
+          "—"
+        )}
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs text-on-surface-variant tabular-nums">
+          {formatDate(entry.date)}
+        </span>
+        <span className="text-lg font-display tabular-nums text-on-surface">
+          {formatCurrency(entry.total)}
+        </span>
+      </div>
+
+      <MobileCardActions>
+        <button
+          type="button"
+          onClick={onPay}
+          aria-label="Add payment"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+        >
+          <DollarSign className="size-4" />
+          <span>Pay</span>
+        </button>
+        <button
+          type="button"
+          onClick={onBill}
+          aria-label="Manage bill"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+        >
+          <Paperclip className="size-4" />
+          <span>Bill</span>
+        </button>
+      </MobileCardActions>
+    </MobileCard>
   );
 }

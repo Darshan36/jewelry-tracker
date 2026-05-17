@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Inter } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,13 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Shree Creation",
   description: "Jewelry manufacturing management",
+};
+
+// Phase 11: viewport meta. Without this, mobile browsers render at desktop
+// width and zoom out — which would defeat every md: responsive style.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

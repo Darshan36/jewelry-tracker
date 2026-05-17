@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -12,6 +13,7 @@ import {
   Flame,
   LayoutDashboard,
   LogOut,
+  Menu,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -21,6 +23,8 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 import type { Role } from "@/generated/prisma";
 
@@ -74,13 +78,79 @@ type Props = {
   user: { id: string; email: string; name: string; role: Role };
 };
 
+// Phase 11: dual-render. Desktop always-visible aside; mobile hamburger
+// trigger + Sheet drawer. Tap nav item on mobile closes the drawer.
 export function Sidebar({ user }: Props) {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const visible = NAV_ITEMS.filter((i) => i.allowedRoles.includes(user.role));
 
+  const navInner = (
+    <SidebarInner
+      user={user}
+      pathname={pathname}
+      visible={visible}
+      onItemClick={() => setMobileOpen(false)}
+    />
+  );
+
   return (
-    // 240px = 60 × 0.25rem (numeric scale; avoids the --spacing-* trap from KNOWN_GAPS)
-    <aside className="w-60 shrink-0 flex flex-col bg-surface-container-low border-r border-outline-variant">
+    <>
+      {/* Desktop sidebar — always visible at md and above */}
+      <aside
+        data-testid="sidebar-desktop"
+        className="hidden md:flex w-60 shrink-0 flex-col bg-surface-container-low border-r border-outline-variant"
+      >
+        {navInner}
+      </aside>
+
+      {/* Mobile header bar — hamburger + wordmark + role chip */}
+      <div
+        data-testid="sidebar-mobile-header"
+        className="md:hidden fixed top-0 inset-x-0 z-30 h-14 flex items-center justify-between gap-2 px-3 bg-surface-container-low border-b border-outline-variant"
+      >
+        <button
+          type="button"
+          aria-label="Open navigation"
+          onClick={() => setMobileOpen(true)}
+          className="inline-flex items-center justify-center h-11 w-11 text-on-surface hover:bg-surface-container transition-colors"
+        >
+          <Menu className="size-5" />
+        </button>
+        <h2 className="flex-1 text-base font-semibold tracking-tight text-on-surface truncate">
+          Shree Creation
+        </h2>
+        <RoleChip role={user.role} />
+      </div>
+
+      {/* Mobile drawer — Sheet on left, slides in on hamburger tap */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          data-testid="sidebar-mobile-drawer"
+          side="left"
+          className="bg-surface-container-low p-0 flex flex-col"
+        >
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          {navInner}
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+function SidebarInner({
+  user,
+  pathname,
+  visible,
+  onItemClick,
+}: {
+  user: Props["user"];
+  pathname: string;
+  visible: NavItem[];
+  onItemClick: () => void;
+}) {
+  return (
+    <>
       {/* Wordmark */}
       <div className="p-6 border-b border-outline-variant">
         <h2 className="text-lg font-semibold tracking-tight text-on-surface">
@@ -96,7 +166,11 @@ export function Sidebar({ user }: Props) {
         <ul className="space-y-0.5">
           {visible.map((item) => (
             <li key={item.href}>
-              <NavRow item={item} active={isActive(pathname, item.href)} />
+              <NavRow
+                item={item}
+                active={isActive(pathname, item.href)}
+                onClick={onItemClick}
+              />
             </li>
           ))}
         </ul>
@@ -119,7 +193,7 @@ export function Sidebar({ user }: Props) {
           <span>Sign out</span>
         </button>
       </div>
-    </aside>
+    </>
   );
 }
 
@@ -127,15 +201,21 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-function NavRow({ item, active }: { item: NavItem; active: boolean }) {
+function NavRow({
+  item,
+  active,
+  onClick,
+}: {
+  item: NavItem;
+  active: boolean;
+  onClick: () => void;
+}) {
   const Icon = item.icon;
 
   if (!item.enabled) {
     return (
       <div
         aria-disabled="true"
-        // border-l-2 border-transparent keeps horizontal alignment in sync
-        // with the active state's gold accent stripe so nothing shifts.
         className="flex items-center gap-3 px-3 py-2 border-l-2 border-transparent text-sm text-on-surface opacity-50 cursor-not-allowed"
       >
         <Icon className="size-4 shrink-0" />
@@ -150,6 +230,7 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link
       href={item.href}
+      onClick={onClick}
       className={[
         "flex items-center gap-3 px-3 py-2 border-l-2 text-sm text-on-surface transition-colors",
         active

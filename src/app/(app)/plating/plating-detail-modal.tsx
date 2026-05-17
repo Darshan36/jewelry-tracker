@@ -24,11 +24,11 @@ import { useState } from "react";
 import { ExternalLink, Link as LinkIcon, Loader2 } from "lucide-react";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -64,10 +64,13 @@ export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-[820px] bg-surface-container border border-outline-variant p-6 gap-0 max-h-[90vh] overflow-y-auto">
-        <DialogHeader className="mb-6">
-          <DialogTitle className="text-lg font-semibold tracking-tight text-on-surface flex items-center gap-3 flex-wrap">
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+      <ResponsiveDialogContent
+        desktopClassName="md:max-w-[820px] md:p-6"
+        className="bg-surface-container border-outline-variant p-6 gap-0"
+      >
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="flex items-center gap-2">
               {entry.vendorId !== null && (
                 <LinkIcon
@@ -78,8 +81,8 @@ export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
               <span>{entry.partyName}</span>
             </span>
             <TransactionStatusChip status={entry.status} />
-          </DialogTitle>
-        </DialogHeader>
+          </ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
 
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-5">
@@ -202,8 +205,8 @@ export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
             Edit
           </Link>
         </div>
-      </DialogContent>
-    </Dialog>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
 

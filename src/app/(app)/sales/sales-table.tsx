@@ -38,6 +38,14 @@ import {
   ReturnActionModal,
 } from "@/components/action-modals/return-action-modal";
 
+import {
+  ResponsiveTable,
+  MobileCard,
+  MobileCardHeader,
+  MobileCardTitle,
+  MobileCardActions,
+} from "@/components/responsive-table";
+
 import { softDeleteSale } from "./actions";
 import { createSalePayment } from "./payment-actions";
 import { createSaleReturn } from "./return-actions";
@@ -232,71 +240,89 @@ export function SalesTable({ sales }: Props) {
         </Link>
       </div>
 
-      <div className="border border-outline-variant bg-surface-container-low">
-        {hasSales && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high sticky top-0">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <th
-                        key={header.id}
-                        className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
-                      >
-                        {header.isPlaceholder ? null : canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+      {hasSales && (
+        <ResponsiveTable
+          desktopTable={
+            <div className="border border-outline-variant bg-surface-container-low">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high sticky top-0">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort();
+                        const sorted = header.column.getIsSorted();
+                        return (
+                          <th
+                            key={header.id}
+                            className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
                           >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
+                            {header.isPlaceholder ? null : canSort ? (
+                              <button
+                                type="button"
+                                onClick={header.column.getToggleSortingHandler()}
+                                className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                <SortIndicator sorted={sorted} />
+                              </button>
+                            ) : (
+                              flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )
                             )}
-                            <SortIndicator sorted={sorted} />
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <SaleRow
+                      key={row.id}
+                      row={row}
+                      onRowClick={(s) => setViewingSaleId(s.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+          mobileCards={
+            <>
               {rows.map((row) => (
-                <SaleRow
+                <SaleMobileCard
                   key={row.id}
-                  row={row}
-                  onRowClick={(s) => setViewingSaleId(s.id)}
+                  sale={row.original}
+                  onCardClick={() => setViewingSaleId(row.original.id)}
+                  onPay={() => setPaymentRowId(row.original.id)}
+                  onBill={() => setBillRowId(row.original.id)}
+                  onReturn={() => setReturnRowId(row.original.id)}
                 />
               ))}
-            </tbody>
-          </table>
-        )}
+            </>
+          }
+        />
+      )}
 
-        {!hasSales && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No sales yet. Add your first sale to get started.
-            </p>
-          </div>
-        )}
-        {hasSales && !hasMatches && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No sales match your search.
-            </p>
-          </div>
-        )}
-      </div>
+      {!hasSales && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No sales yet. Add your first sale to get started.
+          </p>
+        </div>
+      )}
+      {hasSales && !hasMatches && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No sales match your search.
+          </p>
+        </div>
+      )}
 
       <SaleDetailModal
         open={viewingSale !== null}
@@ -504,5 +530,98 @@ function RowActions({
         <Trash2 className="size-4" />
       </button>
     </div>
+  );
+}
+
+// Phase 11: mobile-card render for a single sale row. Stacked layout
+// with primary identifier + items summary + amount/status + date +
+// three action buttons (Pay, Bill, Return) at the bottom of the card.
+function SaleMobileCard({
+  sale,
+  onCardClick,
+  onPay,
+  onBill,
+  onReturn,
+}: {
+  sale: SaleForClient;
+  onCardClick: () => void;
+  onPay: () => void;
+  onBill: () => void;
+  onReturn: () => void;
+}) {
+  const firstItem = sale.lineItems[0]?.itemDescription ?? "—";
+  const extraLines = Math.max(0, sale.lineItems.length - 1);
+  return (
+    <MobileCard
+      clickable
+      onClick={onCardClick}
+      data-testid={`sale-mobile-card-${sale.id}`}
+    >
+      <MobileCardHeader>
+        <MobileCardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            {sale.customerId !== null && (
+              <LinkIcon
+                className="size-3 text-secondary shrink-0"
+                aria-label="Linked customer"
+              />
+            )}
+            <span className="truncate">{sale.partyName}</span>
+          </div>
+          {sale.partyPhone && (
+            <div className="text-xs text-on-surface-variant tabular-nums mt-0.5">
+              {sale.partyPhone}
+            </div>
+          )}
+        </MobileCardTitle>
+        <TransactionStatusChip status={sale.status} />
+      </MobileCardHeader>
+
+      <div className="text-sm text-on-surface-variant">
+        {firstItem}
+        {extraLines > 0 && (
+          <span className="text-on-surface-variant"> + {extraLines} more</span>
+        )}
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs text-on-surface-variant tabular-nums">
+          {formatDate(sale.date)}
+        </span>
+        <span className="text-lg font-display tabular-nums text-on-surface">
+          {formatCurrency(sale.total)}
+        </span>
+      </div>
+
+      <MobileCardActions>
+        <button
+          type="button"
+          onClick={onPay}
+          aria-label="Add payment"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+        >
+          <DollarSign className="size-4" />
+          <span>Pay</span>
+        </button>
+        <button
+          type="button"
+          onClick={onBill}
+          aria-label="Manage bill"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+        >
+          <Paperclip className="size-4" />
+          <span>Bill</span>
+        </button>
+        <button
+          type="button"
+          onClick={onReturn}
+          aria-label="Record return"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+        >
+          <Undo2 className="size-4" />
+          <span>Return</span>
+        </button>
+      </MobileCardActions>
+    </MobileCard>
   );
 }
