@@ -10,7 +10,7 @@
 // save-flow choice ("Save and return" vs "Save and add another") via
 // SaveDropdown.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -67,7 +67,11 @@ function emptyDefaults(): FormInputT {
 export function SaleForm({ mode, sale, customers }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
-  const [saveMode, setSaveMode] = useState<SaveMode>("return");
+  // saveMode read inside onSubmit via a ref because setSaveMode + the
+  // synchronous handleSubmit() call below would otherwise race — the
+  // submit closure captures the previous state value before React's
+  // re-render. Refs give synchronous read/write semantics.
+  const saveModeRef = useRef<SaveMode>("return");
 
   const {
     control,
@@ -149,7 +153,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
       return;
     }
 
-    if (saveMode === "return") {
+    if (saveModeRef.current === "return") {
       router.push("/sales");
       router.refresh();
     } else {
@@ -405,8 +409,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
           // it. SaveDropdown.onSave is what actually triggers the form
           // submit programmatically via the type=submit button below.
           onSave={(m) => {
-            setSaveMode(m);
-            // Trigger the form's submit handler.
+            saveModeRef.current = m;
             handleSubmit(onSubmit)();
           }}
         />
