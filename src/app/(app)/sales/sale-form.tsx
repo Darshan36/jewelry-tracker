@@ -361,7 +361,9 @@ export function SaleForm({ mode, sale, customers }: Props) {
         </div>
 
         <div className="border border-outline-variant divide-y divide-outline-variant/50">
-          <div className="grid grid-cols-[1fr_80px_120px_120px_40px] gap-2 px-3 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
+          {/* Column-header row only renders on md+ — on mobile, each row is
+              self-explanatory with placeholders and the line-total readout. */}
+          <div className="hidden md:grid md:grid-cols-[1fr_80px_120px_120px_40px] gap-2 px-3 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
             <span>Description</span>
             <span className="text-right">Qty</span>
             <span className="text-right">Rate (₹)</span>
@@ -384,7 +386,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
                 key={field.id}
                 role="group"
                 aria-label={`Line ${idx + 1}`}
-                className="grid grid-cols-[1fr_80px_120px_120px_40px] gap-2 px-3 py-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[1fr_80px_120px_120px_40px] gap-2 px-3 py-3 md:py-2 items-start"
               >
                 <div>
                   <FormInput
@@ -401,59 +403,82 @@ export function SaleForm({ mode, sale, customers }: Props) {
                     </FormError>
                   )}
                 </div>
-                <div>
-                  <FormInput
-                    id={`sale-line-${idx}-qty`}
-                    type="number"
-                    min="1"
-                    step="1"
-                    inputMode="numeric"
-                    className="text-right tabular-nums"
-                    aria-invalid={!!lineErrors?.qty}
-                    {...register(`lineItems.${idx}.qty`, {
-                      setValueAs: (v) =>
-                        v === "" || v === null || v === undefined
-                          ? 0
-                          : Number(v),
-                    })}
-                  />
-                  {lineErrors?.qty?.message && (
-                    <FormError>{lineErrors.qty.message}</FormError>
-                  )}
+                {/* Mobile: nested 3-col sub-grid for qty/rate/remove on row 2.
+                    md+ via `md:contents`: the four children of this div
+                    (qty, rate, desktop line total, remove) flatten into the
+                    outer 5-col grid at cols 2/3/4/5 — preserving the desktop
+                    horizontal layout. The desktop-only line total has
+                    `hidden md:flex` so it doesn't take a sub-grid slot on
+                    mobile (display:none is removed from layout). */}
+                <div className="grid grid-cols-[1fr_1fr_44px] gap-2 md:contents">
+                  <div>
+                    <FormInput
+                      id={`sale-line-${idx}-qty`}
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      placeholder="Qty"
+                      className="text-right tabular-nums"
+                      aria-invalid={!!lineErrors?.qty}
+                      {...register(`lineItems.${idx}.qty`, {
+                        setValueAs: (v) =>
+                          v === "" || v === null || v === undefined
+                            ? 0
+                            : Number(v),
+                      })}
+                    />
+                    {lineErrors?.qty?.message && (
+                      <FormError>{lineErrors.qty.message}</FormError>
+                    )}
+                  </div>
+                  <div>
+                    <FormInput
+                      id={`sale-line-${idx}-rate`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="Rate ₹"
+                      className="text-right tabular-nums"
+                      aria-invalid={!!lineErrors?.rate}
+                      {...register(`lineItems.${idx}.rate`, {
+                        setValueAs: (v) =>
+                          v === "" || v === null || v === undefined
+                            ? 0
+                            : Number(v),
+                      })}
+                    />
+                    {lineErrors?.rate?.message && (
+                      <FormError>{lineErrors.rate.message}</FormError>
+                    )}
+                  </div>
+                  {/* Desktop-only line total — col 4 of outer grid via
+                      md:contents. Hidden on mobile (no slot in sub-grid). */}
+                  <div className="hidden md:flex md:h-10 md:items-center md:justify-end md:pr-1 text-on-surface tabular-nums font-mono text-sm">
+                    {formatCurrency(lineTotalPaise)}
+                  </div>
+                  {/* Remove button — col 3 of mobile sub-grid, col 5 of
+                      outer desktop grid via md:contents. 44px touch target. */}
+                  <div className="h-11 md:h-10 flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => remove(idx)}
+                      disabled={fields.length === 1}
+                      aria-label={`Remove line ${idx + 1}`}
+                      className="h-11 w-11 md:h-8 md:w-8 flex items-center justify-center text-on-surface-variant hover:text-error disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <FormInput
-                    id={`sale-line-${idx}-rate`}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    className="text-right tabular-nums"
-                    aria-invalid={!!lineErrors?.rate}
-                    {...register(`lineItems.${idx}.rate`, {
-                      setValueAs: (v) =>
-                        v === "" || v === null || v === undefined
-                          ? 0
-                          : Number(v),
-                    })}
-                  />
-                  {lineErrors?.rate?.message && (
-                    <FormError>{lineErrors.rate.message}</FormError>
-                  )}
-                </div>
-                <div className="h-10 flex items-center justify-end pr-1 text-on-surface tabular-nums font-mono text-sm">
+                {/* Mobile-only line total — row 3 on mobile. Hidden on md+
+                    (the desktop variant inside the md:contents group renders). */}
+                <div className="md:hidden flex items-center justify-end text-sm tabular-nums font-mono text-on-surface">
+                  <span className="text-xs uppercase tracking-wider text-on-surface-variant mr-2">
+                    Line total
+                  </span>
                   {formatCurrency(lineTotalPaise)}
-                </div>
-                <div className="h-10 flex items-center justify-center">
-                  <button
-                    type="button"
-                    onClick={() => remove(idx)}
-                    disabled={fields.length === 1}
-                    aria-label={`Remove line ${idx + 1}`}
-                    className="p-1.5 text-on-surface-variant hover:text-error disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <X className="size-4" />
-                  </button>
                 </div>
               </div>
             );
@@ -529,7 +554,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
             {formatCurrency(subtotal * 100)}
           </span>
         </div>
-        <div className="grid grid-cols-[1fr_140px] gap-3 items-center">
+        <div className="grid grid-cols-[1fr_120px] md:grid-cols-[1fr_140px] gap-3 items-center">
           <FormLabel
             htmlFor="sale-discount"
             className="!mb-0 text-sm normal-case tracking-normal text-on-surface-variant"
@@ -582,12 +607,21 @@ export function SaleForm({ mode, sale, customers }: Props) {
         <FormError>{errors.notes?.message}</FormError>
       </div>
 
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-outline-variant">
+      {/* Form footer. Mobile: stack reverse (save above cancel) and stick
+          to the viewport bottom so it's reachable without scrolling through
+          a long form. -mx-4 + px-4 makes the sticky band span the page
+          padding so the background fully obscures content behind it.
+          Desktop: horizontal right-aligned row, no sticky. */}
+      <div
+        className="flex flex-col-reverse gap-3 pt-4 border-t border-outline-variant
+          sticky bottom-0 z-10 -mx-4 px-4 pb-4 bg-surface
+          md:static md:flex-row md:items-center md:justify-end md:mx-0 md:px-0 md:pb-0 md:bg-transparent"
+      >
         <button
           type="button"
           onClick={() => router.push("/sales")}
           disabled={isSubmitting}
-          className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+          className="h-11 md:h-10 px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors w-full md:w-auto"
         >
           Cancel
         </button>

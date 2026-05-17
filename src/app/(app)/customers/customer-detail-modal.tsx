@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
 import type { Customer } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
@@ -51,13 +51,14 @@ export function CustomerDetailModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-[500px] bg-surface-container border border-outline-variant p-6 gap-0">
-        <DialogHeader className="mb-6">
-          <DialogTitle className="text-lg font-semibold tracking-tight text-on-surface">
-            {customer.name}
-          </DialogTitle>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+      <ResponsiveDialogContent
+        desktopClassName="md:max-w-[500px] md:p-6"
+        mobileClassName="p-4"
+      >
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>{customer.name}</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
 
         <div className="space-y-5">
           <LabeledField label="Phone" value={customer.phone} />
@@ -69,54 +70,56 @@ export function CustomerDetailModal({
 
         {/* Footer: normal state shows Edit + Delete; confirming state replaces
             the whole row with the confirmation panel. */}
-        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant">
+        <div className="mt-6 -mx-4 -mb-4 md:-mx-6 md:-mb-6 px-4 md:px-6 py-4 border-t border-outline-variant">
           {confirmingDelete ? (
-            <div className="flex items-center gap-3">
-              <p className="flex-1 text-sm text-on-surface">
+            <div className="flex flex-col-reverse md:flex-row md:items-center gap-3">
+              <p className="md:flex-1 text-sm text-on-surface">
                 Delete customer? This can be undone by an admin.
               </p>
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={isPending}
-                className="px-3 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isPending}
-                className="min-w-[100px] h-9 px-3 font-display text-sm font-medium uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors flex items-center justify-center gap-2"
-              >
-                {isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  "Delete"
-                )}
-              </button>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={isPending}
+                  className="h-11 md:h-9 px-3 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isPending}
+                  className="min-w-[100px] h-11 md:h-9 px-3 font-display text-sm font-medium uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors flex items-center justify-center gap-2"
+                >
+                  {isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    "Delete"
+                  )}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
-                className="px-3 py-2 text-sm text-error hover:bg-surface-container transition-colors"
+                className="h-11 md:h-9 px-3 py-2 text-sm text-error hover:bg-surface-container transition-colors"
               >
                 Delete
               </button>
               <button
                 type="button"
                 onClick={onEdit}
-                className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors"
+                className="h-11 md:h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors"
               >
                 Edit
               </button>
             </div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
 

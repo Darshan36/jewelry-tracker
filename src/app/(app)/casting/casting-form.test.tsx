@@ -437,3 +437,87 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
     expect(attachBillToCastingEntry).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Mobile viewport — Phase 11.2.
+// =====================================================================
+
+describe("CastingForm — mobile viewport (responsive class regression coverage)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("desktop column-header row carries `hidden md:grid`", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const materialHeader = screen.getAllByText("Material")[0];
+    const headerRow = materialHeader.parentElement!;
+    expect(headerRow.className).toContain("hidden");
+    expect(headerRow.className).toContain("md:grid");
+  });
+
+  it("line item rows use `grid-cols-1 md:grid-cols-[1fr_110px_130px_130px_40px]`", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const lineGroup = screen.getByRole("group", { name: /line 1/i });
+    expect(lineGroup.className).toContain("grid-cols-1");
+    expect(lineGroup.className).toContain("md:grid-cols-[1fr_110px_130px_130px_40px]");
+  });
+
+  it("weight/rate/× inner group uses `md:contents`", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const weightInput = screen.getByPlaceholderText("Weight kg");
+    const innerGroup = weightInput.parentElement!.parentElement!;
+
+    expect(innerGroup.className).toContain("grid-cols-[1fr_1fr_44px]");
+    expect(innerGroup.className).toContain("md:contents");
+  });
+
+  it("weight + rate inputs have mobile placeholders", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    expect(screen.getByPlaceholderText("Weight kg")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("₹/kg")).toBeInTheDocument();
+  });
+
+  it("weight input preserves step=0.001 for gram-precision entry", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const weightInput = screen.getByPlaceholderText("Weight kg");
+    expect(weightInput.getAttribute("step")).toBe("0.001");
+    expect(weightInput.getAttribute("inputmode")).toBe("decimal");
+  });
+
+  it("remove button has 44x44 mobile touch target", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
+    expect(removeBtn.className).toContain("h-11");
+    expect(removeBtn.className).toContain("w-11");
+  });
+
+  it("mobile-only line total row is rendered with `md:hidden`", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const labels = screen.getAllByText("Line total");
+    const mobileLabel = labels.find((el) =>
+      el.parentElement?.className.includes("md:hidden"),
+    );
+    expect(mobileLabel).toBeDefined();
+  });
+
+  it("form footer is sticky-bottom on mobile", () => {
+    render(<CastingForm mode="create" vendors={vendors} />);
+
+    const saveButton = screen.getByRole("button", { name: /save and return/i });
+    let el: HTMLElement | null = saveButton;
+    while (el && !el.className.includes("sticky")) {
+      el = el.parentElement;
+    }
+    expect(el).not.toBeNull();
+    expect(el?.className).toContain("sticky");
+    expect(el?.className).toContain("bottom-0");
+    expect(el?.className).toContain("md:static");
+  });
+});

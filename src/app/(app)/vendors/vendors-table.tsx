@@ -23,6 +23,12 @@ import {
 } from "lucide-react";
 
 import { formatCurrency, formatDate } from "@/lib/format";
+import {
+  ResponsiveTable,
+  MobileCard,
+  MobileCardHeader,
+  MobileCardTitle,
+} from "@/components/responsive-table";
 
 import { softDeleteVendor } from "./actions";
 import { VendorDetailModal } from "./vendor-detail-modal";
@@ -173,89 +179,104 @@ export function VendorsTable({ vendors }: Props) {
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
         <input
           type="search"
           placeholder="Search vendors…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
-          className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
+          className="w-full sm:flex-1 min-w-0 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
         />
         <button
           type="button"
           onClick={() => setIsAddOpen(true)}
-          className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
+          className="h-11 sm:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto"
         >
           <Plus className="size-4" />
           <span>Add vendor</span>
         </button>
       </div>
 
-      <div className="border border-outline-variant bg-surface-container-low">
-        {hasVendors && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high sticky top-0">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <th
-                        key={header.id}
-                        className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
-                      >
-                        {header.isPlaceholder ? null : canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+      {hasVendors && (
+        <ResponsiveTable
+          desktopTable={
+            <div className="border border-outline-variant bg-surface-container-low">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high sticky top-0">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort();
+                        const sorted = header.column.getIsSorted();
+                        return (
+                          <th
+                            key={header.id}
+                            className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
                           >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
+                            {header.isPlaceholder ? null : canSort ? (
+                              <button
+                                type="button"
+                                onClick={header.column.getToggleSortingHandler()}
+                                className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                <SortIndicator sorted={sorted} />
+                              </button>
+                            ) : (
+                              flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )
                             )}
-                            <SortIndicator sorted={sorted} />
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <VendorRow
+                      key={row.id}
+                      row={row}
+                      onRowClick={(v) => setViewingVendor(v)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+          mobileCards={
+            <>
               {rows.map((row) => (
-                <VendorRow
+                <VendorMobileCard
                   key={row.id}
-                  row={row}
-                  onRowClick={(v) => setViewingVendor(v)}
+                  vendor={row.original}
+                  onCardClick={() => setViewingVendor(row.original)}
                 />
               ))}
-            </tbody>
-          </table>
-        )}
+            </>
+          }
+        />
+      )}
 
-        {!hasVendors && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No vendors yet. Add your first casting/plating vendor to get started.
-            </p>
-          </div>
-        )}
-        {hasVendors && !hasMatches && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No vendors match your search.
-            </p>
-          </div>
-        )}
-      </div>
+      {!hasVendors && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No vendors yet. Add your first casting/plating vendor to get started.
+          </p>
+        </div>
+      )}
+      {hasVendors && !hasMatches && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No vendors match your search.
+          </p>
+        </div>
+      )}
 
       <VendorFormModal
         open={isAddOpen}
@@ -286,6 +307,43 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="size-3" />;
   if (sorted === "desc") return <ArrowDown className="size-3" />;
   return <ArrowUpDown className="size-3 opacity-40" />;
+}
+
+// Phase 11.2: simpler mobile card for master data — name + phone +
+// casting/plating jobs count + owed amount. No inline action buttons.
+function VendorMobileCard({
+  vendor,
+  onCardClick,
+}: {
+  vendor: VendorForClient;
+  onCardClick: () => void;
+}) {
+  const totalJobs = vendor.castingCount + vendor.platingCount;
+  return (
+    <MobileCard
+      clickable
+      onClick={onCardClick}
+      data-testid={`vendor-mobile-card-${vendor.id}`}
+    >
+      <MobileCardHeader>
+        <MobileCardTitle>{vendor.name}</MobileCardTitle>
+        {vendor.owedPaise > 0 && (
+          <span className="text-sm tabular-nums font-mono text-on-surface shrink-0">
+            {formatCurrency(vendor.owedPaise)}
+          </span>
+        )}
+      </MobileCardHeader>
+      {vendor.phone && (
+        <div className="text-sm text-on-surface-variant tabular-nums">
+          {vendor.phone}
+        </div>
+      )}
+      <div className="text-xs text-on-surface-variant uppercase tracking-wider">
+        {vendor.castingCount} casting · {vendor.platingCount} plating
+        {totalJobs === 0 && " — no jobs yet"}
+      </div>
+    </MobileCard>
+  );
 }
 
 function VendorRow({

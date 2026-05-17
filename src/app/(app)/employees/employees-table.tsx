@@ -22,7 +22,13 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { formatDate } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
+import {
+  ResponsiveTable,
+  MobileCard,
+  MobileCardHeader,
+  MobileCardTitle,
+} from "@/components/responsive-table";
 
 import { softDeleteEmployee } from "./actions";
 import { EmployeeDetailModal } from "./employee-detail-modal";
@@ -170,92 +176,106 @@ export function EmployeesTable({ employees }: Props) {
         />
       </div>
 
-      {/* Header bar: search + add */}
-      <div className="flex items-center gap-3 mb-4">
+      {/* Header bar: search + add — Phase 11.1 hotfix pattern. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
         <input
           type="search"
           placeholder="Search employees…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
-          className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
+          className="w-full sm:flex-1 min-w-0 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
         />
         <button
           type="button"
           onClick={() => setIsAddOpen(true)}
-          className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
+          className="h-11 sm:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto"
         >
           <Plus className="size-4" />
           <span>Add employee</span>
         </button>
       </div>
 
-      {/* Table container */}
-      <div className="border border-outline-variant bg-surface-container-low">
-        {hasEmployees && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high sticky top-0">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <th
-                        key={header.id}
-                        className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
-                      >
-                        {header.isPlaceholder ? null : canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+      {hasEmployees && (
+        <ResponsiveTable
+          desktopTable={
+            <div className="border border-outline-variant bg-surface-container-low">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high sticky top-0">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort();
+                        const sorted = header.column.getIsSorted();
+                        return (
+                          <th
+                            key={header.id}
+                            className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
                           >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
+                            {header.isPlaceholder ? null : canSort ? (
+                              <button
+                                type="button"
+                                onClick={header.column.getToggleSortingHandler()}
+                                className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                <SortIndicator sorted={sorted} />
+                              </button>
+                            ) : (
+                              flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )
                             )}
-                            <SortIndicator sorted={sorted} />
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <EmployeeRow
+                      key={row.id}
+                      row={row}
+                      onRowClick={(e) => setViewingEmployee(e)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+          mobileCards={
+            <>
               {rows.map((row) => (
-                <EmployeeRow
+                <EmployeeMobileCard
                   key={row.id}
-                  row={row}
-                  onRowClick={(e) => setViewingEmployee(e)}
+                  employee={row.original}
+                  onCardClick={() => setViewingEmployee(row.original)}
                 />
               ))}
-            </tbody>
-          </table>
-        )}
+            </>
+          }
+        />
+      )}
 
-        {/* Empty states */}
-        {!hasEmployees && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No employees yet. Add your first employee to get started.
-            </p>
-          </div>
-        )}
-        {hasEmployees && !hasMatches && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No employees match your search.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Empty states */}
+      {!hasEmployees && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No employees yet. Add your first employee to get started.
+          </p>
+        </div>
+      )}
+      {hasEmployees && !hasMatches && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No employees match your search.
+          </p>
+        </div>
+      )}
 
       {/* Add / Edit form modal */}
       <EmployeeFormModal
@@ -314,6 +334,39 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="size-3" />;
   if (sorted === "desc") return <ArrowDown className="size-3" />;
   return <ArrowUpDown className="size-3 opacity-40" />;
+}
+
+// Phase 11.2: simpler mobile card for master data — name + phone + type
+// chip + monthly salary for FIXED employees. No inline action buttons.
+function EmployeeMobileCard({
+  employee,
+  onCardClick,
+}: {
+  employee: EmployeeForClient;
+  onCardClick: () => void;
+}) {
+  return (
+    <MobileCard
+      clickable
+      onClick={onCardClick}
+      data-testid={`employee-mobile-card-${employee.id}`}
+    >
+      <MobileCardHeader>
+        <MobileCardTitle>{employee.name}</MobileCardTitle>
+        <TypeChip type={employee.type} />
+      </MobileCardHeader>
+      {employee.phone && (
+        <div className="text-sm text-on-surface-variant tabular-nums">
+          {employee.phone}
+        </div>
+      )}
+      {employee.type === "FIXED" && employee.monthlySalary !== null && (
+        <div className="text-xs text-on-surface-variant tabular-nums font-mono">
+          {formatCurrency(employee.monthlySalary)} / month
+        </div>
+      )}
+    </MobileCard>
+  );
 }
 
 function EmployeeRow({

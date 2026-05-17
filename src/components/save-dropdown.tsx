@@ -42,13 +42,13 @@ export function SaveDropdown({
   };
 
   return (
-    <div className="relative inline-flex">
+    <div className="relative flex w-full md:inline-flex md:w-auto">
       <button
         type="button"
         onClick={handlePrimary}
         disabled={disabled || saving}
         className={cn(
-          "min-w-[160px] h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2",
+          "flex-1 md:flex-none min-w-[160px] h-11 md:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2",
         )}
       >
         {saving ? (
@@ -67,7 +67,7 @@ export function SaveDropdown({
         aria-label="More save options"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="h-10 px-2 bg-primary text-on-primary font-display text-sm hover:bg-primary/80 border-l border-on-primary/30 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+        className="shrink-0 h-11 md:h-10 px-3 md:px-2 bg-primary text-on-primary font-display text-sm hover:bg-primary/80 border-l border-on-primary/30 disabled:opacity-70 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
       >
         <ChevronDown className="size-4" />
       </button>

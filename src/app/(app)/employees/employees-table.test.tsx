@@ -295,3 +295,106 @@ describe("EmployeesTable", () => {
     });
   });
 });
+
+// =====================================================================
+// Mobile viewport — Phase 11.2.
+// =====================================================================
+import { mockMobileViewport } from "@/test-utils/viewport";
+
+describe("EmployeesTable — mobile viewport", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMobileViewport();
+  });
+
+  it("renders mobile cards instead of the desktop table", () => {
+    render(<EmployeesTable employees={mixedEmployees()} />);
+
+    expect(screen.getByTestId("responsive-table-mobile")).toBeInTheDocument();
+    expect(screen.queryByTestId("responsive-table-desktop")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("renders one mobile card per employee", () => {
+    render(<EmployeesTable employees={mixedEmployees()} />);
+
+    expect(screen.getByTestId("employee-mobile-card-1")).toBeInTheDocument();
+    expect(screen.getByTestId("employee-mobile-card-2")).toBeInTheDocument();
+    expect(screen.getByTestId("employee-mobile-card-3")).toBeInTheDocument();
+    expect(screen.getByTestId("employee-mobile-card-4")).toBeInTheDocument();
+  });
+
+  it("shows the type chip on every card", () => {
+    render(<EmployeesTable employees={mixedEmployees()} />);
+
+    const fixedCard = screen.getByTestId("employee-mobile-card-2");
+    expect(within(fixedCard).getByText(/fixed/i)).toBeInTheDocument();
+
+    const labourCard = screen.getByTestId("employee-mobile-card-1");
+    expect(within(labourCard).getByText(/labour/i)).toBeInTheDocument();
+  });
+
+  it("shows monthly salary line for FIXED employees only", () => {
+    render(<EmployeesTable employees={mixedEmployees()} />);
+
+    // FIXED — Bob's salary 1800000 paise = ₹18,000. The "/ month" suffix
+    // is unique to the mobile card's salary line.
+    const bobCard = screen.getByTestId("employee-mobile-card-2");
+    expect(within(bobCard).getByText(/\/ month/i)).toBeInTheDocument();
+
+    // LABOUR — Alice has no salary line.
+    const aliceCard = screen.getByTestId("employee-mobile-card-1");
+    expect(within(aliceCard).queryByText(/\/ month/i)).not.toBeInTheDocument();
+  });
+
+  it("omits salary line for FIXED with null monthlySalary", () => {
+    const noSalary = [
+      makeEmployee({
+        id: "x",
+        name: "FixedNoSalary",
+        type: "FIXED",
+        monthlySalary: null,
+      }),
+    ];
+    render(<EmployeesTable employees={noSalary} />);
+
+    const card = screen.getByTestId("employee-mobile-card-x");
+    expect(within(card).queryByText(/\/ month/i)).not.toBeInTheDocument();
+  });
+
+  it("does not render inline action buttons on mobile cards", () => {
+    render(<EmployeesTable employees={mixedEmployees()} />);
+
+    expect(screen.queryByRole("button", { name: /edit employee/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete employee/i })).not.toBeInTheDocument();
+  });
+
+  it("tapping a mobile card opens the detail modal", async () => {
+    const user = userEvent.setup();
+    render(<EmployeesTable employees={[makeEmployee({ id: "x", name: "Tap target" })]} />);
+
+    await user.click(screen.getByTestId("employee-mobile-card-x"));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Tap target")).toBeInTheDocument();
+  });
+
+  it("type filter pills still work on mobile (filter pre-applies before cards render)", async () => {
+    const user = userEvent.setup();
+    render(<EmployeesTable employees={mixedEmployees()} />);
+
+    // Filter to FIXED — only Bob + Dan cards should render.
+    await user.click(screen.getByRole("radio", { name: /^fixed$/i }));
+
+    expect(screen.queryByTestId("employee-mobile-card-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("employee-mobile-card-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("employee-mobile-card-3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("employee-mobile-card-4")).toBeInTheDocument();
+  });
+
+  it("empty state still renders on mobile (no card block when zero employees)", () => {
+    render(<EmployeesTable employees={[]} />);
+    expect(screen.getByText(/No employees yet/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("responsive-table-mobile")).not.toBeInTheDocument();
+  });
+});

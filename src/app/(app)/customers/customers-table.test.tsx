@@ -244,3 +244,85 @@ describe("CustomersTable", () => {
     });
   });
 });
+
+// =====================================================================
+// Mobile viewport — Phase 11.2.
+// =====================================================================
+//
+// `useIsMobile()` reads `window.matchMedia` once on mount; the global
+// vitest.setup.ts stub returns `matches: false` (desktop), so the tests
+// above all execute the desktop table branch. This block flips the stub
+// to `matches: true` so ResponsiveTable's mobile branch renders, then
+// asserts the mobile-card surface — not the desktop <table>.
+import { mockMobileViewport } from "@/test-utils/viewport";
+
+describe("CustomersTable — mobile viewport", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMobileViewport();
+  });
+
+  it("renders mobile cards instead of the desktop table", () => {
+    render(<CustomersTable customers={threeCustomers()} />);
+
+    expect(screen.getByTestId("responsive-table-mobile")).toBeInTheDocument();
+    expect(screen.queryByTestId("responsive-table-desktop")).not.toBeInTheDocument();
+    // No <table> on mobile.
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("renders one mobile card per customer", () => {
+    render(<CustomersTable customers={threeCustomers()} />);
+
+    expect(screen.getByTestId("customer-mobile-card-1")).toBeInTheDocument();
+    expect(screen.getByTestId("customer-mobile-card-2")).toBeInTheDocument();
+    expect(screen.getByTestId("customer-mobile-card-3")).toBeInTheDocument();
+  });
+
+  it("each mobile card shows the customer's name + phone", () => {
+    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "Mira", phone: "9988776655" })]} />);
+
+    const card = screen.getByTestId("customer-mobile-card-x");
+    expect(within(card).getByText("Mira")).toBeInTheDocument();
+    expect(within(card).getByText("9988776655")).toBeInTheDocument();
+  });
+
+  it("omits the phone line when phone is null", () => {
+    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "NoPhone", phone: null })]} />);
+
+    const card = screen.getByTestId("customer-mobile-card-x");
+    expect(within(card).getByText("NoPhone")).toBeInTheDocument();
+    expect(within(card).queryByText("9876543210")).not.toBeInTheDocument();
+  });
+
+  it("does not render inline action buttons on mobile cards (mutations go through detail modal Edit)", () => {
+    render(<CustomersTable customers={threeCustomers()} />);
+
+    // No per-card edit/delete icon buttons — that surface is desktop-only
+    // for master data. The cards themselves are tap targets opening the
+    // detail modal.
+    expect(screen.queryByRole("button", { name: /edit customer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete customer/i })).not.toBeInTheDocument();
+  });
+
+  it("tapping a mobile card opens the customer detail modal", async () => {
+    const user = userEvent.setup();
+    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "Tap target" })]} />);
+
+    await user.click(screen.getByTestId("customer-mobile-card-x"));
+
+    // Detail modal opened — scope to the dialog and verify the name + a
+    // unique-to-detail field (Created label).
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Tap target")).toBeInTheDocument();
+    expect(within(dialog).getByText(/created/i)).toBeInTheDocument();
+  });
+
+  it("empty state still renders on mobile (no cards block when zero customers)", () => {
+    render(<CustomersTable customers={[]} />);
+    expect(
+      screen.getByText(/No customers yet/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("responsive-table-mobile")).not.toBeInTheDocument();
+  });
+});

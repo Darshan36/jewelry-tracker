@@ -1276,6 +1276,142 @@ would confirm absence (`"no"` for both). If a future mirror to a new
 FK-bearing entity forgets to wire the props, the unit test fails before
 the walkthrough does — and before any orphan FK state lands in the DB.
 
+## Mobile viewport testing (Phase 11.1 + 11.2)
+
+### `window.matchMedia` mock pattern
+
+jsdom doesn't implement `window.matchMedia`. The `useIsMobile()` hook
+(`src/lib/use-is-mobile.ts`) and any component reading it transitively
+— `ResponsiveTable`, `ResponsiveDialog`, the sidebar drawer — call
+`matchMedia('(max-width: 767px)')` on mount and would throw without a
+stub.
+
+**Default stub** (in `vitest.setup.ts`) returns `matches: false`, so
+every existing non-mobile-aware test renders the desktop branch
+unchanged. Tests that need to exercise the mobile branch flip the stub
+inside a dedicated `describe('mobile viewport', …)` block.
+
+### `src/test-utils/viewport.ts` helper
+
+```ts
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+
+import { mockMobileViewport } from "@/test-utils/viewport";
+import { CustomersTable } from "./customers-table";
+
+describe("CustomersTable — mobile viewport", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMobileViewport();
+  });
+
+  it("renders mobile cards instead of the desktop table", () => {
+    render(<CustomersTable customers={threeCustomers()} />);
+
+    expect(screen.getByTestId("responsive-table-mobile")).toBeInTheDocument();
+    expect(screen.queryByTestId("responsive-table-desktop")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("tapping a mobile card opens the detail modal", async () => {
+    const user = userEvent.setup();
+    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "Tap target" })]} />);
+
+    await user.click(screen.getByTestId("customer-mobile-card-x"));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Tap target")).toBeInTheDocument();
+  });
+});
+```
+
+The helper exports `mockMobileViewport()` (sets `matches: true`) and
+`mockDesktopViewport()` (sets `matches: false`). Keep the mobile-mode
+tests inside a separate `describe` block so it's obvious where the
+branch flips and so a `vi.clearAllMocks()` in the suite's outer
+`beforeEach` doesn't accidentally reset the stub. The global default
+re-applies between test files but not within a file.
+
+**Scoping assertions when modals open over the table.** When a mobile
+card tap opens a detail modal, the same entity name appears in both
+the card (still in DOM behind the overlay) and the modal title.
+`getByText(name)` finds multiple. Scope to the modal: `const dialog =
+screen.getByRole('dialog'); within(dialog).getByText(name)`.
+
+### Responsive class string regression checks
+
+Form components use Tailwind responsive classes (`md:contents`,
+`hidden md:grid`, `h-11 md:h-10`, `grid-cols-1 md:grid-cols-[…]`) for
+layout switching. JSDOM doesn't evaluate CSS media queries, so the
+visual layout doesn't actually change in tests — but the class strings
+existing on the right elements is regression-relevant. Pattern in
+`sale-form.test.tsx` / `purchase-form.test.tsx` / `casting-form.test.tsx`
+/ `plating-form.test.tsx` / `save-dropdown.test.tsx`:
+
+```ts
+describe("SaleForm — mobile viewport (responsive class regression coverage)", () => {
+  it("line item rows use grid-cols-1 md:grid-cols-[...] so they stack on mobile", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    const lineGroup = screen.getByRole("group", { name: /line 1/i });
+    expect(lineGroup.className).toContain("grid-cols-1");
+    expect(lineGroup.className).toContain("md:grid-cols-[1fr_80px_120px_120px_40px]");
+  });
+
+  it("qty/rate/× inner group uses md:contents to flatten into desktop grid", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    const qtyInput = screen.getByPlaceholderText("Qty");
+    const innerGroup = qtyInput.parentElement!.parentElement!;
+    expect(innerGroup.className).toContain("grid-cols-[1fr_1fr_44px]");
+    expect(innerGroup.className).toContain("md:contents");
+  });
+
+  it("remove button has 44x44 mobile touch target (h-11 w-11)", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
+    expect(removeBtn.className).toContain("h-11");
+    expect(removeBtn.className).toContain("w-11");
+  });
+});
+```
+
+These tests catch refactors that silently remove responsive class
+strings (e.g., a future "simplify the line-item grid" pass that
+collapses to a single grid template, breaking mobile stacking).
+They don't catch visual layout regressions — see next subsection.
+
+### Visual viewport verification limitations
+
+Unit tests with the matchMedia mock + responsive class assertions
+verify **branch logic** (which JSX renders) and **class-string
+correctness** (the right responsive prefixes exist) — not **visual
+correctness** (does the layout actually fit at 390x844, are touch
+targets ≥44px in computed style, does horizontal scroll happen).
+JSDOM evaluates HTML and JavaScript but not CSS layout boxes.
+
+**Required for every "mobile" phase**: viewport-level visual check via
+DevTools at 380–390px width OR real-phone testing. Catches:
+
+- Horizontal scroll (Phase 11.1 hotfix in commit `8c7b06c` — search-row
+  flex overflow at 390px; only surfaced on real device).
+- Form-page padding (Phase 11.2 — initial `p-10` on form pages left
+  only 310px usable width on a 390px viewport; caught at form-page
+  walkthrough).
+- Touch target sizes — computed `getBoundingClientRect()` width/height
+  ≥44px. JSDOM returns 0 for everything.
+- Sticky-positioning behavior — `sticky bottom-0` requires scrollable
+  parent; JSDOM doesn't compute scroll layouts.
+- Sheet animation entry direction (bottom vs side) — Radix Dialog with
+  `data-state` attributes drives CSS animations JSDOM can't run.
+
+The Phase 11.1 + 11.2 build checkpoint reports must explicitly state
+whether real-phone or DevTools-emulated viewport checks happened in
+the session. If they didn't, the walkthrough phase becomes the
+mandatory gate before commit / closeout.
+
 ## Per-phase reporting
 
 From Phase 2.3 onward, the "Test count delta" line in every phase report

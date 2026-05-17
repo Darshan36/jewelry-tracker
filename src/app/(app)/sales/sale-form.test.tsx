@@ -388,3 +388,101 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
     expect(confirmUpload).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Mobile viewport — Phase 11.2.
+// =====================================================================
+//
+// JSDOM doesn't evaluate CSS media queries, so the form's responsive
+// `md:contents` + `hidden md:grid` classes don't actually toggle
+// layout at the visual level. These tests verify the regression-relevant
+// class strings exist on the right elements so a future refactor can't
+// silently remove them. Visual layout regression detection requires
+// DevTools 390x844 walkthrough (see TESTING.md "Visual viewport
+// verification limitations").
+
+describe("SaleForm — mobile viewport (responsive class regression coverage)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("desktop column-header row carries `hidden md:grid` (mobile hides it)", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    // The header row's Description label is unique enough to scope.
+    const descriptionHeader = screen.getAllByText("Description")[0];
+    // Walk up to the row container.
+    const headerRow = descriptionHeader.parentElement!;
+    expect(headerRow.className).toContain("hidden");
+    expect(headerRow.className).toContain("md:grid");
+  });
+
+  it("line item rows use `grid-cols-1 md:grid-cols-[...]` so they stack on mobile", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    const lineGroup = screen.getByRole("group", { name: /line 1/i });
+    expect(lineGroup.className).toContain("grid-cols-1");
+    expect(lineGroup.className).toContain("md:grid-cols-[1fr_80px_120px_120px_40px]");
+  });
+
+  it("qty/rate/× inner group uses `md:contents` to flatten into the desktop grid", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    // Qty input → its parent <div> → its parent (the inner sub-grid).
+    const qtyInput = screen.getByPlaceholderText("Qty");
+    const qtyWrapper = qtyInput.parentElement!;
+    const innerGroup = qtyWrapper.parentElement!;
+
+    expect(innerGroup.className).toContain("grid-cols-[1fr_1fr_44px]");
+    expect(innerGroup.className).toContain("md:contents");
+  });
+
+  it("qty + rate inputs have mobile placeholders (Qty, Rate ₹)", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    expect(screen.getByPlaceholderText("Qty")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Rate ₹")).toBeInTheDocument();
+  });
+
+  it("remove button has 44x44 mobile touch target (h-11 w-11)", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
+    expect(removeBtn.className).toContain("h-11");
+    expect(removeBtn.className).toContain("w-11");
+  });
+
+  it("mobile-only line total row is rendered with `md:hidden`", () => {
+    render(<SaleForm mode="create" customers={customers} />);
+
+    // The "Line total" label appears in two places: the desktop header row
+    // (hidden on mobile via `hidden md:grid`) and the mobile-only line
+    // total inside each line item row (visible on mobile via `md:hidden`).
+    // The latter is what we're checking here.
+    const labels = screen.getAllByText("Line total");
+    // At least one is the mobile per-row label (md:hidden wrapper).
+    const mobileLabel = labels.find((el) =>
+      el.parentElement?.className.includes("md:hidden"),
+    );
+    expect(mobileLabel).toBeDefined();
+  });
+
+  it("form footer is sticky-bottom on mobile (regression check)", () => {
+    const { container } = render(<SaleForm mode="create" customers={customers} />);
+
+    // Footer is identified by its border-t pt-4 wrapper containing the SaveDropdown.
+    const saveButton = screen.getByRole("button", { name: /save and return/i });
+    // Walk up until we find the wrapper with `sticky bottom-0`.
+    let el: HTMLElement | null = saveButton;
+    while (el && !el.className.includes("sticky")) {
+      el = el.parentElement;
+    }
+    expect(el).not.toBeNull();
+    expect(el?.className).toContain("sticky");
+    expect(el?.className).toContain("bottom-0");
+    // And on desktop it's reset to static.
+    expect(el?.className).toContain("md:static");
+    // Defeats unused warning on container.
+    void container;
+  });
+});

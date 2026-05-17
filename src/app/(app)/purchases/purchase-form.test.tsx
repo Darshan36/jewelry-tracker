@@ -404,3 +404,79 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     expect(confirmUpload).not.toHaveBeenCalled();
   });
 });
+
+// =====================================================================
+// Mobile viewport — Phase 11.2.
+// =====================================================================
+
+describe("PurchaseForm — mobile viewport (responsive class regression coverage)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("desktop column-header row carries `hidden md:grid`", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    const descriptionHeader = screen.getAllByText("Description")[0];
+    const headerRow = descriptionHeader.parentElement!;
+    expect(headerRow.className).toContain("hidden");
+    expect(headerRow.className).toContain("md:grid");
+  });
+
+  it("line item rows use `grid-cols-1 md:grid-cols-[...]`", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    const lineGroup = screen.getByRole("group", { name: /line 1/i });
+    expect(lineGroup.className).toContain("grid-cols-1");
+    expect(lineGroup.className).toContain("md:grid-cols-[1fr_80px_120px_120px_40px]");
+  });
+
+  it("qty/rate/× inner group uses `md:contents`", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    const qtyInput = screen.getByPlaceholderText("Qty");
+    const innerGroup = qtyInput.parentElement!.parentElement!;
+
+    expect(innerGroup.className).toContain("grid-cols-[1fr_1fr_44px]");
+    expect(innerGroup.className).toContain("md:contents");
+  });
+
+  it("qty + rate inputs have mobile placeholders", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    expect(screen.getByPlaceholderText("Qty")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Rate ₹")).toBeInTheDocument();
+  });
+
+  it("remove button has 44x44 mobile touch target", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
+    expect(removeBtn.className).toContain("h-11");
+    expect(removeBtn.className).toContain("w-11");
+  });
+
+  it("mobile-only line total row is rendered with `md:hidden`", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    const labels = screen.getAllByText("Line total");
+    const mobileLabel = labels.find((el) =>
+      el.parentElement?.className.includes("md:hidden"),
+    );
+    expect(mobileLabel).toBeDefined();
+  });
+
+  it("form footer is sticky-bottom on mobile", () => {
+    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+
+    const saveButton = screen.getByRole("button", { name: /save and return/i });
+    let el: HTMLElement | null = saveButton;
+    while (el && !el.className.includes("sticky")) {
+      el = el.parentElement;
+    }
+    expect(el).not.toBeNull();
+    expect(el?.className).toContain("sticky");
+    expect(el?.className).toContain("bottom-0");
+    expect(el?.className).toContain("md:static");
+  });
+});

@@ -24,6 +24,12 @@ import {
 
 import type { Customer } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
+import {
+  ResponsiveTable,
+  MobileCard,
+  MobileCardHeader,
+  MobileCardTitle,
+} from "@/components/responsive-table";
 
 import { softDeleteCustomer } from "./actions";
 import { CustomerDetailModal } from "./customer-detail-modal";
@@ -132,92 +138,109 @@ export function CustomersTable({ customers }: Props) {
 
   return (
     <>
-      {/* Header bar: search + add */}
-      <div className="flex items-center gap-3 mb-4">
+      {/* Header bar: search + add. Same Phase 11.1 hotfix pattern as the
+          transactional list pages — stack vertically on mobile so the
+          "Add customer" button doesn't compete with the search input
+          for horizontal space. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
         <input
           type="search"
           placeholder="Search customers…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
-          className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
+          className="w-full sm:flex-1 min-w-0 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
         />
         <button
           type="button"
           onClick={() => setIsAddOpen(true)}
-          className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
+          className="h-11 sm:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto"
         >
           <Plus className="size-4" />
           <span>Add customer</span>
         </button>
       </div>
 
-      {/* Table container */}
-      <div className="border border-outline-variant bg-surface-container-low">
-        {hasCustomers && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high sticky top-0">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <th
-                        key={header.id}
-                        className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
-                      >
-                        {header.isPlaceholder ? null : canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+      {hasCustomers && (
+        <ResponsiveTable
+          desktopTable={
+            <div className="border border-outline-variant bg-surface-container-low">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high sticky top-0">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort();
+                        const sorted = header.column.getIsSorted();
+                        return (
+                          <th
+                            key={header.id}
+                            className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
                           >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
+                            {header.isPlaceholder ? null : canSort ? (
+                              <button
+                                type="button"
+                                onClick={header.column.getToggleSortingHandler()}
+                                className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                <SortIndicator sorted={sorted} />
+                              </button>
+                            ) : (
+                              flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )
                             )}
-                            <SortIndicator sorted={sorted} />
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <CustomerRow
+                      key={row.id}
+                      row={row}
+                      onRowClick={(c) => setViewingCustomer(c)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+          mobileCards={
+            <>
               {rows.map((row) => (
-                <CustomerRow
+                <CustomerMobileCard
                   key={row.id}
-                  row={row}
-                  onRowClick={(c) => setViewingCustomer(c)}
+                  customer={row.original}
+                  onCardClick={() => setViewingCustomer(row.original)}
                 />
               ))}
-            </tbody>
-          </table>
-        )}
+            </>
+          }
+        />
+      )}
 
-        {/* Empty states */}
-        {!hasCustomers && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No customers yet. Add your first customer to get started.
-            </p>
-          </div>
-        )}
-        {hasCustomers && !hasMatches && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No customers match your search.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Empty states */}
+      {!hasCustomers && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No customers yet. Add your first customer to get started.
+          </p>
+        </div>
+      )}
+      {hasCustomers && !hasMatches && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No customers match your search.
+          </p>
+        </div>
+      )}
 
       {/* Add / Edit form modal — same component, mode toggled by `customer` prop */}
       <CustomerFormModal
@@ -250,6 +273,36 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="size-3" />;
   if (sorted === "desc") return <ArrowDown className="size-3" />;
   return <ArrowUpDown className="size-3 opacity-40" />;
+}
+
+// Phase 11.2: simpler mobile card for master data — name + phone, no
+// inline action buttons. Mutations go through the detail modal's Edit
+// link (tap card → detail modal → Edit) — different workflow shape
+// from transactional entities (Sales/Purchases etc.) which surface
+// Pay/Bill/Return as inline quick actions.
+function CustomerMobileCard({
+  customer,
+  onCardClick,
+}: {
+  customer: Customer;
+  onCardClick: () => void;
+}) {
+  return (
+    <MobileCard
+      clickable
+      onClick={onCardClick}
+      data-testid={`customer-mobile-card-${customer.id}`}
+    >
+      <MobileCardHeader>
+        <MobileCardTitle>{customer.name}</MobileCardTitle>
+      </MobileCardHeader>
+      {customer.phone && (
+        <div className="text-sm text-on-surface-variant tabular-nums">
+          {customer.phone}
+        </div>
+      )}
+    </MobileCard>
+  );
 }
 
 function CustomerRow({

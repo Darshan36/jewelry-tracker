@@ -217,3 +217,48 @@ describe("SaveDropdown — stale-closure regression coverage", () => {
     expect(observedMode).toBe("return");
   });
 });
+
+// =====================================================================
+// Phase 11.2 — mobile-responsive class regression coverage
+// =====================================================================
+//
+// SaveDropdown now expands to full-width on mobile so it fits inside the
+// sticky form footer at 390px viewport. These tests pin the responsive
+// class strings so a future refactor can't silently regress to the old
+// `inline-flex` desktop-only layout.
+
+describe("SaveDropdown — mobile responsive classes (Phase 11.2)", () => {
+  it("primary button has h-11 mobile + md:h-10 desktop (44px touch target)", () => {
+    render(<SaveDropdown onSave={vi.fn()} />);
+
+    const primary = screen.getByRole("button", { name: /save and return/i });
+    expect(primary.className).toContain("h-11");
+    expect(primary.className).toContain("md:h-10");
+  });
+
+  it("primary button is flex-1 on mobile (fills row), flex-none on desktop", () => {
+    render(<SaveDropdown onSave={vi.fn()} />);
+
+    const primary = screen.getByRole("button", { name: /save and return/i });
+    expect(primary.className).toContain("flex-1");
+    expect(primary.className).toContain("md:flex-none");
+  });
+
+  it("chevron button has h-11 mobile + md:h-10 desktop", () => {
+    render(<SaveDropdown onSave={vi.fn()} />);
+
+    const chevron = screen.getByRole("button", { name: /more save options/i });
+    expect(chevron.className).toContain("h-11");
+    expect(chevron.className).toContain("md:h-10");
+  });
+
+  it("root container is full-width on mobile, inline-flex on desktop", () => {
+    render(<SaveDropdown onSave={vi.fn()} />);
+
+    const primary = screen.getByRole("button", { name: /save and return/i });
+    const root = primary.parentElement!;
+    expect(root.className).toContain("w-full");
+    expect(root.className).toContain("md:w-auto");
+    expect(root.className).toContain("md:inline-flex");
+  });
+});

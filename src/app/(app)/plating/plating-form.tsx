@@ -362,7 +362,8 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
         </div>
 
         <div className="border border-outline-variant divide-y divide-outline-variant/50">
-          <div className="grid grid-cols-[1fr_110px_130px_130px_40px] gap-2 px-3 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
+          {/* Column-header row only on md+. */}
+          <div className="hidden md:grid md:grid-cols-[1fr_110px_130px_130px_40px] gap-2 px-3 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
             <span>Material</span>
             <span className="text-right">Weight (kg)</span>
             <span className="text-right">Rate (₹/kg)</span>
@@ -385,7 +386,7 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
                 key={field.id}
                 role="group"
                 aria-label={`Line ${idx + 1}`}
-                className="grid grid-cols-[1fr_110px_130px_130px_40px] gap-2 px-3 py-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[1fr_110px_130px_130px_40px] gap-2 px-3 py-3 md:py-2 items-start"
               >
                 <div>
                   <FormInput
@@ -402,59 +403,74 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
                     </FormError>
                   )}
                 </div>
-                <div>
-                  <FormInput
-                    id={`plating-line-${idx}-weight`}
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    inputMode="decimal"
-                    className="text-right tabular-nums"
-                    aria-invalid={!!lineErrors?.weightKg}
-                    {...register(`lineItems.${idx}.weightKg`, {
-                      setValueAs: (v) =>
-                        v === "" || v === null || v === undefined
-                          ? 0
-                          : Number(v),
-                    })}
-                  />
-                  {lineErrors?.weightKg?.message && (
-                    <FormError>{lineErrors.weightKg.message}</FormError>
-                  )}
+                {/* Mobile sub-grid (weight | rate | ×); md:contents flattens
+                    its children into outer cols 2/3/4/5. */}
+                <div className="grid grid-cols-[1fr_1fr_44px] gap-2 md:contents">
+                  <div>
+                    <FormInput
+                      id={`plating-line-${idx}-weight`}
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      inputMode="decimal"
+                      placeholder="Weight kg"
+                      className="text-right tabular-nums"
+                      aria-invalid={!!lineErrors?.weightKg}
+                      {...register(`lineItems.${idx}.weightKg`, {
+                        setValueAs: (v) =>
+                          v === "" || v === null || v === undefined
+                            ? 0
+                            : Number(v),
+                      })}
+                    />
+                    {lineErrors?.weightKg?.message && (
+                      <FormError>{lineErrors.weightKg.message}</FormError>
+                    )}
+                  </div>
+                  <div>
+                    <FormInput
+                      id={`plating-line-${idx}-rate`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="₹/kg"
+                      className="text-right tabular-nums"
+                      aria-invalid={!!lineErrors?.ratePerKg}
+                      {...register(`lineItems.${idx}.ratePerKg`, {
+                        setValueAs: (v) =>
+                          v === "" || v === null || v === undefined
+                            ? 0
+                            : Number(v),
+                      })}
+                    />
+                    {lineErrors?.ratePerKg?.message && (
+                      <FormError>{lineErrors.ratePerKg.message}</FormError>
+                    )}
+                  </div>
+                  {/* Desktop-only line total (col 4 via md:contents). */}
+                  <div className="hidden md:flex md:h-10 md:items-center md:justify-end md:pr-1 text-on-surface tabular-nums font-mono text-sm">
+                    {formatCurrency(lineTotalPaise)}
+                  </div>
+                  {/* Remove button — mobile sub-col 3, desktop col 5. */}
+                  <div className="h-11 md:h-10 flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => remove(idx)}
+                      disabled={fields.length === 1}
+                      aria-label={`Remove line ${idx + 1}`}
+                      className="h-11 w-11 md:h-8 md:w-8 flex items-center justify-center text-on-surface-variant hover:text-error disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <FormInput
-                    id={`plating-line-${idx}-rate`}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    className="text-right tabular-nums"
-                    aria-invalid={!!lineErrors?.ratePerKg}
-                    {...register(`lineItems.${idx}.ratePerKg`, {
-                      setValueAs: (v) =>
-                        v === "" || v === null || v === undefined
-                          ? 0
-                          : Number(v),
-                    })}
-                  />
-                  {lineErrors?.ratePerKg?.message && (
-                    <FormError>{lineErrors.ratePerKg.message}</FormError>
-                  )}
-                </div>
-                <div className="h-10 flex items-center justify-end pr-1 text-on-surface tabular-nums font-mono text-sm">
+                {/* Mobile-only line total row 3. */}
+                <div className="md:hidden flex items-center justify-end text-sm tabular-nums font-mono text-on-surface">
+                  <span className="text-xs uppercase tracking-wider text-on-surface-variant mr-2">
+                    Line total
+                  </span>
                   {formatCurrency(lineTotalPaise)}
-                </div>
-                <div className="h-10 flex items-center justify-center">
-                  <button
-                    type="button"
-                    onClick={() => remove(idx)}
-                    disabled={fields.length === 1}
-                    aria-label={`Remove line ${idx + 1}`}
-                    className="p-1.5 text-on-surface-variant hover:text-error disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <X className="size-4" />
-                  </button>
                 </div>
               </div>
             );
@@ -530,7 +546,7 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
             {formatCurrency(Math.round(subtotal * 100))}
           </span>
         </div>
-        <div className="grid grid-cols-[1fr_140px] gap-3 items-center">
+        <div className="grid grid-cols-[1fr_120px] md:grid-cols-[1fr_140px] gap-3 items-center">
           <FormLabel
             htmlFor="plating-discount"
             className="!mb-0 text-sm normal-case tracking-normal text-on-surface-variant"
@@ -583,12 +599,17 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
         <FormError>{errors.notes?.message}</FormError>
       </div>
 
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-outline-variant">
+      {/* Form footer — sticky-bottom on mobile, right-aligned row on md+. */}
+      <div
+        className="flex flex-col-reverse gap-3 pt-4 border-t border-outline-variant
+          sticky bottom-0 z-10 -mx-4 px-4 pb-4 bg-surface
+          md:static md:flex-row md:items-center md:justify-end md:mx-0 md:px-0 md:pb-0 md:bg-transparent"
+      >
         <button
           type="button"
           onClick={() => router.push("/plating")}
           disabled={isSubmitting}
-          className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+          className="h-11 md:h-10 px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors w-full md:w-auto"
         >
           Cancel
         </button>

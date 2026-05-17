@@ -24,6 +24,12 @@ import {
 
 import type { Supplier } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
+import {
+  ResponsiveTable,
+  MobileCard,
+  MobileCardHeader,
+  MobileCardTitle,
+} from "@/components/responsive-table";
 
 import { softDeleteSupplier } from "./actions";
 import { SupplierDetailModal } from "./supplier-detail-modal";
@@ -132,92 +138,106 @@ export function SuppliersTable({ suppliers }: Props) {
 
   return (
     <>
-      {/* Header bar: search + add */}
-      <div className="flex items-center gap-3 mb-4">
+      {/* Header bar: search + add — Phase 11.1 hotfix pattern. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
         <input
           type="search"
           placeholder="Search suppliers…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
-          className="flex-1 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
+          className="w-full sm:flex-1 min-w-0 bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
         />
         <button
           type="button"
           onClick={() => setIsAddOpen(true)}
-          className="h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
+          className="h-11 sm:h-10 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto"
         >
           <Plus className="size-4" />
           <span>Add supplier</span>
         </button>
       </div>
 
-      {/* Table container */}
-      <div className="border border-outline-variant bg-surface-container-low">
-        {hasSuppliers && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high sticky top-0">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-                    return (
-                      <th
-                        key={header.id}
-                        className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
-                      >
-                        {header.isPlaceholder ? null : canSort ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+      {hasSuppliers && (
+        <ResponsiveTable
+          desktopTable={
+            <div className="border border-outline-variant bg-surface-container-low">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-container-high sticky top-0">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort();
+                        const sorted = header.column.getIsSorted();
+                        return (
+                          <th
+                            key={header.id}
+                            className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3"
                           >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
+                            {header.isPlaceholder ? null : canSort ? (
+                              <button
+                                type="button"
+                                onClick={header.column.getToggleSortingHandler()}
+                                className="flex items-center gap-1.5 hover:text-on-surface transition-colors"
+                              >
+                                {flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext(),
+                                )}
+                                <SortIndicator sorted={sorted} />
+                              </button>
+                            ) : (
+                              flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )
                             )}
-                            <SortIndicator sorted={sorted} />
-                          </button>
-                        ) : (
-                          flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <SupplierRow
+                      key={row.id}
+                      row={row}
+                      onRowClick={(s) => setViewingSupplier(s)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+          mobileCards={
+            <>
               {rows.map((row) => (
-                <SupplierRow
+                <SupplierMobileCard
                   key={row.id}
-                  row={row}
-                  onRowClick={(s) => setViewingSupplier(s)}
+                  supplier={row.original}
+                  onCardClick={() => setViewingSupplier(row.original)}
                 />
               ))}
-            </tbody>
-          </table>
-        )}
+            </>
+          }
+        />
+      )}
 
-        {/* Empty states */}
-        {!hasSuppliers && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No suppliers yet. Add your first supplier to get started.
-            </p>
-          </div>
-        )}
-        {hasSuppliers && !hasMatches && (
-          <div className="p-12 text-center">
-            <p className="text-on-surface-variant text-sm">
-              No suppliers match your search.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Empty states */}
+      {!hasSuppliers && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No suppliers yet. Add your first supplier to get started.
+          </p>
+        </div>
+      )}
+      {hasSuppliers && !hasMatches && (
+        <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
+          <p className="text-on-surface-variant text-sm">
+            No suppliers match your search.
+          </p>
+        </div>
+      )}
 
       {/* Add / Edit form modal — same component, mode toggled by `supplier` prop */}
       <SupplierFormModal
@@ -250,6 +270,33 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="size-3" />;
   if (sorted === "desc") return <ArrowDown className="size-3" />;
   return <ArrowUpDown className="size-3 opacity-40" />;
+}
+
+// Phase 11.2: simpler mobile card for master data — name + phone, no
+// inline action buttons. Mutations go through the detail modal's Edit link.
+function SupplierMobileCard({
+  supplier,
+  onCardClick,
+}: {
+  supplier: Supplier;
+  onCardClick: () => void;
+}) {
+  return (
+    <MobileCard
+      clickable
+      onClick={onCardClick}
+      data-testid={`supplier-mobile-card-${supplier.id}`}
+    >
+      <MobileCardHeader>
+        <MobileCardTitle>{supplier.name}</MobileCardTitle>
+      </MobileCardHeader>
+      {supplier.phone && (
+        <div className="text-sm text-on-surface-variant tabular-nums">
+          {supplier.phone}
+        </div>
+      )}
+    </MobileCard>
+  );
 }
 
 function SupplierRow({
