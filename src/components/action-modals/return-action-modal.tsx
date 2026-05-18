@@ -29,6 +29,7 @@ import {
   FormLabel,
   FormTextarea,
 } from "@/components/form-controls";
+import { todayIsoIST } from "@/lib/format";
 
 export type ReturnEntityType = "sale" | "purchase";
 
@@ -78,14 +79,12 @@ type Props = {
   onSave: (data: ReturnSaveData) => Promise<ReturnSaveResult>;
 };
 
-function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+// `todayIsoIST` reads the calendar day in Asia/Kolkata so the modal
+// defaults to the user's locale day regardless of the device's timezone.
 
 function emptyDefaults(): FormInputT {
   return {
-    date: todayISO() as unknown as Date,
+    date: todayIsoIST() as unknown as Date,
     qtyReturned: 1,
     refundAmount: 0,
     note: "",

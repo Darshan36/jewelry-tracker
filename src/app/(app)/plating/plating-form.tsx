@@ -29,7 +29,11 @@ import {
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
 import { BillPreview } from "@/components/bill-preview";
-import { formatCurrency } from "@/lib/format";
+import {
+  dateToIsoIST,
+  formatCurrency,
+  todayIsoIST,
+} from "@/lib/format";
 import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
@@ -58,21 +62,13 @@ type Props = {
   vendors: VendorOption[];
 };
 
-function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function dateToISO(date: Date | string | null | undefined): string {
-  if (!date) return todayISO();
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return todayISO();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+// Date helpers pin to Asia/Kolkata via shared format helpers — without
+// the explicit timezone, server (UTC) and client (IST) produced different
+// "today" strings near UTC midnight, tripping React hydration warnings.
 
 function emptyDefaults(): FormInputT {
   return {
-    date: todayISO() as unknown as Date,
+    date: todayIsoIST() as unknown as Date,
     vendorId: null,
     partyName: "",
     partyPhone: "",
@@ -140,7 +136,7 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
 
   useEffect(() => {
     reset({
-      date: dateToISO(entry?.date) as unknown as Date,
+      date: dateToIsoIST(entry?.date) as unknown as Date,
       vendorId: entry?.vendorId ?? null,
       partyName: entry?.partyName ?? "",
       partyPhone: entry?.partyPhone ?? "",

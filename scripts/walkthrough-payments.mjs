@@ -86,7 +86,7 @@ async function closeAnyOpenDialog(page) {
 async function createSaleViaUI(page, { partyName, item, qty, rate }) {
   await page.click('button:has-text("Add sale")');
   await page.locator('[role="dialog"]').waitFor({ state: "visible" });
-  await page.fill("#party-name-input", partyName);
+  await page.fill("#sales-party-name", partyName);
   await page.waitForSelector('text=/Use as walk-in:/i');
   await page.click('button:has-text("Use as walk-in:")');
   await page.fill("#sale-item", item);

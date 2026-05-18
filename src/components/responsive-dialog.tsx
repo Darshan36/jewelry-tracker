@@ -75,6 +75,10 @@ export const ResponsiveDialogContent = React.forwardRef<
       mobileClassName,
       children,
       showCloseButton = true,
+      // Default to `undefined` so consumers that don't render a
+      // <ResponsiveDialogDescription> don't trip Radix's dev warning.
+      // Same pattern as DialogContent / SheetContent.
+      "aria-describedby": ariaDescribedBy,
       ...props
     },
     ref,
@@ -99,6 +103,7 @@ export const ResponsiveDialogContent = React.forwardRef<
           desktopClassName,
           className,
         )}
+        aria-describedby={ariaDescribedBy}
         {...props}
       >
         {children}

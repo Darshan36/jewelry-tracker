@@ -141,7 +141,7 @@ try {
   // Fill walk-in party + one line. Use the marker prefix.
   const partyA = `${MARKER}Test Customer A`;
   await page.locator("#sale-date").waitFor({ timeout: 5_000 });
-  await page.locator("#party-name-input").fill(partyA);
+  await page.locator("#sales-party-name").fill(partyA);
   await page.locator("#sale-line-0-item").fill("Test ring");
   await page.locator("#sale-line-0-qty").fill("2");
   await page.locator("#sale-line-0-rate").fill("100");
@@ -155,7 +155,7 @@ try {
     await page.waitForFunction(
       () => {
         const url = window.location.pathname;
-        const inp = document.querySelector("#party-name-input");
+        const inp = document.querySelector("#sales-party-name");
         return url === "/sales/new" && inp && inp.value === "";
       },
       null,
@@ -167,7 +167,7 @@ try {
     await page.screenshot({ path: shotPath, fullPage: true });
     const url = page.url();
     const partyVal = await page
-      .locator("#party-name-input")
+      .locator("#sales-party-name")
       .inputValue()
       .catch(() => "(input missing)");
     check(
@@ -180,7 +180,7 @@ try {
 
   // ============ Step 3: Save and return — lands at /sales ============
   const partyB = `${MARKER}Test Customer B`;
-  await page.locator("#party-name-input").fill(partyB);
+  await page.locator("#sales-party-name").fill(partyB);
   await page.locator("#sale-line-0-item").fill("Test bracelet");
   await page.locator("#sale-line-0-qty").fill("1");
   await page.locator("#sale-line-0-rate").fill("500");
@@ -245,8 +245,8 @@ try {
   createdSaleId = idMatch ? idMatch[1] : null;
 
   // Confirm form is prefilled with partyB.
-  await page.waitForSelector("#party-name-input", { timeout: 5_000 });
-  const partyNameVal = await page.locator("#party-name-input").inputValue();
+  await page.waitForSelector("#sales-party-name", { timeout: 5_000 });
+  const partyNameVal = await page.locator("#sales-party-name").inputValue();
   const partyMatches = partyNameVal === partyB;
 
   // Modify the discount to a non-zero value and save.

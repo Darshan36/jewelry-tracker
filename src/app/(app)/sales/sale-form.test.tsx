@@ -113,7 +113,7 @@ describe("SaleForm — create mode", () => {
     render(<SaleForm mode="create" customers={customers} />);
 
     // Fill the minimum required fields.
-    await user.type(document.querySelector("#party-name-input") as HTMLInputElement, "Walk-in");
+    await user.type(document.querySelector("#sales-party-name") as HTMLInputElement, "Walk-in");
     await user.type(document.querySelector("#sale-line-0-item") as HTMLInputElement, "Test");
     await user.type(document.querySelector("#sale-line-0-rate") as HTMLInputElement, "100");
 
@@ -162,7 +162,7 @@ describe("SaleForm — edit mode", () => {
 
     // SaleForm seeds defaults inside a useEffect after first render,
     // so wait for the rate input to receive the prefilled rupee value.
-    // (party-name-input is driven through PartyPicker's controlled
+    // (sales-party-name is driven through PartyPicker's controlled
     // `value` prop which doesn't flow cleanly under jsdom for the
     // assertion; the Playwright walkthrough Step 5 covers the
     // party-name prefill at integration scale.)
@@ -209,7 +209,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
   function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
     return (async () => {
       await user.type(
-        document.querySelector("#party-name-input") as HTMLInputElement,
+        document.querySelector("#sales-party-name") as HTMLInputElement,
         "Walk-in",
       );
       await user.type(

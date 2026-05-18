@@ -134,7 +134,7 @@ try {
   // ========== Step 2: Save and add another ==========
   const partyA = `${MARKER}Supplier A`;
   await page.locator("#purchase-date").waitFor({ timeout: 5_000 });
-  await page.locator("#party-name-input").fill(partyA);
+  await page.locator("#purchases-party-name").fill(partyA);
   await page.locator("#purchase-line-0-item").fill("Raw silver");
   await page.locator("#purchase-line-0-qty").fill("2");
   await page.locator("#purchase-line-0-rate").fill("250");
@@ -146,7 +146,7 @@ try {
   await page.waitForFunction(
     () =>
       window.location.pathname === "/purchases/new" &&
-      document.querySelector("#party-name-input")?.value === "",
+      document.querySelector("#purchases-party-name")?.value === "",
     null,
     { timeout: 20_000 },
   );
@@ -157,7 +157,7 @@ try {
 
   // ========== Step 3: Save and return ==========
   const partyB = `${MARKER}Supplier B`;
-  await page.locator("#party-name-input").fill(partyB);
+  await page.locator("#purchases-party-name").fill(partyB);
   await page.locator("#purchase-line-0-item").fill("Casting wax");
   await page.locator("#purchase-line-0-qty").fill("1");
   await page.locator("#purchase-line-0-rate").fill("800");
@@ -209,8 +209,8 @@ try {
   });
   const idMatch = page.url().match(/\/purchases\/([^/]+)\/edit$/);
   createdPurchaseId = idMatch ? idMatch[1] : null;
-  await page.waitForSelector("#party-name-input", { timeout: 5_000 });
-  const prefilledParty = await page.locator("#party-name-input").inputValue();
+  await page.waitForSelector("#purchases-party-name", { timeout: 5_000 });
+  const prefilledParty = await page.locator("#purchases-party-name").inputValue();
   await page.locator("#purchase-discount").fill("50");
   await page.locator('button:has-text("Save and return")').first().click();
   await page.waitForURL((u) => u.toString().endsWith("/purchases"), {
@@ -379,7 +379,7 @@ try {
 
   // ========== Step 12: Sales bill-in-form upload chain end-to-end ==========
   const salesParty = `${MARKER}Sales Test`;
-  await page.locator("#party-name-input").fill(salesParty);
+  await page.locator("#sales-party-name").fill(salesParty);
   await page.locator("#sale-line-0-item").fill("Test sale");
   await page.locator("#sale-line-0-qty").fill("1");
   await page.locator("#sale-line-0-rate").fill("300");

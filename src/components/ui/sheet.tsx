@@ -62,7 +62,17 @@ const SheetContent = React.forwardRef<
   SheetContentProps
 >(
   (
-    { className, children, side = "right", showCloseButton = true, ...props },
+    {
+      className,
+      children,
+      side = "right",
+      showCloseButton = true,
+      // Defaults to `undefined`, suppressing Radix's "Missing Description"
+      // dev warning for sheets without a description (the documented
+      // opt-out). Same pattern as DialogContent — see dialog.tsx.
+      "aria-describedby": ariaDescribedBy,
+      ...props
+    },
     ref,
   ) => (
     <SheetPortal>
@@ -76,6 +86,7 @@ const SheetContent = React.forwardRef<
           sideClasses[side],
           className,
         )}
+        aria-describedby={ariaDescribedBy}
         {...props}
       >
         {children}

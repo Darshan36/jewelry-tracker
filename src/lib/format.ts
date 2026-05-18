@@ -2,22 +2,61 @@
 //
 // Currency: store as integer paise (1 ₹ = 100 paise); render with Indian
 // comma grouping via Intl.NumberFormat('en-IN', { style: 'currency', ... }).
-// Date: store UTC `timestamp(3)` in DB; render in the locale-default
-// medium-precision format. Asia/Kolkata conversion happens naturally because
-// the user's browser is in IST — `new Date(utcString)` parses the UTC value
-// and `date-fns format` renders in the local time zone.
+// Date: store UTC `timestamp(3)` in DB; render in Asia/Kolkata via
+// `Intl.DateTimeFormat` with an explicit `timeZone` so the output is
+// deterministic on both server (UTC) and client (IST). Without the pin,
+// `date-fns format` rendered in the local TZ — producing "19 May" on the
+// server and "20 May" on the client for dates that crossed the IST date
+// boundary, which tripped React hydration mismatches (see KNOWN_GAPS).
 //
 // Display formatters return "—" for null/undefined so callers can pass
 // straight-through without null-handling at each call site.
 
-import { format } from "date-fns";
+const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+const TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+// "YYYY-MM-DD" for the calendar day at the given moment in Asia/Kolkata.
+// Reads the wall-clock day in IST regardless of where the code runs — server
+// (UTC) and client (IST) produce the same string for the same moment, so
+// using this for an `<input type="date">` defaultValue won't trigger a
+// hydration mismatch the way `new Date().getDate()` does near UTC midnight.
+const ISO_DAY_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+export function todayIsoIST(): string {
+  return ISO_DAY_FORMATTER.format(new Date());
+}
+
+export function dateToIsoIST(
+  value: Date | string | null | undefined,
+): string {
+  if (!value) return todayIsoIST();
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(date.getTime())) return todayIsoIST();
+  return ISO_DAY_FORMATTER.format(date);
+}
 
 export function formatDate(
   value: Date | string | null | undefined,
 ): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  return format(date, "d MMM yyyy");
+  return DATE_FORMATTER.format(date);
 }
 
 export function formatDateTime(
@@ -25,7 +64,9 @@ export function formatDateTime(
 ): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  return format(date, "d MMM yyyy, h:mm a");
+  // "1:30 pm" (lowercase) to match the prior date-fns output. Intl's
+  // dayPeriod renders as "am"/"pm" already lowercase in en-GB.
+  return `${DATE_FORMATTER.format(date)}, ${TIME_FORMATTER.format(date)}`;
 }
 
 // paise (integer) → ₹ with Indian comma grouping. Used from Phase 3 onward

@@ -30,7 +30,7 @@ import {
   FormLabel,
   FormTextarea,
 } from "@/components/form-controls";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, todayIsoIST } from "@/lib/format";
 
 export type PaymentEntityType = "sale" | "purchase" | "casting" | "plating";
 
@@ -81,10 +81,8 @@ type Props = {
   onSave: (data: PaymentSaveData) => Promise<PaymentSaveResult>;
 };
 
-function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+// `todayIsoIST` reads the calendar day in Asia/Kolkata so the modal
+// defaults to the user's locale day regardless of the device's timezone.
 
 // Direction label for the "Owed" hint in the modal. Sales: customer
 // owes shop. Purchases/Casting/Plating: shop owes vendor.
@@ -310,7 +308,7 @@ export function PaymentActionModal({
 
 function emptyDefaults(isRefundMode: boolean): FormInputT {
   return {
-    date: todayISO() as unknown as Date,
+    date: todayIsoIST() as unknown as Date,
     amount: 0,
     type: isRefundMode ? "REFUND" : "PAYMENT",
     note: "",

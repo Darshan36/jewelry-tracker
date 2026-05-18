@@ -430,8 +430,8 @@ try {
 
   const partyP = `${MARKER}purchaseparty`;
   const phoneP = `76543${Date.now().toString().slice(-5)}P`.slice(0, 12);
-  await page.locator("#party-name-input").fill(partyP);
-  await page.locator("#party-phone-input").fill(phoneP.replace(/[^0-9]/g, ""));
+  await page.locator("#purchases-party-name").fill(partyP);
+  await page.locator("#purchases-party-phone").fill(phoneP.replace(/[^0-9]/g, ""));
   await page.locator("#purchase-line-0-item").fill("Raw silver");
   await page.locator("#purchase-line-0-qty").fill("3");
   await page.locator("#purchase-line-0-rate").fill("150");

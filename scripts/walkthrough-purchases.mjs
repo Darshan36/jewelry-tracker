@@ -192,7 +192,7 @@ async function recordReturnInOpenDetail(page, qty, refund) {
       if (dateVal !== today) throw new Error(`Date defaulted to ${dateVal}, expected ${today}`);
       // Party picker placeholder reflects "supplier"
       const placeholder = await page
-        .locator("#party-name-input")
+        .locator("#purchases-party-name")
         .getAttribute("placeholder");
       if (!placeholder?.toLowerCase().includes("supplier")) {
         throw new Error(`Party picker placeholder is "${placeholder}", expected to contain "supplier"`);
@@ -201,7 +201,7 @@ async function recordReturnInOpenDetail(page, qty, refund) {
 
     // ---------- Step 3: type into picker, dropdown shows ----------
     await step(page, "3. Type into party picker → dropdown shows supplier + walk-in", async () => {
-      await page.fill("#party-name-input", "P4");
+      await page.fill("#purchases-party-name", "P4");
       await page.waitForSelector('text=/Use as walk-in:/i');
       await page.waitForSelector(`text=${supplierName}`);
     });
@@ -213,7 +213,7 @@ async function recordReturnInOpenDetail(page, qty, refund) {
       );
       await page.waitForSelector('button[aria-label="Clear linked supplier"]');
       // Party name input is gone (chip replaced it)
-      const inputCount = await page.locator("#party-name-input").count();
+      const inputCount = await page.locator("#purchases-party-name").count();
       if (inputCount !== 0) throw new Error("Input still present while supplier linked");
     });
 

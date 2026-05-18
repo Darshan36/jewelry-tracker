@@ -125,7 +125,7 @@ describe("PurchaseForm — create mode", () => {
     render(<PurchaseForm mode="create" suppliers={suppliers} />);
 
     await user.type(
-      document.querySelector("#party-name-input") as HTMLInputElement,
+      document.querySelector("#purchases-party-name") as HTMLInputElement,
       "Walk-in",
     );
     await user.type(
@@ -245,7 +245,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
   function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
     return (async () => {
       await user.type(
-        document.querySelector("#party-name-input") as HTMLInputElement,
+        document.querySelector("#purchases-party-name") as HTMLInputElement,
         "Walk-in",
       );
       await user.type(
@@ -562,7 +562,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
     render(<PurchaseForm mode="create" suppliers={suppliers} />);
 
     await user.type(
-      document.querySelector("#party-name-input") as HTMLInputElement,
+      document.querySelector("#purchases-party-name") as HTMLInputElement,
       "Walk-in",
     );
     await user.type(

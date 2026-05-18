@@ -137,22 +137,22 @@ async function step(page, name, fn) {
       if (dateValue !== expectedDate) {
         throw new Error(`Date is ${dateValue}, expected ${expectedDate}`);
       }
-      await page.waitForSelector("#party-name-input");
+      await page.waitForSelector("#sales-party-name");
     });
 
     // ---------- 3. Type → dropdown ----------
     await step(page, "3. Type into party picker, dropdown shows", async () => {
-      await page.fill("#party-name-input", "a");
+      await page.fill("#sales-party-name", "a");
       await page.waitForSelector('text=/Use as walk-in:/i', { timeout: 5000 });
     });
 
     // ---------- 4. Click "Use as walk-in" ----------
     await step(page, "4. Click Use as walk-in", async () => {
-      await page.fill("#party-name-input", "Test Walkin Customer");
+      await page.fill("#sales-party-name", "Test Walkin Customer");
       await page.waitForSelector('text=/Use as walk-in:/i');
       await page.click('button:has-text("Use as walk-in:")');
-      await page.waitForSelector("#party-phone-input");
-      const partyName = await page.locator("#party-name-input").inputValue();
+      await page.waitForSelector("#sales-party-phone");
+      const partyName = await page.locator("#sales-party-name").inputValue();
       if (partyName !== "Test Walkin Customer") {
         throw new Error(`Expected party name "Test Walkin Customer", got "${partyName}"`);
       }
@@ -174,7 +174,7 @@ async function step(page, name, fn) {
       // "a" and clicking the first non-walk-in row if available; if none,
       // skip with a soft-pass (the dropdown showed walk-in, which is still
       // valid behavior).
-      await page.fill("#party-name-input", "a");
+      await page.fill("#sales-party-name", "a");
       await page.waitForTimeout(300);
       const customerRows = await page
         .locator('[role="dialog"] .absolute button:not(:has-text("Use as walk-in:"))')
@@ -192,7 +192,7 @@ async function step(page, name, fn) {
 
       // After click: chip should appear, plain input gone
       await page.waitForSelector('button[aria-label="Clear linked customer"]', { timeout: 3000 });
-      const inputStillPresent = await page.locator("#party-name-input").count();
+      const inputStillPresent = await page.locator("#sales-party-name").count();
       if (inputStillPresent !== 0) {
         throw new Error("Linked-customer chip did not replace the input");
       }
@@ -205,10 +205,10 @@ async function step(page, name, fn) {
       const chipPresent = await page.locator('button[aria-label="Clear linked customer"]').count();
       if (chipPresent > 0) {
         await page.click('button[aria-label="Clear linked customer"]');
-        await page.waitForSelector("#party-name-input");
+        await page.waitForSelector("#sales-party-name");
       }
 
-      await page.fill("#party-name-input", "Walkthrough Buyer");
+      await page.fill("#sales-party-name", "Walkthrough Buyer");
       await page.fill("#sale-item", "Gold-plated chain");
       await page.fill("#sale-qty", "10");
       await page.fill("#sale-rate", "250");

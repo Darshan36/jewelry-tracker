@@ -224,14 +224,14 @@ async function fillLine(page, idx, { item, qty, rate }) {
     // ------- Step 2: Fill line 1 ------------------------------------------
     await step(page, "2. SALE fill line 1, line total updates to ₹2,500.00", async () => {
       // First fill the party fields.
-      await page.fill("#party-name-input", SALE_PARTY);
+      await page.fill("#sales-party-name", SALE_PARTY);
       await page.waitForTimeout(300);
       // Click "Use as walk-in" to confirm walk-in mode.
       const walkin = page.locator(
         '[role="dialog"] button:has-text("Use as walk-in:")',
       );
       if (await walkin.count()) await walkin.first().click();
-      await page.fill("#party-phone-input", SALE_PHONE);
+      await page.fill("#sales-party-phone", SALE_PHONE);
 
       await fillLine(page, 0, { item: ITEM_1, qty: 10, rate: 250 });
 
@@ -456,7 +456,7 @@ async function fillLine(page, idx, { item, qty, rate }) {
       await dialog.waitFor({ state: "visible" });
 
       // Fill party fields so they don't shadow the line error.
-      await page.fill("#party-name-input", `${MARKER}empty_item_test`);
+      await page.fill("#sales-party-name", `${MARKER}empty_item_test`);
       await page.waitForTimeout(300);
       const walkin = page.locator(
         '[role="dialog"] button:has-text("Use as walk-in:")',
@@ -517,13 +517,13 @@ async function fillLine(page, idx, { item, qty, rate }) {
       if (cnt !== 1) throw new Error(`Expected 1 line on purchase open, got ${cnt}`);
 
       // Party fields
-      await page.fill("#party-name-input", PURCHASE_PARTY);
+      await page.fill("#purchases-party-name", PURCHASE_PARTY);
       await page.waitForTimeout(300);
       const walkin = page.locator(
         '[role="dialog"] button:has-text("Use as walk-in:")',
       );
       if (await walkin.count()) await walkin.first().click();
-      await page.fill("#party-phone-input", PURCHASE_PHONE);
+      await page.fill("#purchases-party-phone", PURCHASE_PHONE);
 
       // 2-4. Fill line 1, add line 2, fill line 2
       await fillLine(page, 0, { item: P_ITEM_1, qty: 10, rate: 250 });

@@ -98,7 +98,7 @@ async function step(page, name, fn) {
 }
 
 async function fillSaleForm(page, { partyName, partyPhone, item, qty, rate }) {
-  await page.fill("#party-name-input", partyName);
+  await page.fill("#sales-party-name", partyName);
   await page.waitForTimeout(400);
   const walkin = page.locator(
     '[role="dialog"] button:has-text("Use as walk-in:")',
@@ -109,7 +109,7 @@ async function fillSaleForm(page, { partyName, partyPhone, item, qty, rate }) {
   }
   if (partyPhone !== null) {
     // Focus + clear + retype the phone so the input event fires definitively.
-    const phoneInput = page.locator("#party-phone-input");
+    const phoneInput = page.locator("#sales-party-phone");
     await phoneInput.click();
     await phoneInput.fill("");
     await phoneInput.fill(partyPhone);
@@ -117,8 +117,8 @@ async function fillSaleForm(page, { partyName, partyPhone, item, qty, rate }) {
   }
   // Diagnostic: read back the live form-state values from the rendered inputs.
   const state = await page.evaluate(() => {
-    const nameInput = document.querySelector("#party-name-input");
-    const phoneInput = document.querySelector("#party-phone-input");
+    const nameInput = document.querySelector("#sales-party-name");
+    const phoneInput = document.querySelector("#sales-party-phone");
     return {
       partyName: nameInput?.value ?? null,
       partyPhone: phoneInput?.value ?? null,
@@ -133,7 +133,7 @@ async function fillSaleForm(page, { partyName, partyPhone, item, qty, rate }) {
 }
 
 async function fillPurchaseForm(page, { partyName, partyPhone, item, qty, rate }) {
-  await page.fill("#party-name-input", partyName);
+  await page.fill("#purchases-party-name", partyName);
   await page.waitForTimeout(400);
   const walkin = page.locator(
     '[role="dialog"] button:has-text("Use as walk-in:")',
@@ -143,7 +143,7 @@ async function fillPurchaseForm(page, { partyName, partyPhone, item, qty, rate }
     await page.waitForTimeout(250);
   }
   if (partyPhone !== null) {
-    const phoneInput = page.locator("#party-phone-input");
+    const phoneInput = page.locator("#purchases-party-phone");
     await phoneInput.click();
     await phoneInput.fill("");
     await phoneInput.fill(partyPhone);
@@ -345,7 +345,7 @@ async function cleanup() {
         await page.click('button:has-text("Add sale")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
-        await page.fill("#party-name-input", "9876");
+        await page.fill("#sales-party-name", "9876");
         await page.waitForTimeout(400);
         // The dropdown should contain a button labelled with NAME_FIRST.
         const matchBtn = dialog
@@ -514,7 +514,7 @@ async function cleanup() {
         await page.click('button:has-text("Add purchase")');
         const dialog = page.locator('[role="dialog"]');
         await dialog.waitFor({ state: "visible" });
-        await page.fill("#party-name-input", "9876");
+        await page.fill("#purchases-party-name", "9876");
         await page.waitForTimeout(400);
         const matchBtn = dialog
           .locator(".absolute button")

@@ -105,12 +105,12 @@ export function PartyPicker({ customers, value, onChange, error }: Props) {
 
   return (
     <div>
-      <FormLabel htmlFor="party-name-input">
+      <FormLabel htmlFor="sales-party-name">
         Party <span className="text-error ml-1" aria-hidden>*</span>
       </FormLabel>
       <div className="relative">
         <FormInput
-          id="party-name-input"
+          id="sales-party-name"
           type="text"
           autoComplete="off"
           value={value.partyName}
@@ -170,9 +170,9 @@ export function PartyPicker({ customers, value, onChange, error }: Props) {
       <FormError>{error}</FormError>
 
       <div className="mt-3">
-        <FormLabel htmlFor="party-phone-input">Phone (optional)</FormLabel>
+        <FormLabel htmlFor="sales-party-phone">Phone (optional)</FormLabel>
         <FormInput
-          id="party-phone-input"
+          id="sales-party-phone"
           type="tel"
           autoComplete="off"
           value={value.partyPhone ?? ""}

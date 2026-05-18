@@ -169,7 +169,7 @@ async function cleanup() {
       await page.click('button:has-text("Add sale")');
       const dialog = page.locator('[role="dialog"]');
       await dialog.waitFor({ state: "visible" });
-      await page.fill("#party-name-input", TEST_CUSTOMER);
+      await page.fill("#sales-party-name", TEST_CUSTOMER);
       // Allow dropdown to populate
       await page.waitForTimeout(500);
       // Click the existing-customer row (not the walk-in row)
@@ -182,7 +182,7 @@ async function cleanup() {
       } else {
         // Fallback to walk-in
         await page.click('button:has-text("Use as walk-in:")');
-        await page.fill("#party-phone-input", "+91 9999999999");
+        await page.fill("#sales-party-phone", "+91 9999999999");
       }
       await page.fill("#sale-item", `${TEST_ITEM} bangle set`);
       await page.fill("#sale-qty", "1");

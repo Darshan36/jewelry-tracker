@@ -132,7 +132,7 @@ async function deleteRowByPartyName(page, partyName) {
     // ===========================================================
     await step(page, "E1. Discount exceeds total — form red + server reject", async () => {
       await openAddSaleModal(page);
-      await page.fill("#party-name-input", "Edge1 Bad Discount");
+      await page.fill("#sales-party-name", "Edge1 Bad Discount");
       await page.waitForSelector('text=/Use as walk-in:/i');
       await page.click('button:has-text("Use as walk-in:")');
       await page.fill("#sale-item", "Discount overflow test");
@@ -206,7 +206,7 @@ async function deleteRowByPartyName(page, partyName) {
       await openAddSaleModal(page);
 
       // Type to surface a matching customer
-      await page.fill("#party-name-input", "a");
+      await page.fill("#sales-party-name", "a");
       await page.waitForSelector('text=/Use as walk-in:/i');
 
       const customerMatchCount = await page
@@ -225,7 +225,7 @@ async function deleteRowByPartyName(page, partyName) {
       await page.waitForSelector('button[aria-label="Clear linked customer"]');
 
       // Sanity: while linked, the party-name input is gone (chip replaces it)
-      const inputWhileLinkedCount = await page.locator("#party-name-input").count();
+      const inputWhileLinkedCount = await page.locator("#sales-party-name").count();
       if (inputWhileLinkedCount !== 0) {
         throw new Error("Input still present while customer linked (chip should replace it)");
       }
@@ -234,7 +234,7 @@ async function deleteRowByPartyName(page, partyName) {
       await page.click('button[aria-label="Clear linked customer"]');
 
       // After click: input reappears, chip gone
-      await page.waitForSelector("#party-name-input", { timeout: 3000 });
+      await page.waitForSelector("#sales-party-name", { timeout: 3000 });
       const chipStillCount = await page
         .locator('button[aria-label="Clear linked customer"]')
         .count();
@@ -243,13 +243,13 @@ async function deleteRowByPartyName(page, partyName) {
       }
 
       // partyName should be empty
-      const partyName = await page.locator("#party-name-input").inputValue();
+      const partyName = await page.locator("#sales-party-name").inputValue();
       if (partyName !== "") {
         throw new Error(`Expected empty partyName after clear, got "${partyName}"`);
       }
 
       // partyPhone should also be empty
-      const partyPhone = await page.locator("#party-phone-input").inputValue();
+      const partyPhone = await page.locator("#sales-party-phone").inputValue();
       if (partyPhone !== "") {
         throw new Error(`Expected empty partyPhone after clear, got "${partyPhone}"`);
       }
@@ -262,7 +262,7 @@ async function deleteRowByPartyName(page, partyName) {
     // ===========================================================
     await step(page, "E3a. Walk-in detail modal — no link icon", async () => {
       await openAddSaleModal(page);
-      await page.fill("#party-name-input", "Edge3Walkin");
+      await page.fill("#sales-party-name", "Edge3Walkin");
       await page.waitForSelector('text=/Use as walk-in:/i');
       await page.click('button:has-text("Use as walk-in:")');
       await page.fill("#sale-item", "Walk-in detail test");
@@ -297,7 +297,7 @@ async function deleteRowByPartyName(page, partyName) {
       await closeAnyOpenDialog(page);
 
       await openAddSaleModal(page);
-      await page.fill("#party-name-input", "a");
+      await page.fill("#sales-party-name", "a");
       await page.waitForSelector('text=/Use as walk-in:/i');
       const matchCount = await page
         .locator('[role="dialog"] .absolute button:not(:has-text("Use as walk-in:"))')
