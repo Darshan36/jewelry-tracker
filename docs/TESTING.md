@@ -1412,6 +1412,42 @@ whether real-phone or DevTools-emulated viewport checks happened in
 the session. If they didn't, the walkthrough phase becomes the
 mandatory gate before commit / closeout.
 
+## Multi-file upload flows (Phase 12a)
+
+Multi-file upload tests (e.g., `PhotoGallery`) verify a per-file
+`prepareUpload → R2 PUT → confirmUpload` chain with a batch driver. The
+test setup is:
+
+1. **Stub `XMLHttpRequest`** with a shared `StubXHR` that completes via
+   `setTimeout`/`queueMicrotask` (`xhr.onload()`). One stub class handles
+   every PUT in the batch — distinct files don't need distinct XHR
+   instances.
+2. **Mock `URL.createObjectURL` + `revokeObjectURL`** globally — required
+   any time the component renders a `<img>` from a `File`. Returns a
+   deterministic `blob:test://N` URL so assertions on `src` are stable.
+3. **Use `fireEvent.change` on the file input**, not `userEvent.upload`.
+   `userEvent.upload` respects the `accept=` attribute and silently
+   drops disallowed MIME types — that bypasses your client-side
+   rejection logic and the test passes vacuously. `fireEvent.change`
+   with `{ target: { files: [...] } }` puts the file in regardless,
+   so the rejection branch actually runs.
+4. **Assert call counts on `prepareUpload` and `confirmUpload`** to
+   verify the batch fan-out: `expect(prepareUpload).toHaveBeenCalledTimes(2)`
+   for a 2-file batch. Per-call argument assertions confirm each call
+   carries the right discriminator + entityId.
+5. **Per-file failure isolation**: stub the **first** `prepareUpload` to
+   resolve with `{ ok: false, errors: { ... } }` and the **second** to
+   succeed, then assert that both prepareUpload calls happened but only
+   one confirmUpload ran, AND that the failure surfaces in `role=alert`.
+6. **Reload assertion**: the upload chain typically calls
+   `getPhotosForEntity` again to refresh the displayed list. Mock that
+   action with a sequence (`.mockResolvedValueOnce(empty)` for the
+   initial load, `.mockResolvedValueOnce({photos: [...]})` for the
+   post-upload reload) and assert the new tile appears.
+
+The canonical example is `src/components/photo-gallery.test.tsx`. Apply
+the same shape for any future multi-attachment feature.
+
 ## Per-phase reporting
 
 From Phase 2.3 onward, the "Test count delta" line in every phase report

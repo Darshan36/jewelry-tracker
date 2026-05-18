@@ -17,7 +17,34 @@ export default async function PurchasesPage() {
     },
   });
 
-  const purchases: PurchaseForClient[] = purchaseRows.map(serializePurchase);
+  // Phase 12a — photo counts. Bill rows aren't a relation off Purchase
+  // (no FK; just the discriminator pair), so we count in a single
+  // groupBy query and merge by id. Single extra round-trip regardless
+  // of page size.
+  const photoIds = purchaseRows.map((p) => p.id);
+  const photoCountRows =
+    photoIds.length > 0
+      ? await prisma.bill.groupBy({
+          by: ["attachedToId"],
+          where: {
+            attachedToType: "PURCHASE_PHOTO",
+            attachedToId: { in: photoIds },
+            deletedAt: null,
+            status: "READY",
+          },
+          _count: { _all: true },
+        })
+      : [];
+  const photoCountById = new Map<string, number>();
+  for (const row of photoCountRows) {
+    if (row.attachedToId) {
+      photoCountById.set(row.attachedToId, row._count._all);
+    }
+  }
+
+  const purchases: PurchaseForClient[] = purchaseRows.map((p) =>
+    serializePurchase(p, { photoCount: photoCountById.get(p.id) ?? 0 }),
+  );
 
   return (
     <div className="p-4 md:p-10">

@@ -33,6 +33,7 @@ import { revalidatePath } from "next/cache";
 import {
   confirmUpload,
   getBillViewUrl,
+  getPhotosForEntity,
   prepareUpload,
   softDeleteBill,
 } from "./actions";
@@ -475,3 +476,112 @@ describe.each(ROLE_MATRIX)(
     });
   },
 );
+
+// =====================================================================
+// getPhotosForEntity (Phase 12a)
+// =====================================================================
+
+describe("getPhotosForEntity", () => {
+  it("happy path — returns READY photos for the discriminator pair, oldest first", async () => {
+    const photos = [
+      makeBill({
+        id: "p-1",
+        originalFilename: "red.png",
+        mimeType: "image/png",
+        sizeBytes: 100,
+        attachedToType: "PURCHASE_PHOTO",
+        attachedToId: "purchase-X",
+        status: "READY",
+        uploadedAt: new Date("2026-05-17T10:00:00Z"),
+      }),
+      makeBill({
+        id: "p-2",
+        originalFilename: "green.png",
+        mimeType: "image/png",
+        sizeBytes: 110,
+        attachedToType: "PURCHASE_PHOTO",
+        attachedToId: "purchase-X",
+        status: "READY",
+        uploadedAt: new Date("2026-05-17T10:01:00Z"),
+      }),
+    ];
+    vi.mocked(prisma.bill.findMany).mockResolvedValue(photos);
+
+    const res = await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.photos).toHaveLength(2);
+      expect(res.photos[0].id).toBe("p-1");
+      expect(res.photos[0].originalFilename).toBe("red.png");
+      expect(res.photos[1].id).toBe("p-2");
+    }
+
+    // Query filters: attachedToType + attachedToId + READY + not deleted,
+    // sorted asc by uploadedAt.
+    const call = vi.mocked(prisma.bill.findMany).mock.calls[0][0];
+    expect(call?.where).toMatchObject({
+      attachedToType: "PURCHASE_PHOTO",
+      attachedToId: "purchase-X",
+      status: "READY",
+      deletedAt: null,
+    });
+    expect(call?.orderBy).toEqual({ uploadedAt: "asc" });
+  });
+
+  it("returns an empty array (ok=true) when no photos exist", async () => {
+    vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
+
+    const res = await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
+
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.photos).toHaveLength(0);
+  });
+
+  it("filters out photos the role can't access (defense in depth)", async () => {
+    vi.mocked(prisma.bill.findMany).mockResolvedValue([
+      makeBill({ id: "p-1", attachedToType: "PURCHASE_PHOTO" }),
+      makeBill({ id: "p-2", attachedToType: "PURCHASE_PHOTO" }),
+    ]);
+    // First photo passes the check, second is denied.
+    vi.mocked(canAccessBill)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+
+    const res = await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.photos).toHaveLength(1);
+      expect(res.photos[0].id).toBe("p-1");
+    }
+  });
+
+  it("requires a session (calls requireSession)", async () => {
+    vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
+    await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
+    expect(requireSession).toHaveBeenCalledOnce();
+  });
+
+  it("returns serialized fields only (no internal columns like r2Key)", async () => {
+    vi.mocked(prisma.bill.findMany).mockResolvedValue([
+      makeBill({
+        id: "p-1",
+        attachedToType: "PURCHASE_PHOTO",
+        r2Key: "bills/2026/05/private-key",
+      }),
+    ]);
+
+    const res = await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const photo = res.photos[0] as unknown as Record<string, unknown>;
+      expect(Object.keys(photo).sort()).toEqual(
+        ["id", "mimeType", "originalFilename", "sizeBytes", "uploadedAt"].sort(),
+      );
+      // r2Key must not leak to the client.
+      expect(photo.r2Key).toBeUndefined();
+    }
+  });
+});

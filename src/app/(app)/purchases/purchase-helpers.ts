@@ -42,6 +42,10 @@ export type PurchaseForClient = Omit<Purchase, "discount" | "total"> & {
   status: PurchaseStatus;
   payments: PurchasePaymentForClient[];
   returns: PurchaseReturnForClient[];
+  // Phase 12a — count of READY non-deleted photos attached via the
+  // PURCHASE_PHOTO discriminator. Drives the row indicator and the
+  // detail modal's photos section visibility.
+  photoCount: number;
 };
 
 export function serializePurchasePayment(
@@ -91,6 +95,7 @@ export function serializePurchase(
     payments?: PurchasePayment[];
     returns?: PurchaseReturn[];
   },
+  options?: { photoCount?: number },
 ): PurchaseForClient {
   const {
     lineItems: rawLineItems,
@@ -122,5 +127,6 @@ export function serializePurchase(
     }),
     payments: activePayments.map(serializePurchasePayment),
     returns: activeReturns.map(serializePurchaseReturn),
+    photoCount: options?.photoCount ?? 0,
   };
 }

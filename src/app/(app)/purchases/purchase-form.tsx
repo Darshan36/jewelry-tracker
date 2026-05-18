@@ -8,11 +8,11 @@
 // attachment (no `billId` FK on the Purchase row), so the chain stops
 // at confirmUpload — no attach step.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Paperclip, Plus, X } from "lucide-react";
+import { Camera, Paperclip, Plus, X } from "lucide-react";
 import { type z } from "zod";
 
 import {
@@ -23,11 +23,14 @@ import {
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
 import { BillPreview } from "@/components/bill-preview";
+import { PhotoGallery } from "@/components/photo-gallery";
 import { formatCurrency } from "@/lib/format";
 import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
+  PHOTO_MIME_TYPES,
   type AllowedMimeType,
+  type PhotoMimeType,
 } from "@/app/(app)/bills/schema";
 import {
   confirmUpload,
@@ -96,6 +99,10 @@ function putToR2(presignedUrl: string, file: File): Promise<void> {
   });
 }
 
+function isPhotoMime(t: string): t is PhotoMimeType {
+  return (PHOTO_MIME_TYPES as readonly string[]).includes(t);
+}
+
 export function PurchaseForm({ mode, purchase, suppliers }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -106,6 +113,17 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
     "idle" | "preparing" | "uploading" | "confirming"
   >("idle");
   const billInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Photos (Phase 12a). In create mode we collect File[] locally and run
+  // the upload chain after the purchase row is created. In edit mode the
+  // PhotoGallery component handles its own live uploads/deletes — we don't
+  // hold any pending state here.
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
+  const [photoPickerError, setPhotoPickerError] = useState<string | null>(null);
+  const [photoUploadStatus, setPhotoUploadStatus] = useState<
+    "idle" | "uploading"
+  >("idle");
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     control,
@@ -225,6 +243,50 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
       }
     }
 
+    // Phase 12a — create-mode photos. Pending photos collected from the
+    // form's local picker; upload them now that the purchase has an id.
+    // Failures are surfaced but the purchase stays saved — the user can
+    // retry the remaining photos from the edit page's live PhotoGallery.
+    if (pendingPhotos.length > 0) {
+      setPhotoUploadStatus("uploading");
+      const photoFailures: string[] = [];
+      for (const file of pendingPhotos) {
+        try {
+          const prep = await prepareUpload({
+            originalFilename: file.name,
+            mimeType: file.type as PhotoMimeType,
+            sizeBytes: file.size,
+            attachedToType: "PURCHASE_PHOTO",
+            attachedToId: savedPurchaseId,
+          });
+          if (!prep.ok) {
+            const first = Object.values(prep.errors).flat().find(Boolean);
+            throw new Error(first ?? "Prepare failed");
+          }
+          await putToR2(prep.presignedUrl, file);
+          const conf = await confirmUpload({ billId: prep.billId });
+          if (!conf.ok) {
+            const first = Object.values(conf.errors).flat().find(Boolean);
+            throw new Error(first ?? "Confirm failed");
+          }
+        } catch (err) {
+          photoFailures.push(
+            `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      setPhotoUploadStatus("idle");
+      if (photoFailures.length > 0) {
+        setFormError(
+          `Purchase saved, but ${photoFailures.length} photo(s) failed: ${photoFailures.join(
+            "; ",
+          )}. Open the edit page to retry.`,
+        );
+        router.refresh();
+        return;
+      }
+    }
+
     if (saveModeRef.current === "return") {
       router.push("/purchases");
       router.refresh();
@@ -233,6 +295,9 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
       setPickedBillFile(null);
       setBillPickerError(null);
       if (billInputRef.current) billInputRef.current.value = "";
+      setPendingPhotos([]);
+      setPhotoPickerError(null);
+      if (photoInputRef.current) photoInputRef.current.value = "";
       router.refresh();
       if (typeof window !== "undefined") {
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -267,6 +332,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
   };
 
   const billBusy = billUploadStatus !== "idle";
+  const photoBusy = photoUploadStatus !== "idle";
   const billBusyLabel =
     billUploadStatus === "preparing"
       ? "Preparing bill"
@@ -274,7 +340,40 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         ? "Uploading bill"
         : billUploadStatus === "confirming"
           ? "Confirming bill"
-          : "";
+          : photoBusy
+            ? "Uploading photos"
+            : "";
+
+  const onPickPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhotoPickerError(null);
+    const files = Array.from(e.target.files ?? []);
+    if (photoInputRef.current) photoInputRef.current.value = "";
+    if (files.length === 0) return;
+
+    const accepted: File[] = [];
+    const failures: string[] = [];
+    for (const file of files) {
+      if (!isPhotoMime(file.type)) {
+        failures.push(`${file.name}: unsupported type`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        failures.push(`${file.name}: too large`);
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (failures.length > 0) {
+      setPhotoPickerError(
+        `Skipped: ${failures.join("; ")}. JPEG, PNG, WebP only. Max ${formatBytes(MAX_FILE_SIZE_BYTES)} each.`,
+      );
+    }
+    setPendingPhotos((prev) => [...prev, ...accepted]);
+  };
+
+  const removePendingPhoto = (idx: number) => {
+    setPendingPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   return (
     <form
@@ -519,6 +618,34 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         </div>
       </div>
 
+      <div>
+        <FormLabel>
+          <span className="inline-flex items-center gap-1.5">
+            <Camera className="size-3.5" />
+            Photos (optional)
+          </span>
+        </FormLabel>
+        <div className="border border-outline-variant bg-surface-container-low p-3 space-y-3">
+          {mode === "create" && (
+            <CreateModePhotoPicker
+              pendingPhotos={pendingPhotos}
+              photoPickerError={photoPickerError}
+              busy={isSubmitting || photoBusy}
+              photoInputRef={photoInputRef}
+              onPick={onPickPhotos}
+              onRemove={removePendingPhoto}
+            />
+          )}
+          {mode === "edit" && purchase && (
+            <PhotoGallery
+              mode="edit"
+              entityType="PURCHASE_PHOTO"
+              entityId={purchase.id}
+            />
+          )}
+        </div>
+      </div>
+
       <div className="border border-outline-variant bg-surface-container-high p-4 space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="text-on-surface-variant">Subtotal</span>
@@ -620,4 +747,91 @@ const FORM_FIELDS = [
 type FormField = (typeof FORM_FIELDS)[number];
 function isFormField(key: string): key is FormField {
   return (FORM_FIELDS as readonly string[]).includes(key);
+}
+
+// Create-mode photo picker. Holds File objects locally + renders thumbnails
+// via URL.createObjectURL so the user sees what they picked before the
+// purchase saves. The actual upload chain runs in PurchaseForm.onSubmit
+// once the purchase row has an id.
+function CreateModePhotoPicker({
+  pendingPhotos,
+  photoPickerError,
+  busy,
+  photoInputRef,
+  onPick,
+  onRemove,
+}: {
+  pendingPhotos: File[];
+  photoPickerError: string | null;
+  busy: boolean;
+  photoInputRef: React.RefObject<HTMLInputElement | null>;
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: (idx: number) => void;
+}) {
+  const previewUrls = useMemo(
+    () => pendingPhotos.map((f) => URL.createObjectURL(f)),
+    [pendingPhotos],
+  );
+  useEffect(() => {
+    return () => {
+      for (const u of previewUrls) URL.revokeObjectURL(u);
+    };
+  }, [previewUrls]);
+
+  return (
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {pendingPhotos.map((file, idx) => (
+          <div
+            key={`${file.name}-${idx}`}
+            className="relative aspect-square bg-surface-container-highest border border-outline-variant overflow-hidden"
+            data-testid={`pending-photo-${idx}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrls[idx]}
+              alt={file.name}
+              className="w-full h-full object-cover"
+              draggable={false}
+            />
+            <button
+              type="button"
+              onClick={() => onRemove(idx)}
+              disabled={busy}
+              aria-label={`Remove ${file.name}`}
+              className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center bg-surface-container/90 text-on-surface hover:bg-error hover:text-on-error border border-outline-variant disabled:opacity-50 transition-colors"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => photoInputRef.current?.click()}
+          disabled={busy}
+          aria-label="Add photo"
+          className="aspect-square border border-dashed border-outline-variant bg-surface-container-low hover:bg-surface-container-high disabled:opacity-50 transition-colors flex flex-col items-center justify-center gap-1 text-on-surface-variant"
+        >
+          <Plus className="size-6" />
+          <span className="text-xs uppercase tracking-wider">Add photo</span>
+        </button>
+      </div>
+      <input
+        ref={photoInputRef}
+        type="file"
+        multiple
+        accept={PHOTO_MIME_TYPES.join(",")}
+        onChange={onPick}
+        className="sr-only"
+        aria-hidden
+      />
+      {photoPickerError && (
+        <p className="text-xs text-error">{photoPickerError}</p>
+      )}
+      <p className="text-[10px] text-on-surface-variant uppercase tracking-wider">
+        Max {formatBytes(MAX_FILE_SIZE_BYTES)} per photo. JPEG, PNG, WebP.
+        Photos upload after the purchase is saved.
+      </p>
+    </>
+  );
 }

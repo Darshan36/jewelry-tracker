@@ -32,6 +32,7 @@ const ROLE_MATRIX: Record<AttachedToType, Role[]> = {
   PURCHASE_PAYMENT: ["ADMIN", "PURCHASE_DEPT"],
   CASTING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
   PLATING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
+  PURCHASE_PHOTO: ["ADMIN", "PURCHASE_DEPT"],
 };
 
 function isAttachedToType(value: string | null): value is AttachedToType {

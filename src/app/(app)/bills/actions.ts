@@ -37,6 +37,7 @@ const WRITE_MATRIX: Record<AttachedToType, Role[]> = {
   PURCHASE_PAYMENT: ["ADMIN", "PURCHASE_DEPT"],
   CASTING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
   PLATING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
+  PURCHASE_PHOTO: ["ADMIN", "PURCHASE_DEPT"],
 };
 
 function rolesForAttachedTo(t: AttachedToType | null | undefined): Role[] {
@@ -258,5 +259,54 @@ export async function getBillForEntity(
       mimeType: bill.mimeType,
       sizeBytes: bill.sizeBytes,
     },
+  };
+}
+
+// Phase 12a — multi-photo variant of getBillForEntity. Returns every
+// READY photo attached to the entity, oldest first. Same role gate as
+// the single-bill lookup. Empty array (not an error) when there are no
+// photos.
+export type PhotoForClient = {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: Date;
+};
+
+export async function getPhotosForEntity(
+  attachedToType: AttachedToType,
+  attachedToId: string,
+): Promise<
+  | { ok: true; photos: PhotoForClient[] }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+
+  const rows = await prisma.bill.findMany({
+    where: {
+      attachedToType,
+      attachedToId,
+      status: "READY",
+      deletedAt: null,
+    },
+    orderBy: { uploadedAt: "asc" },
+  });
+
+  // Filter via the read-side matrix — if the caller can't access any one
+  // photo (which shouldn't happen since they all share the same
+  // attachedToType, but defense in depth), drop it from the list rather
+  // than erroring out.
+  const visible = rows.filter((r) => canAccessBill(session.user.role, r));
+
+  return {
+    ok: true,
+    photos: visible.map((r) => ({
+      id: r.id,
+      originalFilename: r.originalFilename,
+      mimeType: r.mimeType,
+      sizeBytes: r.sizeBytes,
+      uploadedAt: r.uploadedAt,
+    })),
   };
 }

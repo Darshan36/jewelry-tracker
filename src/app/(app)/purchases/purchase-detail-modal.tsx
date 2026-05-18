@@ -30,6 +30,7 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
+import { PhotoGallery } from "@/components/photo-gallery";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
 
@@ -157,6 +158,20 @@ export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
           {/* Returns history (read-only) */}
           {purchase.returns.length > 0 && (
             <ReadOnlyReturnsList returns={purchase.returns} returnTotal={purchase.returnTotal} />
+          )}
+
+          {/* Photos (Phase 12a — read-only gallery; self-hides when empty). */}
+          {purchase.photoCount > 0 && (
+            <div>
+              <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+                Photos
+              </p>
+              <PhotoGallery
+                mode="view"
+                entityType="PURCHASE_PHOTO"
+                entityId={purchase.id}
+              />
+            </div>
           )}
         </div>
 

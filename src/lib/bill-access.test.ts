@@ -52,7 +52,13 @@ describe("canAccessBill", () => {
   });
 
   it("ADMIN passes for every known attachedToType", () => {
-    for (const t of ["PURCHASE", "PURCHASE_PAYMENT", "CASTING_ENTRY", "PLATING_ENTRY"] as const) {
+    for (const t of [
+      "PURCHASE",
+      "PURCHASE_PAYMENT",
+      "CASTING_ENTRY",
+      "PLATING_ENTRY",
+      "PURCHASE_PHOTO",
+    ] as const) {
       expect(canAccessBill("ADMIN", makeBill({ attachedToType: t }))).toBe(true);
     }
   });
@@ -85,10 +91,30 @@ describe("canAccessBill", () => {
   });
 
   it("LABOUR_MGMT denied for all attachedToTypes (no bill kind belongs to labour yet)", () => {
-    const all = [null, "PURCHASE", "PURCHASE_PAYMENT", "CASTING_ENTRY", "PLATING_ENTRY"] as const;
+    const all = [
+      null,
+      "PURCHASE",
+      "PURCHASE_PAYMENT",
+      "CASTING_ENTRY",
+      "PLATING_ENTRY",
+      "PURCHASE_PHOTO",
+    ] as const;
     for (const t of all) {
       expect(canAccessBill("LABOUR_MGMT", makeBill({ attachedToType: t }))).toBe(false);
     }
+  });
+
+  // Phase 12a — PURCHASE_PHOTO inherits the PURCHASE matrix.
+  it("PURCHASE_DEPT passes for PURCHASE_PHOTO (same matrix as PURCHASE)", () => {
+    expect(canAccessBill("PURCHASE_DEPT", makeBill({ attachedToType: "PURCHASE_PHOTO" }))).toBe(true);
+  });
+
+  it("CASTING_PLATING_MGMT denied for PURCHASE_PHOTO", () => {
+    expect(canAccessBill("CASTING_PLATING_MGMT", makeBill({ attachedToType: "PURCHASE_PHOTO" }))).toBe(false);
+  });
+
+  it("LABOUR_MGMT denied for PURCHASE_PHOTO", () => {
+    expect(canAccessBill("LABOUR_MGMT", makeBill({ attachedToType: "PURCHASE_PHOTO" }))).toBe(false);
   });
 
   it("unrecognised attachedToType fails closed for non-admin", () => {

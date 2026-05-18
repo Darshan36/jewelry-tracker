@@ -120,6 +120,7 @@ function makePurchase(
     paidAmount: 0,
     returnTotal: 0,
     status: "pending",
+    photoCount: 0,
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -178,6 +179,33 @@ describe("PurchasesTable — render states", () => {
 
     await user.type(screen.getByPlaceholderText(/search by party/i), "nope");
     expect(screen.getByText(/no purchases match your search/i)).toBeInTheDocument();
+  });
+});
+
+// =====================================================================
+// Photo count badge (Phase 12a)
+// =====================================================================
+
+describe("PurchasesTable — photo count badge", () => {
+  it("renders the badge when photoCount > 0", () => {
+    render(<PurchasesTable purchases={[makePurchase({ photoCount: 3 })]} />);
+    const badge = screen.getByTestId("photo-count-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge.getAttribute("data-count")).toBe("3");
+    expect(badge).toHaveAccessibleName(/3 photos/i);
+  });
+
+  it("does NOT render the badge when photoCount === 0", () => {
+    render(<PurchasesTable purchases={[makePurchase({ photoCount: 0 })]} />);
+    expect(screen.queryByTestId("photo-count-badge")).toBeNull();
+  });
+
+  it("singular accessible-name for photoCount === 1", () => {
+    render(<PurchasesTable purchases={[makePurchase({ photoCount: 1 })]} />);
+    const badge = screen.getByTestId("photo-count-badge");
+    expect(badge).toHaveAccessibleName(/1 photo/i);
+    // And does NOT match the plural form.
+    expect(badge).not.toHaveAccessibleName(/photos/i);
   });
 });
 
