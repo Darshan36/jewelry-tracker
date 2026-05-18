@@ -40,7 +40,7 @@ export function BillPreview({ file, className = "" }: Props) {
         <img
           src={objectUrl}
           alt={`Preview of ${file.name}`}
-          className="w-full max-h-[400px] object-contain bg-black"
+          className="w-full max-h-[400px] object-contain bg-surface-container-highest"
         />
       )}
       {isPdf && (

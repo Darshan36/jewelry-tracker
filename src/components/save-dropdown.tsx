@@ -82,7 +82,7 @@ export function SaveDropdown({
           />
           <div
             role="menu"
-            className="absolute z-50 right-0 top-full mt-1 min-w-[200px] bg-surface-container-high border border-outline-variant shadow-lg"
+            className="absolute z-50 right-0 top-full mt-1 min-w-[200px] bg-surface-container border border-outline"
           >
             <button
               type="button"

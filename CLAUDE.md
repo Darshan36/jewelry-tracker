@@ -14,7 +14,7 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 ## 2. Tech Stack
 
 - **Framework:** Next.js 16 with App Router, TypeScript (strict mode)
-- **Styling:** Tailwind CSS v4 + shadcn/ui (Radix-based, preset `radix-nova` — visual tokens fully overridden in `globals.css`)
+- **Styling:** Tailwind CSS v4 + shadcn/ui (Radix-based, preset `radix-nova` — visual tokens fully overridden in `globals.css`). **Visual language is "techno-artisanal LIGHT"** (Phase 11.5): cream `#f5f0e6` page bg, white `#ffffff` card surfaces, warm gold `#c9a14a` primary accents, slate text. Sharp 0px corners, defined 1px borders (`border-outline-variant` = `#e8e0cd`), no drop shadows. All hex values live in one place — the `@theme` block in `src/app/globals.css`; the entire codebase uses semantic-token classes (`bg-surface`, `text-on-surface`, etc.) so the palette is remapped in a single file. No light/dark switcher — future dark mode is a separate token-refactor phase.
 - **Database:** Supabase Postgres (Mumbai, `ap-south-1`)
 - **ORM:** Prisma 7 — singleton at `src/lib/prisma.ts` (`import { prisma } from '@/lib/prisma'`). Connects via `@prisma/adapter-pg` using `DATABASE_URL` (transaction pooler + `?pgbouncer=true&connection_limit=1`). Migrations / CLI use `DIRECT_URL` via `prisma.config.ts` (NOT `schema.prisma` — Prisma 7 moved connection URLs out of the schema). Client is generated into `src/generated/prisma/` (gitignored); regenerate with `npm run prisma:generate` after schema changes.
 - **Auth:** Auth.js v5 beta with Credentials provider, **JWT strategy** (no session table — sessions are stateless JWE cookies, 30-day expiry), **bcrypt** password hashing (cost 12), `Role` enum (`ADMIN | PURCHASE_DEPT | LABOUR_MGMT | CASTING_PLATING_MGMT`) in Prisma schema. Auth.js entry point: `src/lib/auth.ts` exporting `{ auth, handlers, signIn, signOut }`. Route protection lives in `src/proxy.ts` (Next.js 16 — see KNOWN_GAPS.md, was previously called `middleware.ts`).
@@ -34,22 +34,34 @@ Internal web app for **Shree Creation**, a small imitation-jewelry manufacturing
 
 ## 3. Design System
 
-**"Techno-artisanal"** — high-end jewelry meets industrial precision. **Dark mode only** (no light theme).
+**"Techno-artisanal LIGHT"** — high-end jewelry meets industrial precision, rendered in cream/slate/gold. **Light theme only** (Phase 11.5 — was deep-navy dark theme Phase 1 through 11.2). No theme switcher.
 
 ### Color tokens (defined in `src/app/globals.css` via Tailwind v4 `@theme`)
 
 | Purpose | Token (Tailwind class) | Hex |
 |---|---|---|
-| Background / surface | `bg-surface` | `#0b1326` (deep navy) |
-| Surface containers | `bg-surface-container-low` / `bg-surface-container` / `…-high` / `…-highest` | `#131b2e` / `#171f33` / `#222a3d` / `#2d3449` |
-| Primary (gold) | `bg-primary`, `text-on-primary` | `#f2ca50` / `#3c2f00` |
-| Secondary (electric blue) | `bg-secondary` / `bg-secondary-container` | `#adc6ff` / `#0566d9` |
-| Text primary | `text-on-surface` | `#dae2fd` |
-| Text muted | `text-on-surface-variant` | `#d0c5af` |
-| Border / outline | `border-outline-variant` | `#4d4635` (warm dark tan) |
-| Status error | `bg-error`, `text-on-error` | `#ffb4ab` / `#690005` |
+| Background / surface | `bg-surface` | `#f5f0e6` (cream/parchment) |
+| Surface containers | `bg-surface-container-low` / `bg-surface-container` / `…-high` / `…-highest` | `#f5f0e6` / `#ffffff` / `#faf7ef` / `#f0e9d4` |
+| Primary (gold) | `bg-primary`, `text-on-primary` | `#c9a14a` / `#ffffff` |
+| Secondary (slate-blue) | `bg-secondary` / `bg-secondary-container` | `#5a7ba6` / `#3a5a85` |
+| Tertiary (neutral slate) | `bg-tertiary` | `#8a8e9a` |
+| Text primary | `text-on-surface` | `#1a1f2e` (slate-900) |
+| Text muted | `text-on-surface-variant` | `#525868` (slate-600) |
+| Border / outline | `border-outline-variant` | `#e8e0cd` (soft cream-tan) |
+| Status error | `bg-error`, `text-on-error` | `#a04848` / `#ffffff` |
 
 Full palette in `globals.css` includes Surfaces (10), Text (5), Borders (2), Primary (5), Secondary (4), Tertiary (4), Status (4), Fixed variants (12).
+
+### Status chip palette (Phase 11.5 — pinned hexes in `transaction-status-chip.tsx`)
+
+The four transaction-status chips are the only place in the codebase that uses **direct `bg-[#...]` literal hex values** rather than semantic tokens. Each chip uses a tinted background (`bg-[X]/10`) + matching dot (`bg-[X]`) + matching text (`text-[X]`) + tinted border (`border-[X]/30`). Hex values pinned at the chip layer so the tinted-pill semantics stay legible regardless of future surface remaps.
+
+| Status | Hex | Meaning |
+|---|---|---|
+| `pending` | `#8a8e9a` / `#525868` text | neutral slate — waiting |
+| `partial` | `#c9844a` | muted amber — warning, in progress |
+| `completed` | `#5e8c4f` | muted green — positive, done |
+| `refund_due` | `#5a7ba6` | slate-blue — info, money still in motion |
 
 ### Typography
 
@@ -320,6 +332,7 @@ Karigar balance follows the same derived pattern — `sum(WorkEntry.total) − s
 - **Bill discoverability via two paths.** Casting / Plating use `entry.billId` FK on the parent row (direct lookup via `prisma.castingEntry.findUnique({ include: { bill: true } })`). Sales / Purchases use `getBillForEntity(attachedToType, attachedToId)` in `bills/actions.ts` — the discriminator-only lookup (no `billId` FK on the entity side). Same `Bill` table, different lookup paths — chosen based on whether the entity ever needs to attach exactly-one bill at the *schema* level. The 1:1 invariant for Sales/Purchases is enforced at the application layer (the replace flow soft-deletes the prior bill before uploading a new one) rather than via `@@unique`.
 - **Stale-closure pattern for synchronous-read values in async submission.** When a callback needs to set a value AND immediately trigger an async submit that reads it, use **`useRef`** (not `useState`). React state batches asynchronously; the submit closure may capture the previous value. Symptom: the value flip is silently ignored — e.g., "Save and add another" behaves identically to "Save and return." See `sale-form.tsx`'s `saveModeRef.current = m; handleSubmit(onSubmit)()` for the canonical example. Caught by the Phase 10 walkthrough Step 2 timeout. The `SaveDropdown`'s tests pin the consumer-side contract that each click produces its own `onSave(mode)` call.
 - **Mobile-first responsive design is codebase-wide (Phase 11 + 11.1 + 11.2).** Every transactional list page, every form page, every detail/form modal, every master data list page, and the sidebar all support 390×844 mobile viewport (`(max-width: 767px)`). Conventions: (a) page wrappers `p-4 md:p-10`, headings `text-2xl md:text-3xl`, header spacing `mb-6 pb-4 md:mb-10 md:pb-6`; (b) search-row + add button `flex flex-col sm:flex-row sm:items-center`, input `w-full sm:flex-1 min-w-0`, button `h-11 sm:h-10 w-full sm:w-auto`; (c) line items use the **`md:contents` trick** — outer `grid-cols-1 md:grid-cols-[…]` with inner sub-grid `grid-cols-[1fr_1fr_44px] md:contents` for qty/rate/× row, plus desktop-only line-total via `hidden md:flex` inside the sub-grid and mobile-only line-total row via `md:hidden` outside (Sales/Purchases use `[1fr_80px_120px_120px_40px]`, Casting/Plating use `[1fr_110px_130px_130px_40px]`); (d) form footers `flex flex-col-reverse sticky bottom-0 -mx-4 px-4 pb-4 bg-surface md:static md:flex-row md:justify-end`; (e) tables wrapped in `<ResponsiveTable>` with mobile-card render slot; (f) modals use `<ResponsiveDialog>` (Dialog on md+, bottom Sheet on mobile); (g) all interactive elements ≥44×44px on mobile (`h-11`, `w-11`, etc.). **Master data mobile cards have NO inline action buttons** (cleaner; mutations through detail modal Edit) — the workflow shape differs from transactional entities. **Visual regression detection requires DevTools 390x844 or real-phone walkthrough**; matchMedia unit tests verify branch logic but not viewport-level layout (JSDOM doesn't evaluate CSS media queries).
+- **Visual language is "techno-artisanal LIGHT" (Phase 11.5).** Cream `#f5f0e6` background, white `#ffffff` card surfaces, warm gold `#c9a14a` primary accents, slate text (`#1a1f2e` body, `#525868` muted). Sharp 0px corners (`--radius-*` tokens all 0px), defined 1px borders (`border-outline-variant` = `#e8e0cd`), no drop shadows. **Components consume semantic tokens only** (`bg-surface`, `text-on-surface`, `border-outline-variant`, etc.) — never inline hex values in components. **Sole exception**: `transaction-status-chip.tsx` pins the four chip-color hexes directly (`#8a8e9a` / `#c9844a` / `#5e8c4f` / `#5a7ba6`) so the tinted-pill semantics survive future surface-token remaps. Future dark mode would refactor token VALUES (not the token names) in `globals.css` — every consumer is already token-aware. Pattern established Phase 11.5.
 - **Path alias:** `@/*` → `src/*`. No relative `../../` imports across feature boundaries.
 
 ## 7. Phase Plan

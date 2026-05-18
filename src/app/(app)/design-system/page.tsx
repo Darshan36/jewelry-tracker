@@ -1,6 +1,7 @@
 // Design-system swatch reference. Not linked from the sidebar; reach via
 // /design-system if you need to eyeball tokens. Survives from the Phase 1
-// design verification page (originally at /).
+// design verification page (originally at /). Updated Phase 11.5 to reflect
+// the techno-artisanal light palette.
 
 export default function DesignSystemPage() {
   return (
@@ -20,17 +21,15 @@ export default function DesignSystemPage() {
           <p className="text-xs uppercase tracking-wider text-on-surface-variant mb-2">
             Surface container
           </p>
-          <p className="text-sm">#171f33</p>
+          <p className="text-sm">#ffffff</p>
         </div>
         <div className="bg-primary text-on-primary p-6">
           <p className="text-xs uppercase tracking-wider mb-2">Primary</p>
-          <p className="text-sm">#f2ca50</p>
+          <p className="text-sm">#c9a14a</p>
         </div>
-        <div className="bg-secondary-container text-on-secondary-container p-6">
-          <p className="text-xs uppercase tracking-wider mb-2">
-            Secondary container
-          </p>
-          <p className="text-sm">#0566d9</p>
+        <div className="bg-secondary text-on-secondary p-6">
+          <p className="text-xs uppercase tracking-wider mb-2">Secondary</p>
+          <p className="text-sm">#5a7ba6</p>
         </div>
       </div>
 
