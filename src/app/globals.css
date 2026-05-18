@@ -169,26 +169,33 @@
    * thumb on touch devices would waste horizontal pixels on narrow viewports.
    */
   @media (min-width: 768px) {
+    /* Vercel-style slim scrollbar.
+     *
+     * The track is 10px wide (gives the thumb room) but the thumb itself is
+     * inset 3px on each side via a transparent border + background-clip:
+     * padding-box — visible thumb is a 4px slate line. Track is transparent
+     * so the gutter blends into the page background. */
     *::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
+      width: 10px;
+      height: 10px;
     }
-    /* Hide arrow buttons — Vercel-style flat scrollbar (track + thumb only). */
     *::-webkit-scrollbar-button {
       display: none;
     }
     *::-webkit-scrollbar-track {
-      background: var(--color-surface-container-high);
+      background: transparent;
     }
     *::-webkit-scrollbar-thumb {
-      background: var(--color-on-surface-variant);
+      background-color: var(--color-on-surface-variant);
+      background-clip: padding-box;
+      border: 3px solid transparent;
       border-radius: 0;
     }
     *::-webkit-scrollbar-thumb:hover {
-      background: var(--color-on-surface);
+      background-color: var(--color-on-surface);
     }
     *::-webkit-scrollbar-corner {
-      background: var(--color-surface-container-high);
+      background: transparent;
     }
     /* Firefox-only — scoped via @-moz-document so modern Chromium 121+ doesn't
      * switch to "modern scrollbar" mode, which would ignore the ::-webkit-*
