@@ -173,6 +173,10 @@
       width: 8px;
       height: 8px;
     }
+    /* Hide arrow buttons — Vercel-style flat scrollbar (track + thumb only). */
+    *::-webkit-scrollbar-button {
+      display: none;
+    }
     *::-webkit-scrollbar-track {
       background: var(--color-surface-container-high);
     }
@@ -186,10 +190,14 @@
     *::-webkit-scrollbar-corner {
       background: var(--color-surface-container-high);
     }
-    /* Firefox */
-    * {
-      scrollbar-width: thin;
-      scrollbar-color: var(--color-on-surface-variant) var(--color-surface-container-high);
+    /* Firefox-only — scoped via @-moz-document so modern Chromium 121+ doesn't
+     * switch to "modern scrollbar" mode, which would ignore the ::-webkit-*
+     * rules above (including the arrow-hide). */
+    @-moz-document url-prefix() {
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--color-on-surface-variant) var(--color-surface-container-high);
+      }
     }
   }
 }
