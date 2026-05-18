@@ -157,4 +157,39 @@
   h6 {
     font-family: var(--font-display);
   }
+
+  /* === Thin custom scrollbar (Phase 11.5 polish) ===
+   *
+   * Always visible (not hover-only). Slate-600 thumb on a faintly tinted
+   * track, darker on hover. No border-radius on the thumb — matches the
+   * flat-and-sharp aesthetic. Applied globally to any scrollable element.
+   *
+   * Mobile (≤767px) leaves the OS default scrollbar alone — iOS / Android
+   * conventions expect hidden-until-scroll behavior, and forcing a visible
+   * thumb on touch devices would waste horizontal pixels on narrow viewports.
+   */
+  @media (min-width: 768px) {
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    *::-webkit-scrollbar-track {
+      background: var(--color-surface-container-high);
+    }
+    *::-webkit-scrollbar-thumb {
+      background: var(--color-on-surface-variant);
+      border-radius: 0;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--color-on-surface);
+    }
+    *::-webkit-scrollbar-corner {
+      background: var(--color-surface-container-high);
+    }
+    /* Firefox */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-on-surface-variant) var(--color-surface-container-high);
+    }
+  }
 }
