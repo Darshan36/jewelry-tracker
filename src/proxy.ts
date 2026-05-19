@@ -27,6 +27,10 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   "/payables": ["ADMIN", "PURCHASE_DEPT", "CASTING_PLATING_MGMT"],
   // Receivables is ADMIN-only — customer-facing book.
   "/receivables": ["ADMIN"],
+  // Phase 19: Completed (aggregated cross-entity history) is ADMIN-only.
+  // /reports is preemptively gated for Phase 15 (still a sidebar placeholder).
+  "/completed": ["ADMIN"],
+  "/reports": ["ADMIN"],
   "/admin": ["ADMIN"],
   "/dashboard": ["ADMIN", "PURCHASE_DEPT", "LABOUR_MGMT", "CASTING_PLATING_MGMT"],
 };

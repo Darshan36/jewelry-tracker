@@ -59,7 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/vendors", label: "Vendors", icon: Factory, enabled: true, allowedRoles: ["ADMIN", "CASTING_PLATING_MGMT"] },
   { href: "/payables", label: "Payables", icon: ArrowUpFromLine, enabled: true, allowedRoles: ["ADMIN", "PURCHASE_DEPT", "CASTING_PLATING_MGMT"] },
   { href: "/receivables", label: "Receivables", icon: ArrowDownToLine, enabled: true, allowedRoles: ["ADMIN"] },
-  { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: false, allowedRoles: ["ADMIN"] },
+  { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/reports", label: "Reports", icon: BarChart3, enabled: false, allowedRoles: ["ADMIN"] },
   { href: "/users", label: "Users", icon: ShieldCheck, enabled: false, allowedRoles: ["ADMIN"] },
   { href: "/admin/bills-test", label: "Bills Test", icon: FileText, enabled: true, allowedRoles: ["ADMIN"] },

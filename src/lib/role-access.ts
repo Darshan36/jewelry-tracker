@@ -80,3 +80,22 @@ export function canViewLabour(role: Role): boolean {
 export function canManageLabour(role: Role): boolean {
   return role === "ADMIN" || role === "LABOUR_MGMT";
 }
+
+// Phase 19 — Completed transactions view.
+//
+// `/completed` is an aggregated view across all entity types (Sales,
+// Purchases, Casting, Plating, Payroll). It's an owner-level surface
+// — the operational roles (PURCHASE_DEPT, LABOUR_MGMT,
+// CASTING_PLATING_MGMT) work the in-flight workflow on their entity
+// pages, not the historical record. ADMIN-only matches the same
+// reasoning as /receivables.
+
+/** Whether a role can view the /completed page. */
+export function canViewCompleted(role: Role): boolean {
+  return role === "ADMIN";
+}
+
+/** Whether a role can view the /reports page (Phase 15 placeholder). */
+export function canViewReports(role: Role): boolean {
+  return role === "ADMIN";
+}
