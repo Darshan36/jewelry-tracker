@@ -1591,6 +1591,74 @@ test setup is:
 The canonical example is `src/components/photo-gallery.test.tsx`. Apply
 the same shape for any future multi-attachment feature.
 
+## Period-overlap test patterns (Phase 18)
+
+Phase 18's labour-balances logic uses period overlap to decide whether a
+`PieceEntry` is covered by a `WAGE`-type `EmployeePayment`. The check is
+inclusive on both ends: `payment.periodStart ≤ entry.date ≤ payment.periodEnd`.
+
+When testing helpers that consume payment periods (`isDateInPeriod`,
+`isPieceEntryCovered`, `computeOutstandingWages`), fixtures must cover
+every boundary class:
+
+- **Inside the period** — entry date strictly between start and end.
+- **Exactly at `periodStart`** — inclusive boundary, must be covered.
+- **Exactly at `periodEnd`** — inclusive boundary, must be covered.
+- **One millisecond before `periodStart`** — must NOT be covered. Use
+  `new Date(periodStart.getTime() - 1)` to be precise.
+- **One millisecond after `periodEnd`** — must NOT be covered. Use
+  `new Date(periodEnd.getTime() + 1)`.
+- **Multiple non-contiguous payments** — entry covered iff at least
+  ONE payment's period contains it. Test both the "covered by the
+  second payment" case and the "fall in the gap between two payments"
+  case.
+- **Wrong type** — a `SALARY`-type payment must NOT cover a piece entry
+  even if its period contains the entry's date. Coverage is type-scoped.
+- **Soft-deleted payments** — `deletedAt !== null` payments are excluded.
+- **Soft-deleted entries** — excluded from the unpaid set even if
+  uncovered.
+
+Reference: `src/lib/labour-balances.test.ts`.
+
+## IST timezone test fixtures (Phase 18)
+
+All "current month" / "is paid this period" calculations in labour code
+pin to `Asia/Kolkata` via the helpers in `src/lib/format.ts` —
+`todayIsoIST`, `currentIstYearMonth`, `startOfMonthIST`, etc. Tests that
+depend on "now" must pin the system time deterministically:
+
+```ts
+beforeEach(() => {
+  vi.useFakeTimers();
+  // 2026-05-19 10:00 UTC = 2026-05-19 15:30 IST.
+  vi.setSystemTime(new Date("2026-05-19T10:00:00Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+```
+
+The system time can be UTC; the helpers convert via `Intl.DateTimeFormat`
+with `timeZone: 'Asia/Kolkata'` and read the IST calendar day from the
+formatter output. Don't mix `new Date()` (browser local time) with the
+IST-aware helpers inside a single test — the assertion will diverge
+across machine timezones and CI vs local will silently differ.
+
+**Date-line crossing tests** are essential because UTC+5:30 means
+late-evening UTC on day N is early-morning IST on day N+1. Reference
+tests in `format.test.ts`:
+
+- `18:30 UTC on May 18 ≡ 00:00 IST on May 19` → `todayIsoIST()` returns
+  `"2026-05-19"`.
+- `18:29 UTC on May 18 ≡ 23:59 IST on May 18` → `todayIsoIST()` returns
+  `"2026-05-18"`.
+
+If you add a new IST-aware helper, write at least one date-line crossing
+test before merging — the bug is silent (correct on Indian dev machine,
+wrong on US CI) and the polish-session SP1 hydration-drift incident is
+the precedent.
+
 ## Per-phase reporting
 
 From Phase 2.3 onward, the "Test count delta" line in every phase report

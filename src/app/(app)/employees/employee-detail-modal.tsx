@@ -12,6 +12,7 @@ import {
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { getEmployeeHistory } from "@/app/(app)/labour/actions";
 
 import { softDeleteEmployee } from "./actions";
 import { TypeChip } from "./type-chip";
@@ -24,6 +25,25 @@ type Props = {
   onEdit: () => void;
 };
 
+type PieceHistoryRow = {
+  id: string;
+  date: string;
+  count: number;
+  ratePerPiece: number;
+  totalAmount: number;
+  note: string | null;
+};
+
+type PaymentHistoryRow = {
+  id: string;
+  type: "SALARY" | "WAGE";
+  paidAt: string;
+  amount: number;
+  periodStart: string;
+  periodEnd: string;
+  note: string | null;
+};
+
 export function EmployeeDetailModal({
   open,
   onOpenChange,
@@ -34,9 +54,39 @@ export function EmployeeDetailModal({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  const [pieces, setPieces] = useState<PieceHistoryRow[]>([]);
+  const [payments, setPayments] = useState<PaymentHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   useEffect(() => {
-    if (!open) setConfirmingDelete(false);
-  }, [open, employee?.id]);
+    if (!open) {
+      setConfirmingDelete(false);
+      return;
+    }
+    if (!employee) return;
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    setPieces([]);
+    setPayments([]);
+    getEmployeeHistory(employee.id)
+      .then((result) => {
+        if (cancelled) return;
+        setPieces(result.pieceEntries);
+        setPayments(result.payments);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Swallow — sections render "—" empty state if loading fails.
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, employee?.id, employee]);
 
   if (!employee) return null;
 
@@ -73,9 +123,98 @@ export function EmployeeDetailModal({
               value={formatCurrency(employee.monthlySalary)}
             />
           )}
+          {/* Phase 18: per-piece rate only shown for LABOUR. */}
+          {employee.type === "LABOUR" && (
+            <LabeledField
+              label="Rate per piece"
+              value={
+                employee.ratePerPiece === null
+                  ? "—"
+                  : formatCurrency(employee.ratePerPiece)
+              }
+            />
+          )}
           <LabeledField label="Address" value={employee.address} multiline />
           <LabeledField label="Notes" value={employee.notes} multiline />
           <LabeledField label="Created" value={formatDate(employee.createdAt)} />
+        </div>
+
+        {/* Phase 18: pieces + payment history. Hidden during initial
+            load to avoid flicker; sections render their own empty
+            states once loaded. */}
+        {employee.type === "LABOUR" && (
+          <div className="mt-6" data-testid="pieces-history-section">
+            <h3 className="font-display text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+              Pieces history
+            </h3>
+            {historyLoading ? (
+              <div className="text-xs text-on-surface-variant py-3">Loading…</div>
+            ) : pieces.length === 0 ? (
+              <div className="text-xs text-on-surface-variant py-3">
+                No piece entries yet.
+              </div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto border border-outline-variant bg-surface-container-low">
+                {pieces.map((p, idx) => (
+                  <div
+                    key={p.id}
+                    className={`grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-xs items-center ${
+                      idx % 2 === 0
+                        ? "bg-surface-container"
+                        : "bg-surface-container-low"
+                    }`}
+                  >
+                    <span className="text-on-surface">{formatDate(p.date)}</span>
+                    <span className="tabular-nums text-on-surface-variant">
+                      {p.count} × {formatCurrency(p.ratePerPiece)}
+                    </span>
+                    <span className="tabular-nums font-mono text-on-surface">
+                      {formatCurrency(p.totalAmount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-6" data-testid="payment-history-section">
+          <h3 className="font-display text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+            Payment history
+          </h3>
+          {historyLoading ? (
+            <div className="text-xs text-on-surface-variant py-3">Loading…</div>
+          ) : payments.length === 0 ? (
+            <div className="text-xs text-on-surface-variant py-3">
+              No payments yet.
+            </div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto border border-outline-variant bg-surface-container-low">
+              {payments.map((p, idx) => (
+                <div
+                  key={p.id}
+                  className={`grid grid-cols-[auto_1fr_auto] gap-3 px-3 py-1.5 text-xs items-center ${
+                    idx % 2 === 0
+                      ? "bg-surface-container"
+                      : "bg-surface-container-low"
+                  }`}
+                >
+                  <span className="font-display uppercase tracking-wider text-[10px] text-on-surface-variant">
+                    {p.type === "SALARY" ? "Salary" : "Wage"}
+                  </span>
+                  <span className="text-on-surface-variant">
+                    {formatDate(p.paidAt)} ·{" "}
+                    <span className="text-on-surface-variant/70">
+                      {formatDate(p.periodStart)}–{formatDate(p.periodEnd)}
+                    </span>
+                  </span>
+                  <span className="tabular-nums font-mono text-on-surface">
+                    {formatCurrency(p.amount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-6 -mx-4 -mb-4 md:-mx-6 md:-mb-6 px-4 md:px-6 py-4 border-t border-outline-variant">

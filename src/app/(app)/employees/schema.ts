@@ -54,6 +54,15 @@ export const employeeInputSchema = z
       .positive("Salary must be greater than zero")
       .nullish()
       .transform((v) => (v === undefined || v === null ? null : v)),
+    // Phase 18: default per-piece rate for LABOUR employees (rupees per
+    // piece on the wire; action converts to BigInt paise at the Prisma
+    // boundary). FIXED employees must have null — enforced by
+    // superRefine below. Same wire-format reasoning as monthlySalary.
+    ratePerPiece: z
+      .number()
+      .nonnegative("Rate must be zero or greater")
+      .nullish()
+      .transform((v) => (v === undefined || v === null ? null : v)),
     address: z
       .string()
       .trim()
@@ -77,6 +86,13 @@ export const employeeInputSchema = z
         code: z.ZodIssueCode.custom,
         path: ["monthlySalary"],
         message: "Monthly salary applies only to fixed-salary employees.",
+      });
+    }
+    if (data.type === "FIXED" && data.ratePerPiece !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ratePerPiece"],
+        message: "Piece rate applies only to labour employees.",
       });
     }
   });

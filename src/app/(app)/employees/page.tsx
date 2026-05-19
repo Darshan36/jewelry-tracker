@@ -18,6 +18,7 @@ export default async function EmployeesPage() {
   const employees: EmployeeForClient[] = rows.map((r) => ({
     ...r,
     monthlySalary: r.monthlySalary === null ? null : Number(r.monthlySalary),
+    ratePerPiece: r.ratePerPiece === null ? null : Number(r.ratePerPiece),
   }));
 
   return (

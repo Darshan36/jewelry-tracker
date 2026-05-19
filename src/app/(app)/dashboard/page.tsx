@@ -3,13 +3,17 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, todayIsoIST } from "@/lib/format";
 import {
   listPayables,
   listReceivables,
   type PartyPayableRollup,
   type PartyReceivableRollup,
 } from "@/lib/outstanding-balances";
+import {
+  countPieceEntriesForIstDay,
+  getLabourSummary,
+} from "@/lib/labour-balances";
 
 // Role-aware dashboard. Each branch fetches only the data its cards need.
 // Phase 17b: every non-LABOUR_MGMT branch gets payables (and ADMIN also
@@ -124,6 +128,7 @@ async function AdminDashboard({ name }: { name: string }) {
     billsReady,
     payables,
     receivables,
+    labour,
   ] = await Promise.all([
     prisma.party.count({ where: { isCustomer: true, deletedAt: null } }),
     prisma.party.count({ where: { isSupplier: true, deletedAt: null } }),
@@ -140,6 +145,7 @@ async function AdminDashboard({ name }: { name: string }) {
     prisma.attachment.count({ where: { deletedAt: null, status: "READY" } }),
     listPayables("all"),
     listReceivables(),
+    getLabourSummary(),
   ]);
 
   const totalPayables = payables.reduce((s, p) => s + p.totalOutstanding, 0);
@@ -178,7 +184,7 @@ async function AdminDashboard({ name }: { name: string }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         <TopThreeList
           title="Top parties you owe"
           rollups={payables.map((p: PartyPayableRollup) => ({
@@ -199,6 +205,62 @@ async function AdminDashboard({ name }: { name: string }) {
           basePath="/receivables"
           emptyText="No outstanding receivables."
         />
+      </div>
+
+      <LabourSection summary={labour} />
+    </div>
+  );
+}
+
+// Phase 18 — shared labour section for ADMIN and LABOUR_MGMT dashboards.
+async function LabourSection({
+  summary,
+  todayCount,
+}: {
+  summary: Awaited<ReturnType<typeof getLabourSummary>>;
+  todayCount?: number;
+}) {
+  return (
+    <div data-testid="dashboard-labour-section">
+      <h2 className="font-display text-sm uppercase tracking-widest text-on-surface-variant mb-3">
+        Labour
+      </h2>
+      <div
+        className={`grid grid-cols-1 md:grid-cols-2 ${todayCount !== undefined ? "xl:grid-cols-3" : ""} gap-3`}
+      >
+        <Link href="/labour" className="block">
+          <Card
+            label="Salaries due this month"
+            value={String(summary.missingSalaryCount)}
+            hint={
+              summary.missingSalaryCount === 0
+                ? "All fixed staff paid"
+                : `${formatCurrency(summary.missingSalaryTotal)} pending`
+            }
+          />
+        </Link>
+        <Link href="/labour" className="block">
+          <Card
+            label="Outstanding wages"
+            value={formatCurrency(summary.outstandingWagesTotal)}
+            hint={
+              summary.outstandingWagesCount === 0
+                ? "No unpaid pieces"
+                : `${summary.outstandingWagesCount} ${
+                    summary.outstandingWagesCount === 1 ? "worker" : "workers"
+                  }`
+            }
+          />
+        </Link>
+        {todayCount !== undefined && (
+          <Link href="/labour" className="block">
+            <Card
+              label="Pieces entered today"
+              value={String(todayCount)}
+              hint="Daily piece entries"
+            />
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -251,19 +313,21 @@ async function PurchaseDashboard({ name }: { name: string }) {
 }
 
 async function LabourDashboard({ name }: { name: string }) {
-  const [fixed, labour, salaryAgg] = await Promise.all([
+  const [fixed, labour, salaryAgg, labourSummary, todayCount] = await Promise.all([
     prisma.employee.count({ where: { deletedAt: null, type: "FIXED" } }),
     prisma.employee.count({ where: { deletedAt: null, type: "LABOUR" } }),
     prisma.employee.aggregate({
       where: { deletedAt: null, type: "FIXED" },
       _sum: { monthlySalary: true },
     }),
+    getLabourSummary(),
+    countPieceEntriesForIstDay(todayIsoIST()),
   ]);
 
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Employees overview" />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
         <Card
           label="Employees"
           value={`${fixed + labour}`}
@@ -275,6 +339,8 @@ async function LabourDashboard({ name }: { name: string }) {
           hint="Sum of fixed-salary commitments"
         />
       </div>
+
+      <LabourSection summary={labourSummary} todayCount={todayCount} />
     </div>
   );
 }

@@ -14,6 +14,16 @@ vi.mock("./actions", () => ({
   softDeleteEmployee: vi.fn(),
 }));
 
+// Phase 18: detail modal imports getEmployeeHistory from the labour
+// actions file, which transitively pulls in auth-guards → next-auth →
+// next/server. Mock the labour action to break that chain at test time.
+vi.mock("@/app/(app)/labour/actions", () => ({
+  getEmployeeHistory: vi.fn().mockResolvedValue({
+    pieceEntries: [],
+    payments: [],
+  }),
+}));
+
 import { EmployeesTable } from "./employees-table";
 import type { EmployeeForClient } from "./types";
 
@@ -26,6 +36,7 @@ function makeEmployee(
     phone: "9876543210",
     type: "LABOUR",
     monthlySalary: null,
+    ratePerPiece: null,
     address: null,
     notes: null,
     createdAt: new Date("2026-05-10T12:00:00Z"),

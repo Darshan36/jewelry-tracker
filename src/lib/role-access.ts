@@ -55,3 +55,28 @@ export function effectivePayableScope(role: Role): PayableScope | null {
 export function canViewReceivables(role: Role): boolean {
   return role === "ADMIN";
 }
+
+// Phase 18 — Labour management gates.
+//
+// `canViewLabour` controls visibility (sidebar item, dashboard cards,
+// /labour route) and `canManageLabour` controls mutation actions
+// (createBulkPieceEntries, createEmployeePayment, etc). For now both
+// resolve to the same matrix — ADMIN + LABOUR_MGMT — but the two
+// helpers are separate so a future read-only role can flip just the
+// view bit without inheriting mutation access.
+
+/**
+ * Whether a role can view the /labour page and its dashboard
+ * companion cards.
+ */
+export function canViewLabour(role: Role): boolean {
+  return role === "ADMIN" || role === "LABOUR_MGMT";
+}
+
+/**
+ * Whether a role can mutate labour data (piece entries, payments).
+ * Mirrors the server-action requireRole list.
+ */
+export function canManageLabour(role: Role): boolean {
+  return role === "ADMIN" || role === "LABOUR_MGMT";
+}

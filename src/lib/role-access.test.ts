@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canManageLabour,
+  canViewLabour,
   canViewPayables,
   canViewReceivables,
   effectivePayableScope,
@@ -59,5 +61,35 @@ describe("canViewReceivables — ADMIN-only", () => {
     expect(canViewReceivables("PURCHASE_DEPT")).toBe(false);
     expect(canViewReceivables("LABOUR_MGMT")).toBe(false);
     expect(canViewReceivables("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canViewLabour — Phase 18", () => {
+  it("ADMIN can view", () => {
+    expect(canViewLabour("ADMIN")).toBe(true);
+  });
+  it("LABOUR_MGMT can view", () => {
+    expect(canViewLabour("LABOUR_MGMT")).toBe(true);
+  });
+  it("PURCHASE_DEPT cannot view", () => {
+    expect(canViewLabour("PURCHASE_DEPT")).toBe(false);
+  });
+  it("CASTING_PLATING_MGMT cannot view", () => {
+    expect(canViewLabour("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canManageLabour — Phase 18", () => {
+  it("ADMIN can manage", () => {
+    expect(canManageLabour("ADMIN")).toBe(true);
+  });
+  it("LABOUR_MGMT can manage", () => {
+    expect(canManageLabour("LABOUR_MGMT")).toBe(true);
+  });
+  it("PURCHASE_DEPT cannot manage", () => {
+    expect(canManageLabour("PURCHASE_DEPT")).toBe(false);
+  });
+  it("CASTING_PLATING_MGMT cannot manage", () => {
+    expect(canManageLabour("CASTING_PLATING_MGMT")).toBe(false);
   });
 });

@@ -12,12 +12,16 @@ import { serializeEmployee } from "./types";
 // paise conversion at the Prisma boundary. Keeping it action-local avoids
 // the wire-format issue that would arise if the schema's output were BigInt
 // (client would send BigInt, server's re-parse would reject it).
-function toPrismaData<T extends { monthlySalary: number | null }>(parsed: T) {
-  const { monthlySalary, ...rest } = parsed;
+function toPrismaData<
+  T extends { monthlySalary: number | null; ratePerPiece: number | null },
+>(parsed: T) {
+  const { monthlySalary, ratePerPiece, ...rest } = parsed;
   return {
     ...rest,
     monthlySalary:
       monthlySalary === null ? null : BigInt(Math.round(monthlySalary * 100)),
+    ratePerPiece:
+      ratePerPiece === null ? null : BigInt(Math.round(ratePerPiece * 100)),
   };
 }
 

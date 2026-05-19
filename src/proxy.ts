@@ -16,6 +16,7 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   "/purchases": ["ADMIN", "PURCHASE_DEPT"],
   "/suppliers": ["ADMIN", "PURCHASE_DEPT"],
   "/employees": ["ADMIN", "LABOUR_MGMT"],
+  "/labour": ["ADMIN", "LABOUR_MGMT"],
   "/casting": ["ADMIN", "CASTING_PLATING_MGMT"],
   "/plating": ["ADMIN", "CASTING_PLATING_MGMT"],
   "/vendors": ["ADMIN", "CASTING_PLATING_MGMT"],

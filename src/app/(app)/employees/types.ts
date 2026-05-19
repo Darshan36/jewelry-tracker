@@ -9,17 +9,23 @@
 
 import type { Employee } from "@/generated/prisma";
 
-// Server-side rows have `monthlySalary: bigint | null`, but BigInt isn't
-// reliably JSON-serializable across the React Flight boundary. Convert to
-// Number (paise) at the page / action boundary; client components consume
-// this uniform shape.
-export type EmployeeForClient = Omit<Employee, "monthlySalary"> & {
+// Server-side rows have `monthlySalary: bigint | null` and (Phase 18)
+// `ratePerPiece: bigint | null`. BigInt isn't reliably JSON-serializable
+// across the React Flight boundary — convert both to Number (paise) at
+// the page / action boundary; client components consume this uniform
+// shape.
+export type EmployeeForClient = Omit<
+  Employee,
+  "monthlySalary" | "ratePerPiece"
+> & {
   monthlySalary: number | null;
+  ratePerPiece: number | null;
 };
 
 export function serializeEmployee(e: Employee): EmployeeForClient {
   return {
     ...e,
     monthlySalary: e.monthlySalary === null ? null : Number(e.monthlySalary),
+    ratePerPiece: e.ratePerPiece === null ? null : Number(e.ratePerPiece),
   };
 }

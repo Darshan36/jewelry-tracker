@@ -31,6 +31,13 @@ model User {
   partiesUpdated      Party[]      @relation("PartyUpdatedBy")
   partiesDeleted      Party[]      @relation("PartyDeletedBy")
 
+  pieceEntriesCreated     PieceEntry[]      @relation("PieceEntryCreatedBy")
+  pieceEntriesUpdated     PieceEntry[]      @relation("PieceEntryUpdatedBy")
+  pieceEntriesDeleted     PieceEntry[]      @relation("PieceEntryDeletedBy")
+  employeePaymentsCreated EmployeePayment[] @relation("EmployeePaymentCreatedBy")
+  employeePaymentsUpdated EmployeePayment[] @relation("EmployeePaymentUpdatedBy")
+  employeePaymentsDeleted EmployeePayment[] @relation("EmployeePaymentDeletedBy")
+
   @@map("users")
 }
 
@@ -123,16 +130,98 @@ model Employee {
   phone         String?
   type          EmployeeType @default(LABOUR)
   monthlySalary BigInt?
+  // Phase 18: default per-piece rate for LABOUR employees (paise).
+  // FIXED employees keep this NULL; superRefine enforces. Used as the
+  // bulk-piece-entry form's per-row prefill so the user doesn't retype
+  // the rate every day.
+  ratePerPiece  BigInt?
   address       String?
   notes         String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   deletedAt     DateTime?
 
+  pieceEntries PieceEntry[]
+  payments     EmployeePayment[]
+
   @@index([deletedAt])
   @@index([name])
   @@index([type])
   @@map("employees")
+}
+
+// Phase 18 — piece-rate ledger entry for LABOUR employees.
+// One row = one employee × one day × one piece count. `totalAmount` is
+// stored (= count × ratePerPiece) for query-side aggregate efficiency.
+// Daily bulk entry is the dominant workflow; per-employee ad-hoc entry
+// is allowed via the detail modal.
+model PieceEntry {
+  id           String   @id @default(cuid())
+  employeeId   String
+  // Stored as midnight UTC representing the IST calendar day, matching
+  // the Sale/Purchase/CastingEntry convention so the same UTC-range
+  // queries work for monthly aggregates.
+  date         DateTime
+  count        Int
+  ratePerPiece BigInt // paise per piece, snapshotted from Employee at entry time
+  totalAmount  BigInt // paise, stored: count * ratePerPiece
+  note         String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+  deletedById String?
+
+  employee  Employee @relation(fields: [employeeId], references: [id])
+  createdBy User?    @relation("PieceEntryCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?    @relation("PieceEntryUpdatedBy", fields: [updatedById], references: [id])
+  deletedBy User?    @relation("PieceEntryDeletedBy", fields: [deletedById], references: [id])
+
+  @@index([employeeId, date, deletedAt])
+  @@index([date, deletedAt])
+  @@map("piece_entries")
+}
+
+// Phase 18 — unified employee payment ledger.
+// type=SALARY: monthly payment for a FIXED employee, periodStart/periodEnd
+//   are the calendar-month boundaries (midnight-UTC representing IST).
+// type=WAGE: per-period payment for a LABOUR employee covering a range
+//   of PieceEntries. Coverage is determined by period overlap, NOT by a
+//   per-entry paid flag — keeps production tracking decoupled from
+//   payment tracking and allows ad-hoc payment periods.
+enum EmployeePaymentType {
+  SALARY
+  WAGE
+}
+
+model EmployeePayment {
+  id          String              @id @default(cuid())
+  employeeId  String
+  type        EmployeePaymentType
+  paidAt      DateTime // when the payment was actually made
+  amount      BigInt // paise
+  periodStart DateTime // inclusive
+  periodEnd   DateTime // inclusive
+  note        String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+  deletedById String?
+
+  employee  Employee @relation(fields: [employeeId], references: [id])
+  createdBy User?    @relation("EmployeePaymentCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?    @relation("EmployeePaymentUpdatedBy", fields: [updatedById], references: [id])
+  deletedBy User?    @relation("EmployeePaymentDeletedBy", fields: [deletedById], references: [id])
+
+  @@index([employeeId, periodStart, periodEnd, deletedAt])
+  @@index([type, periodStart, deletedAt])
+  @@index([deletedAt])
+  @@map("employee_payments")
 }
 
 model Sale {

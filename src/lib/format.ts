@@ -51,6 +51,83 @@ export function dateToIsoIST(
   return ISO_DAY_FORMATTER.format(date);
 }
 
+// Phase 18 — IST month helpers for the labour pages.
+//
+// Convention: a "calendar month in IST" is represented as a half-open
+// UTC range [startUTC, endUTC) where startUTC is midnight UTC on the
+// 1st of that month (matching how Sale/Purchase store their `date`
+// field — see CLAUDE.md §4). This keeps the existing dashboard's
+// currentMonthRange() compatible with PieceEntry/EmployeePayment
+// queries: SELECT WHERE date >= startUTC AND date < endUTC gives every
+// row whose IST-calendar-day falls in the named month.
+//
+// "1-indexed" month input matches the way humans speak (May = 5).
+
+/** Returns { year: 2026, month: 5 } for the current IST date. */
+export function currentIstYearMonth(): { year: number; month: number } {
+  const iso = todayIsoIST(); // "2026-05-19"
+  const [y, m] = iso.split("-");
+  return { year: Number(y), month: Number(m) };
+}
+
+/** Midnight UTC on day 1 of the given (year, month-1-indexed). */
+export function startOfMonthIST(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month - 1, 1));
+}
+
+/** Midnight UTC on day 1 of the *next* month — exclusive upper bound. */
+export function endOfMonthIST(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month, 1));
+}
+
+export function startOfCurrentMonthIST(): Date {
+  const { year, month } = currentIstYearMonth();
+  return startOfMonthIST(year, month);
+}
+
+export function endOfCurrentMonthIST(): Date {
+  const { year, month } = currentIstYearMonth();
+  return endOfMonthIST(year, month);
+}
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+/** "May 2026" — derives the month label from the *IST* calendar day. */
+export function formatMonthIST(value: Date | string): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const iso = ISO_DAY_FORMATTER.format(date); // "2026-05-19"
+  const [y, m] = iso.split("-");
+  return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+}
+
+/** "YYYY-MM" for the IST calendar month of the given moment. */
+export function monthIsoIST(value: Date | string | null | undefined): string {
+  if (!value) {
+    const { year, month } = currentIstYearMonth();
+    return `${year}-${String(month).padStart(2, "0")}`;
+  }
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(date.getTime())) {
+    const { year, month } = currentIstYearMonth();
+    return `${year}-${String(month).padStart(2, "0")}`;
+  }
+  const iso = ISO_DAY_FORMATTER.format(date); // "2026-05-19"
+  return iso.slice(0, 7);
+}
+
 export function formatDate(
   value: Date | string | null | undefined,
 ): string {
