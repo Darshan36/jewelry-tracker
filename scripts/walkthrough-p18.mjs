@@ -90,28 +90,32 @@ async function screenshot(page, name) {
 }
 
 async function createEmployee(page, { name, type, monthlySalary, ratePerPiece }) {
-  await page.goto(`${BASE}/employees`, { waitUntil: "domcontentloaded" });
-  // Click "+ Add" (it can be either link or button depending on phase)
-  const addBtn = page.locator('button:has-text("Add"), a:has-text("Add")').first();
-  await addBtn.click();
-  await page.waitForSelector('input[name="name"]', { timeout: 10_000 });
+  await page.goto(`${BASE}/employees`, { waitUntil: "networkidle" });
+  // The Add button has a unique label "Add employee" — use the exact
+  // accessible name rather than a substring to avoid the sidebar's
+  // role-chip text inadvertently matching.
+  await page.getByRole("button", { name: /add employee/i }).click();
+  await page.waitForSelector('input#employee-name', { timeout: 15_000 });
 
-  await page.fill('input[name="name"]', name);
-  // Set type (the form uses a segmented selector — click the right button)
-  await page.click(`button[role="radio"][aria-checked]:has-text("${type === "FIXED" ? "Fixed" : "Labour"}")`).catch(async () => {
-    // Fallback: just click the type label
-    await page.locator(`button:has-text("${type === "FIXED" ? "Fixed" : "Labour"}")`).first().click();
-  });
+  await page.fill('input#employee-name', name);
+  // Segmented type selector: two role="radio" buttons inside the
+  // radiogroup labelled "Employee type". Click by text content.
+  await page
+    .getByRole("radiogroup", { name: /employee type/i })
+    .getByRole("radio", { name: type === "FIXED" ? "Fixed" : "Labour" })
+    .click();
   if (type === "FIXED" && monthlySalary !== undefined) {
-    await page.fill('input[name="monthlySalary"]', String(monthlySalary));
+    await page.fill('input#employee-salary', String(monthlySalary));
   }
   if (type === "LABOUR" && ratePerPiece !== undefined) {
-    await page.fill('input[name="ratePerPiece"]', String(ratePerPiece));
+    await page.fill('input#employee-rate', String(ratePerPiece));
   }
-  await page.click('button[type="submit"]');
-  // Wait for modal close (the table re-renders).
-  await page.waitForSelector('input[name="name"]', { state: "detached", timeout: 10_000 }).catch(() => {});
-  await page.waitForTimeout(500); // Give the router.refresh() a beat.
+  await page.click('button[type="submit"]:has-text("Save")');
+  // Wait for modal close.
+  await page
+    .waitForSelector('input#employee-name', { state: "detached", timeout: 15_000 })
+    .catch(() => {});
+  await page.waitForTimeout(750);
 }
 
 function fixedName() {
@@ -159,9 +163,27 @@ try {
   const labourRow = page.locator(
     `[data-testid="bulk-entry-row"]:has-text("${labourName()}")`,
   );
-  await labourRow.locator('input[type="number"]').nth(1).fill("10"); // count
+  // Grab the row's employee id so we can target inputs by id (avoids
+  // ambiguity from the md:contents grid layout's input ordering).
+  const labourEmpId = await labourRow.getAttribute("data-employee-id");
+  if (!labourEmpId) throw new Error("Could not read data-employee-id for labour test row");
+  // Click into the count input first to focus, then type — fill() on
+  // React controlled inputs occasionally races with React's render.
+  const countInput = page.locator(`input#bulk-count-${labourEmpId}`);
+  await countInput.click();
+  await countInput.fill("10");
+  // Wait for the Save button to enable (it's disabled while activeCount===0).
+  await page.waitForFunction(
+    () => {
+      const btn = document.querySelector(
+        '[data-testid="bulk-save-button"]',
+      );
+      return btn instanceof HTMLButtonElement && !btn.disabled;
+    },
+    { timeout: 10_000 },
+  );
   await page.click('[data-testid="bulk-save-button"]');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
   await screenshot(page, "03-piece-entry-saved.png");
 
   console.log("Step 4: Verify Outstanding wages now shows the LABOUR employee");
