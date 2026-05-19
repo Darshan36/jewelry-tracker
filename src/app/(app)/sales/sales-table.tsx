@@ -17,6 +17,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Camera,
   DollarSign,
   Edit3,
   Link as LinkIcon,
@@ -132,12 +133,17 @@ export function SalesTable({ sales }: Props) {
         const first = items[0].itemDescription;
         const extra = items.length - 1;
         return (
-          <span className="text-on-surface-variant text-sm">
-            {first}
-            {extra > 0 && (
-              <span className="text-on-surface-variant"> + {extra} more</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-on-surface-variant text-sm truncate">
+              {first}
+              {extra > 0 && (
+                <span className="text-on-surface-variant"> + {extra} more</span>
+              )}
+            </span>
+            {row.original.photoCount > 0 && (
+              <PhotoCountBadge count={row.original.photoCount} />
             )}
-          </span>
+          </div>
         );
       },
     },
@@ -390,6 +396,22 @@ export function SalesTable({ sales }: Props) {
   );
 }
 
+// Phase 12c — compact photo-count indicator. Inline near the items column
+// (desktop) and inside the mobile card. Renders nothing when count is 0.
+function PhotoCountBadge({ count }: { count: number }) {
+  return (
+    <span
+      data-testid="photo-count-badge"
+      data-count={count}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-display uppercase tracking-wider bg-surface-container-high text-on-surface-variant border border-outline-variant tabular-nums shrink-0"
+      aria-label={`${count} photo${count === 1 ? "" : "s"}`}
+    >
+      <Camera className="size-3" />
+      {count}
+    </span>
+  );
+}
+
 function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="size-3" />;
   if (sorted === "desc") return <ArrowDown className="size-3" />;
@@ -581,10 +603,15 @@ function SaleMobileCard({
         <TransactionStatusChip status={sale.status} />
       </MobileCardHeader>
 
-      <div className="text-sm text-on-surface-variant">
-        {firstItem}
-        {extraLines > 0 && (
-          <span className="text-on-surface-variant"> + {extraLines} more</span>
+      <div className="flex items-center gap-2 text-sm text-on-surface-variant">
+        <span className="truncate min-w-0">
+          {firstItem}
+          {extraLines > 0 && (
+            <span className="text-on-surface-variant"> + {extraLines} more</span>
+          )}
+        </span>
+        {sale.photoCount > 0 && (
+          <PhotoCountBadge count={sale.photoCount} />
         )}
       </div>
 

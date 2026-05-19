@@ -15,12 +15,19 @@
 // If step 2 fails, the entry IS saved — error banner shows + the user
 // can use the inline 📎 AttachmentActionModal from the row to retry. No
 // rollback of step 1 (the entry stands on its own).
+//
+// Phase 12c: photo gallery (mirror of Phase 12a on Purchases). Create
+// mode collects File[] locally + renders thumbnails via URL.createObjectURL;
+// the upload chain runs sequentially after createSale returns. Edit mode
+// uses the live PhotoGallery — uploads/deletes happen immediately because
+// the sale id already exists. Per-photo failures in create mode surface in
+// the form error banner but don't block the form (the sale stays saved).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Paperclip, Plus, X } from "lucide-react";
+import { Camera, Paperclip, Plus, X } from "lucide-react";
 import { type z } from "zod";
 
 import {
@@ -31,6 +38,7 @@ import {
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
 import { AttachmentPreview } from "@/components/attachment-preview";
+import { PhotoGallery } from "@/components/photo-gallery";
 import {
   dateToIsoIST,
   formatCurrency,
@@ -39,7 +47,9 @@ import {
 import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
+  PHOTO_MIME_TYPES,
   type AllowedMimeType,
+  type PhotoMimeType,
 } from "@/app/(app)/attachments/schema";
 import {
   confirmUpload,
@@ -80,6 +90,10 @@ function isAllowedMime(t: string): t is AllowedMimeType {
   return (ALLOWED_MIME_TYPES as readonly string[]).includes(t);
 }
 
+function isPhotoMime(t: string): t is PhotoMimeType {
+  return (PHOTO_MIME_TYPES as readonly string[]).includes(t);
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -118,6 +132,16 @@ export function SaleForm({ mode, sale, parties }: Props) {
     "idle" | "preparing" | "uploading" | "confirming"
   >("idle");
   const billInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Photos (Phase 12c). Create mode buffers File[] locally and runs the
+  // upload chain after the sale row is created. Edit mode delegates to
+  // the PhotoGallery component which uploads/deletes live.
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
+  const [photoPickerError, setPhotoPickerError] = useState<string | null>(null);
+  const [photoUploadStatus, setPhotoUploadStatus] = useState<
+    "idle" | "uploading"
+  >("idle");
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     control,
@@ -242,6 +266,50 @@ export function SaleForm({ mode, sale, parties }: Props) {
       }
     }
 
+    // Phase 12c — create-mode photos. Pending photos collected from the
+    // form's local picker; upload them now that the sale has an id.
+    // Failures are surfaced but the sale stays saved — the user can
+    // retry the remaining photos from the edit page's live PhotoGallery.
+    if (pendingPhotos.length > 0) {
+      setPhotoUploadStatus("uploading");
+      const photoFailures: string[] = [];
+      for (const file of pendingPhotos) {
+        try {
+          const prep = await prepareUpload({
+            originalFilename: file.name,
+            mimeType: file.type as PhotoMimeType,
+            sizeBytes: file.size,
+            attachedToType: "SALE_PHOTO",
+            attachedToId: savedSaleId,
+          });
+          if (!prep.ok) {
+            const first = Object.values(prep.errors).flat().find(Boolean);
+            throw new Error(first ?? "Prepare failed");
+          }
+          await putToR2(prep.presignedUrl, file);
+          const conf = await confirmUpload({ attachmentId: prep.attachmentId });
+          if (!conf.ok) {
+            const first = Object.values(conf.errors).flat().find(Boolean);
+            throw new Error(first ?? "Confirm failed");
+          }
+        } catch (err) {
+          photoFailures.push(
+            `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      setPhotoUploadStatus("idle");
+      if (photoFailures.length > 0) {
+        setFormError(
+          `Sale saved, but ${photoFailures.length} photo(s) failed: ${photoFailures.join(
+            "; ",
+          )}. Open the edit page to retry.`,
+        );
+        router.refresh();
+        return;
+      }
+    }
+
     if (saveModeRef.current === "return") {
       router.push("/sales");
       router.refresh();
@@ -250,6 +318,9 @@ export function SaleForm({ mode, sale, parties }: Props) {
       setPickedBillFile(null);
       setBillPickerError(null);
       if (billInputRef.current) billInputRef.current.value = "";
+      setPendingPhotos([]);
+      setPhotoPickerError(null);
+      if (photoInputRef.current) photoInputRef.current.value = "";
       router.refresh();
       // Scroll to top so the user sees the freshly cleared form.
       if (typeof window !== "undefined") {
@@ -285,6 +356,7 @@ export function SaleForm({ mode, sale, parties }: Props) {
   };
 
   const billBusy = billUploadStatus !== "idle";
+  const photoBusy = photoUploadStatus !== "idle";
   const billBusyLabel =
     billUploadStatus === "preparing"
       ? "Preparing bill"
@@ -292,7 +364,40 @@ export function SaleForm({ mode, sale, parties }: Props) {
         ? "Uploading bill"
         : billUploadStatus === "confirming"
           ? "Confirming bill"
-          : "";
+          : photoBusy
+            ? "Uploading photos"
+            : "";
+
+  const onPickPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhotoPickerError(null);
+    const files = Array.from(e.target.files ?? []);
+    if (photoInputRef.current) photoInputRef.current.value = "";
+    if (files.length === 0) return;
+
+    const accepted: File[] = [];
+    const failures: string[] = [];
+    for (const file of files) {
+      if (!isPhotoMime(file.type)) {
+        failures.push(`${file.name}: unsupported type`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        failures.push(`${file.name}: too large`);
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (failures.length > 0) {
+      setPhotoPickerError(
+        `Skipped: ${failures.join("; ")}. JPEG, PNG, WebP only. Max ${formatBytes(MAX_FILE_SIZE_BYTES)} each.`,
+      );
+    }
+    setPendingPhotos((prev) => [...prev, ...accepted]);
+  };
+
+  const removePendingPhoto = (idx: number) => {
+    setPendingPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   return (
     <form
@@ -545,6 +650,34 @@ export function SaleForm({ mode, sale, parties }: Props) {
         </div>
       </div>
 
+      <div>
+        <FormLabel>
+          <span className="inline-flex items-center gap-1.5">
+            <Camera className="size-3.5" />
+            Photos (optional)
+          </span>
+        </FormLabel>
+        <div className="border border-outline-variant bg-surface-container-low p-3 space-y-3">
+          {mode === "create" && (
+            <CreateModePhotoPicker
+              pendingPhotos={pendingPhotos}
+              photoPickerError={photoPickerError}
+              busy={isSubmitting || photoBusy}
+              photoInputRef={photoInputRef}
+              onPick={onPickPhotos}
+              onRemove={removePendingPhoto}
+            />
+          )}
+          {mode === "edit" && sale && (
+            <PhotoGallery
+              mode="edit"
+              entityType="SALE_PHOTO"
+              entityId={sale.id}
+            />
+          )}
+        </div>
+      </div>
+
       <div className="border border-outline-variant bg-surface-container-high p-4 space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="text-on-surface-variant">Subtotal</span>
@@ -624,9 +757,9 @@ export function SaleForm({ mode, sale, parties }: Props) {
           Cancel
         </button>
         <SaveDropdown
-          saving={isSubmitting || billBusy}
+          saving={isSubmitting || billBusy || photoBusy}
           primaryLabel={
-            billBusy ? billBusyLabel : "Save and return"
+            billBusy || photoBusy ? billBusyLabel : "Save and return"
           }
           // The dropdown picks "return" or "another"; we stash the chosen
           // mode in state so the (separate) form-submit handler can read
@@ -654,4 +787,91 @@ const FORM_FIELDS = [
 type FormField = (typeof FORM_FIELDS)[number];
 function isFormField(key: string): key is FormField {
   return (FORM_FIELDS as readonly string[]).includes(key);
+}
+
+// Create-mode photo picker. Holds File objects locally + renders thumbnails
+// via URL.createObjectURL so the user sees what they picked before the sale
+// saves. The actual upload chain runs in SaleForm.onSubmit once the sale
+// row has an id.
+function CreateModePhotoPicker({
+  pendingPhotos,
+  photoPickerError,
+  busy,
+  photoInputRef,
+  onPick,
+  onRemove,
+}: {
+  pendingPhotos: File[];
+  photoPickerError: string | null;
+  busy: boolean;
+  photoInputRef: React.RefObject<HTMLInputElement | null>;
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: (idx: number) => void;
+}) {
+  const previewUrls = useMemo(
+    () => pendingPhotos.map((f) => URL.createObjectURL(f)),
+    [pendingPhotos],
+  );
+  useEffect(() => {
+    return () => {
+      for (const u of previewUrls) URL.revokeObjectURL(u);
+    };
+  }, [previewUrls]);
+
+  return (
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {pendingPhotos.map((file, idx) => (
+          <div
+            key={`${file.name}-${idx}`}
+            className="relative aspect-square bg-surface-container-highest border border-outline-variant overflow-hidden"
+            data-testid={`pending-photo-${idx}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrls[idx]}
+              alt={file.name}
+              className="w-full h-full object-cover"
+              draggable={false}
+            />
+            <button
+              type="button"
+              onClick={() => onRemove(idx)}
+              disabled={busy}
+              aria-label={`Remove ${file.name}`}
+              className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center bg-surface-container/90 text-on-surface hover:bg-error hover:text-on-error border border-outline-variant disabled:opacity-50 transition-colors"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => photoInputRef.current?.click()}
+          disabled={busy}
+          aria-label="Add photo"
+          className="aspect-square border border-dashed border-outline-variant bg-surface-container-low hover:bg-surface-container-high disabled:opacity-50 transition-colors flex flex-col items-center justify-center gap-1 text-on-surface-variant"
+        >
+          <Plus className="size-6" />
+          <span className="text-xs uppercase tracking-wider">Add photo</span>
+        </button>
+      </div>
+      <input
+        ref={photoInputRef}
+        type="file"
+        multiple
+        accept={PHOTO_MIME_TYPES.join(",")}
+        onChange={onPick}
+        className="sr-only"
+        aria-hidden
+      />
+      {photoPickerError && (
+        <p className="text-xs text-error">{photoPickerError}</p>
+      )}
+      <p className="text-[10px] text-on-surface-variant uppercase tracking-wider">
+        Max {formatBytes(MAX_FILE_SIZE_BYTES)} per photo. JPEG, PNG, WebP.
+        Photos upload after the sale is saved.
+      </p>
+    </>
+  );
 }

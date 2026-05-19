@@ -14,7 +14,33 @@ export default async function SalesPage() {
     },
   });
 
-  const sales: SaleForClient[] = saleRows.map(serializeSale);
+  // Phase 12c — photo counts. Attachment rows aren't a relation off Sale
+  // (no FK; just the discriminator pair), so we count in a single groupBy
+  // query and merge by id. Single extra round-trip regardless of page size.
+  const photoIds = saleRows.map((s) => s.id);
+  const photoCountRows =
+    photoIds.length > 0
+      ? await prisma.attachment.groupBy({
+          by: ["attachedToId"],
+          where: {
+            attachedToType: "SALE_PHOTO",
+            attachedToId: { in: photoIds },
+            deletedAt: null,
+            status: "READY",
+          },
+          _count: { _all: true },
+        })
+      : [];
+  const photoCountById = new Map<string, number>();
+  for (const row of photoCountRows) {
+    if (row.attachedToId) {
+      photoCountById.set(row.attachedToId, row._count._all);
+    }
+  }
+
+  const sales: SaleForClient[] = saleRows.map((s) =>
+    serializeSale(s, { photoCount: photoCountById.get(s.id) ?? 0 }),
+  );
 
   return (
     <div className="p-4 md:p-10">

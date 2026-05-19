@@ -39,7 +39,7 @@ export type PhotoGalleryMode = "view" | "edit";
 
 type Props = {
   mode: PhotoGalleryMode;
-  entityType: "PURCHASE_PHOTO";
+  entityType: "PURCHASE_PHOTO" | "SALE_PHOTO";
   entityId: string;
   /** Optional initial photo list — skips the first network round-trip. */
   initialPhotos?: PhotoForClient[];

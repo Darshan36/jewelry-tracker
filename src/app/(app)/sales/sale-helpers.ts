@@ -49,6 +49,10 @@ export type SaleForClient = Omit<Sale, "discount" | "total"> & {
   status: SaleStatus;
   payments: SalePaymentForClient[];
   returns: SaleReturnForClient[];
+  // Phase 12c — count of READY non-deleted photos attached via the
+  // SALE_PHOTO discriminator. Drives the row indicator and the detail
+  // modal's photos section visibility.
+  photoCount: number;
 };
 
 export function serializeSalePayment(payment: SalePayment): SalePaymentForClient {
@@ -100,6 +104,7 @@ export function serializeSale(
     payments?: SalePayment[];
     returns?: SaleReturn[];
   },
+  options?: { photoCount?: number },
 ): SaleForClient {
   const {
     lineItems: rawLineItems,
@@ -131,5 +136,6 @@ export function serializeSale(
     }),
     payments: activePayments.map(serializeSalePayment),
     returns: activeReturns.map(serializeSaleReturn),
+    photoCount: options?.photoCount ?? 0,
   };
 }

@@ -584,4 +584,97 @@ describe("getPhotosForEntity", () => {
       expect(photo.r2Key).toBeUndefined();
     }
   });
+
+  // Phase 12c — same access shape works for SALE_PHOTO discriminator.
+  it("works for SALE_PHOTO discriminator (Phase 12c)", async () => {
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([
+      makeAttachment({
+        id: "sp-1",
+        originalFilename: "ring-1.jpg",
+        attachedToType: "SALE_PHOTO",
+        attachedToId: "sale-Y",
+        status: "READY",
+      }),
+    ]);
+
+    const res = await getPhotosForEntity("SALE_PHOTO", "sale-Y");
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.photos).toHaveLength(1);
+      expect(res.photos[0].id).toBe("sp-1");
+      expect(res.photos[0].originalFilename).toBe("ring-1.jpg");
+    }
+
+    const call = vi.mocked(prisma.attachment.findMany).mock.calls[0][0];
+    expect(call?.where).toMatchObject({
+      attachedToType: "SALE_PHOTO",
+      attachedToId: "sale-Y",
+      status: "READY",
+      deletedAt: null,
+    });
+  });
+});
+
+// =====================================================================
+// prepareUpload role gate — SALE_PHOTO (Phase 12c) is ADMIN-only.
+// Mirrors the matrix table above but specific to the new discriminator.
+// =====================================================================
+
+describe("prepareUpload — SALE_PHOTO role gate", () => {
+  it("ADMIN allowed for SALE_PHOTO", async () => {
+    vi.mocked(requireRole).mockResolvedValueOnce(sessionFor("ADMIN"));
+    vi.mocked(prisma.attachment.create).mockResolvedValue(makeAttachment());
+    const result = await prepareUpload(
+      validPrepare({
+        attachedToType: "SALE_PHOTO",
+        attachedToId: "sale-Y",
+        mimeType: "image/jpeg",
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(prisma.attachment.create).toHaveBeenCalledOnce();
+  });
+
+  it("PURCHASE_DEPT denied (Forbidden) for SALE_PHOTO", async () => {
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+    await expect(
+      prepareUpload(
+        validPrepare({
+          attachedToType: "SALE_PHOTO",
+          attachedToId: "sale-Y",
+          mimeType: "image/jpeg",
+        }),
+      ),
+    ).rejects.toThrow("Forbidden");
+    expect(prisma.attachment.create).not.toHaveBeenCalled();
+  });
+
+  it("LABOUR_MGMT denied (Forbidden) for SALE_PHOTO", async () => {
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+    await expect(
+      prepareUpload(
+        validPrepare({
+          attachedToType: "SALE_PHOTO",
+          attachedToId: "sale-Y",
+          mimeType: "image/jpeg",
+        }),
+      ),
+    ).rejects.toThrow("Forbidden");
+    expect(prisma.attachment.create).not.toHaveBeenCalled();
+  });
+
+  it("CASTING_PLATING_MGMT denied (Forbidden) for SALE_PHOTO", async () => {
+    vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
+    await expect(
+      prepareUpload(
+        validPrepare({
+          attachedToType: "SALE_PHOTO",
+          attachedToId: "sale-Y",
+          mimeType: "image/jpeg",
+        }),
+      ),
+    ).rejects.toThrow("Forbidden");
+    expect(prisma.attachment.create).not.toHaveBeenCalled();
+  });
 });

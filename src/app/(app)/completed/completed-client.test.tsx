@@ -97,6 +97,7 @@ const fakeSale = {
   status: "completed" as const,
   payments: [],
   returns: [],
+  photoCount: 0,
 } satisfies SaleForClient;
 
 const fakePurchase = {

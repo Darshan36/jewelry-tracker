@@ -30,6 +30,7 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
+import { PhotoGallery } from "@/components/photo-gallery";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
 
@@ -157,6 +158,20 @@ export function SaleDetailModal({ open, onOpenChange, sale }: Props) {
           {/* Returns history (read-only) */}
           {sale.returns.length > 0 && (
             <ReadOnlyReturnsList returns={sale.returns} returnTotal={sale.returnTotal} />
+          )}
+
+          {/* Photos (Phase 12c — read-only gallery; self-hides when empty). */}
+          {sale.photoCount > 0 && (
+            <div>
+              <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+                Photos
+              </p>
+              <PhotoGallery
+                mode="view"
+                entityType="SALE_PHOTO"
+                entityId={sale.id}
+              />
+            </div>
           )}
         </div>
 

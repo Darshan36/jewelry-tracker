@@ -58,6 +58,7 @@ describe("canAccessBill", () => {
       "CASTING_ENTRY",
       "PLATING_ENTRY",
       "PURCHASE_PHOTO",
+      "SALE_PHOTO",
     ] as const) {
       expect(canAccessAttachment("ADMIN", makeAttachment({ attachedToType: t }))).toBe(true);
     }
@@ -98,6 +99,7 @@ describe("canAccessBill", () => {
       "CASTING_ENTRY",
       "PLATING_ENTRY",
       "PURCHASE_PHOTO",
+      "SALE_PHOTO",
     ] as const;
     for (const t of all) {
       expect(canAccessAttachment("LABOUR_MGMT", makeAttachment({ attachedToType: t }))).toBe(false);
@@ -115,6 +117,23 @@ describe("canAccessBill", () => {
 
   it("LABOUR_MGMT denied for PURCHASE_PHOTO", () => {
     expect(canAccessAttachment("LABOUR_MGMT", makeAttachment({ attachedToType: "PURCHASE_PHOTO" }))).toBe(false);
+  });
+
+  // Phase 12c — SALE_PHOTO inherits the SALE matrix (ADMIN-only).
+  it("PURCHASE_DEPT denied for SALE_PHOTO (sales are ADMIN-only)", () => {
+    expect(canAccessAttachment("PURCHASE_DEPT", makeAttachment({ attachedToType: "SALE_PHOTO" }))).toBe(false);
+  });
+
+  it("CASTING_PLATING_MGMT denied for SALE_PHOTO", () => {
+    expect(canAccessAttachment("CASTING_PLATING_MGMT", makeAttachment({ attachedToType: "SALE_PHOTO" }))).toBe(false);
+  });
+
+  it("LABOUR_MGMT denied for SALE_PHOTO", () => {
+    expect(canAccessAttachment("LABOUR_MGMT", makeAttachment({ attachedToType: "SALE_PHOTO" }))).toBe(false);
+  });
+
+  it("ADMIN passes for SALE_PHOTO", () => {
+    expect(canAccessAttachment("ADMIN", makeAttachment({ attachedToType: "SALE_PHOTO" }))).toBe(true);
   });
 
   it("unrecognised attachedToType fails closed for non-admin", () => {

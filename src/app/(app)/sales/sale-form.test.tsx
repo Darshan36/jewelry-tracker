@@ -19,11 +19,17 @@ vi.mock("./actions", () => ({
   updateSale: vi.fn(),
 }));
 // Phase 10.5: SaleForm now imports prepareUpload/confirmUpload for the
-// inline bill section. Mock the bills action module so the test
-// doesn't pull next-auth's runtime into the jsdom environment.
+// inline bill section. Phase 12c: PhotoGallery (edit mode) self-loads
+// via getPhotosForEntity + lazy-loads thumbnail URLs via
+// getAttachmentViewUrl. softDeleteAttachment fires on per-thumb delete.
+// Mock the entire actions module so the test doesn't pull next-auth's
+// runtime into the jsdom environment.
 vi.mock("@/app/(app)/attachments/actions", () => ({
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
+  getPhotosForEntity: vi.fn(async () => ({ ok: true, photos: [] })),
+  getAttachmentViewUrl: vi.fn(async () => ({ ok: true, url: "blob:fake" })),
+  softDeleteAttachment: vi.fn(),
 }));
 
 import { createSale, updateSale } from "./actions";
@@ -484,5 +490,170 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
     expect(el?.className).toContain("md:static");
     // Defeats unused warning on container.
     void container;
+  });
+});
+
+// =====================================================================
+// Phase 12c — photos in form (create mode picker, edit mode gallery)
+// Mirrors purchase-form.test.tsx Phase 12a photo tests.
+// =====================================================================
+
+describe("SaleForm — Phase 12c photos", () => {
+  function getPhotoInput(): HTMLInputElement {
+    // The photo input has `multiple` attribute — distinguishes it from
+    // the bill picker (single file).
+    return document.querySelector(
+      'input[type="file"][multiple]',
+    ) as HTMLInputElement;
+  }
+
+  it("renders a 'Photos (optional)' section in create mode", () => {
+    render(<SaleForm mode="create" parties={parties} />);
+    expect(screen.getByText(/photos \(optional\)/i)).toBeInTheDocument();
+    // The create-mode picker has a 'multiple' file input.
+    expect(getPhotoInput()).toBeInTheDocument();
+  });
+
+  it("picking photos shows a preview tile per file with a Remove button", async () => {
+    render(<SaleForm mode="create" parties={parties} />);
+    fireEvent.change(getPhotoInput(), {
+      target: {
+        files: [
+          makeFile("a.png", "image/png"),
+          makeFile("b.png", "image/png"),
+        ],
+      },
+    });
+    expect(screen.getByTestId("pending-photo-0")).toBeInTheDocument();
+    expect(screen.getByTestId("pending-photo-1")).toBeInTheDocument();
+  });
+
+  it("rejects non-image MIME types client-side", () => {
+    render(<SaleForm mode="create" parties={parties} />);
+    fireEvent.change(getPhotoInput(), {
+      target: { files: [makeFile("doc.pdf", "application/pdf")] },
+    });
+    expect(screen.queryByTestId("pending-photo-0")).toBeNull();
+    expect(screen.getByText(/unsupported type/i)).toBeInTheDocument();
+  });
+
+  it("removing a pending photo drops its preview tile", async () => {
+    const user = userEvent.setup();
+    render(<SaleForm mode="create" parties={parties} />);
+    fireEvent.change(getPhotoInput(), {
+      target: { files: [makeFile("a.png", "image/png")] },
+    });
+    expect(screen.getByTestId("pending-photo-0")).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/^Remove a\.png$/i));
+    expect(screen.queryByTestId("pending-photo-0")).toBeNull();
+  });
+
+  it("on save: runs createSale, then prepareUpload(SALE_PHOTO) for each pending photo", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createSale).mockResolvedValue({
+      ok: true as const,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sale: { id: "sale-77", partyId: null } as any,
+    });
+    vi.mocked(prepareUpload).mockResolvedValue({
+      ok: true as const,
+      attachmentId: "bill-x",
+      presignedUrl: "https://signed.example/put",
+    });
+    vi.mocked(confirmUpload).mockResolvedValue({
+      ok: true as const,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bill: { id: "bill-x" } as any,
+    });
+
+    render(<SaleForm mode="create" parties={parties} />);
+
+    await user.type(
+      document.querySelector("#sales-party-name") as HTMLInputElement,
+      "Walk-in",
+    );
+    await user.type(
+      document.querySelector("#sale-line-0-item") as HTMLInputElement,
+      "Test",
+    );
+    await user.type(
+      document.querySelector("#sale-line-0-rate") as HTMLInputElement,
+      "100",
+    );
+
+    fireEvent.change(getPhotoInput(), {
+      target: {
+        files: [
+          makeFile("p1.png", "image/png"),
+          makeFile("p2.png", "image/png"),
+        ],
+      },
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /save and return/i }),
+    );
+
+    await vi.waitFor(() => {
+      expect(createSale).toHaveBeenCalledOnce();
+      // Two photo prepareUpload calls + zero bill prepareUpload calls
+      // (no bill file picked).
+      expect(prepareUpload).toHaveBeenCalledTimes(2);
+    });
+
+    const calls = vi.mocked(prepareUpload).mock.calls;
+    for (const call of calls) {
+      expect(call[0]).toMatchObject({
+        attachedToType: "SALE_PHOTO",
+        attachedToId: "sale-77",
+      });
+    }
+  });
+
+  it("renders the live PhotoGallery in edit mode (instead of the create-mode picker)", async () => {
+    const sale = {
+      id: "sale-1",
+      date: new Date("2026-05-10T00:00:00Z"),
+      partyId: null,
+      partyName: "Walk-in",
+      partyPhone: null,
+      discount: 0,
+      total: 10000,
+      notes: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      lineItems: [
+        {
+          id: "li-1",
+          saleId: "sale-1",
+          itemDescription: "Test",
+          qty: 1,
+          rate: 10000,
+          createdAt: new Date(),
+        },
+      ],
+      paidAmount: 0,
+      returnTotal: 0,
+      status: "pending" as const,
+      payments: [],
+      returns: [],
+      photoCount: 0,
+    };
+    render(
+      <SaleForm
+        mode="edit"
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sale={sale as any}
+        parties={parties}
+      />,
+    );
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector('[data-testid="photo-gallery"][data-mode="edit"]'),
+      ).toBeInTheDocument();
+    });
+    // The create-mode pending-photo picker is NOT rendered.
+    expect(screen.queryByTestId("pending-photo-0")).toBeNull();
   });
 });

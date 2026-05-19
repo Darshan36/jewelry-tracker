@@ -90,7 +90,7 @@ export async function getCompletedSales(
     },
   });
   return rows
-    .map(serializeSale)
+    .map((row) => serializeSale(row))
     .filter((s) => s.status === "completed");
 }
 

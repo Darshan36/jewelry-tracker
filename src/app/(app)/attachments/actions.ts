@@ -38,6 +38,7 @@ const WRITE_MATRIX: Record<AttachedToType, Role[]> = {
   CASTING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
   PLATING_ENTRY: ["ADMIN", "CASTING_PLATING_MGMT"],
   PURCHASE_PHOTO: ["ADMIN", "PURCHASE_DEPT"],
+  SALE_PHOTO: ["ADMIN"],
 };
 
 function rolesForAttachedTo(t: AttachedToType | null | undefined): Role[] {
