@@ -847,6 +847,67 @@ handler doesn't run — reach for `fireEvent.<eventName>(element)` first.
 Discovered Phase 3.1 — five party-picker tests failed because the
 dropdown-opening `onFocus` handler never fired from `input.focus()`.
 
+### Radix Tabs trigger selection — `userEvent.click`, not `fireEvent.click` (Phase 19)
+
+Radix Tabs' `<TabsTrigger>` uses pointer events (pointerdown +
+pointerup-as-click) to drive tab selection, NOT a plain synthetic
+`onClick`. In jsdom, `fireEvent.click(tabTrigger)` fires the React
+synthetic click event but the trigger's `data-state` stays `inactive`
+and the previously-active panel's content remains mounted — the test
+then queries elements from the wrong tab and either fails with the old
+panel's content or times out on `findByTestId` for the expected
+panel's content.
+
+```typescript
+// ❌ DOES NOT switch the active tab in jsdom — `data-state="active"` stays on the original
+fireEvent.click(screen.getByTestId("tab-purchases"));
+expect(screen.getByTestId("completed-empty")).toHaveTextContent(/purchases/i);
+// Received: "No completed sales in this period." (the OLD active tab's content)
+
+// ✓ Fires Radix's pointerdown + click sequence, swaps the active panel
+const user = userEvent.setup();
+await user.click(screen.getByTestId("tab-purchases"));
+await waitFor(() => {
+  expect(screen.getByTestId("completed-empty")).toHaveTextContent(/purchases/i);
+});
+```
+
+`userEvent.setup()` + `await user.click(...)` is the right shape for
+any test that interacts with a Radix primitive (Tabs, Select, Dialog
+triggers, DropdownMenu items, etc.). After the click, the Radix panel
+swap settles asynchronously — use `await screen.findByTestId(...)` or
+wrap the assertion in `waitFor(...)`.
+
+Discovered Phase 19 — Tab-switch tests in `completed-client.test.tsx`
+failed with `fireEvent.click` even though the trigger element was
+correctly located; `userEvent.click` resolved every case in one go.
+
+### Cross-entity aggregation query tests (Phase 19)
+
+Phase 19's `/completed` page aggregates five entity types under one
+view; each tab calls its own query helper. Tests for these helpers
+(`completed-queries.test.ts`) construct fixture rows that match the
+Prisma shape *plus* the includes (lineItems / payments / returns) the
+helper passes to `findMany`. Pattern:
+
+- One `makeXxx(overrides)` factory per entity, exhaustive default
+  shape, `overrides` for the parts each test cares about (e.g.,
+  `paid`, `total`, `returnTotal`).
+- BigInt fields stay BigInt in fixtures — the helper invokes the
+  entity's `serialize*` which converts to Number at the boundary.
+- `Decimal` columns (`weightKg` on casting/plating line items) use
+  `new Decimal("1.000")` — the canonical form preserves the 3-decimal
+  gram-precision contract.
+- Status assertions go on the **serialized output**, not the raw row
+  — status is derived (CLAUDE.md §5), so the fixture sets `paid` to
+  imply the desired status post-serialize, then the test asserts
+  `out[0].status === "completed"` (or excludes the row entirely if
+  the status doesn't match).
+- The `where` clause assertions pull from `vi.mocked(prisma.X.findMany).mock.calls[0][0]`
+  and check `where.deletedAt: null`, `where.date: { gte, lt }`, and
+  the OR'd partyName/partyPhone search shape. Empty `partyQuery`
+  short-circuits the OR — assert `where.OR === undefined` for that case.
+
 ### Unicode minus-sign regex gotcha
 
 When asserting on negative-amount strings (e.g. `−₹400.00` in refund

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   canManageLabour,
+  canViewCompleted,
   canViewLabour,
   canViewPayables,
   canViewReceivables,
+  canViewReports,
   effectivePayableScope,
 } from "./role-access";
 
@@ -91,5 +93,31 @@ describe("canManageLabour — Phase 18", () => {
   });
   it("CASTING_PLATING_MGMT cannot manage", () => {
     expect(canManageLabour("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canViewCompleted — Phase 19", () => {
+  it("ADMIN can view", () => {
+    expect(canViewCompleted("ADMIN")).toBe(true);
+  });
+  it("PURCHASE_DEPT cannot view", () => {
+    expect(canViewCompleted("PURCHASE_DEPT")).toBe(false);
+  });
+  it("LABOUR_MGMT cannot view", () => {
+    expect(canViewCompleted("LABOUR_MGMT")).toBe(false);
+  });
+  it("CASTING_PLATING_MGMT cannot view", () => {
+    expect(canViewCompleted("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canViewReports — Phase 19 (placeholder for Phase 15)", () => {
+  it("ADMIN can view", () => {
+    expect(canViewReports("ADMIN")).toBe(true);
+  });
+  it("non-ADMIN roles cannot view", () => {
+    expect(canViewReports("PURCHASE_DEPT")).toBe(false);
+    expect(canViewReports("LABOUR_MGMT")).toBe(false);
+    expect(canViewReports("CASTING_PLATING_MGMT")).toBe(false);
   });
 });
