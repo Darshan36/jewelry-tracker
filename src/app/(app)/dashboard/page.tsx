@@ -1,12 +1,19 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
+import {
+  listPayables,
+  listReceivables,
+  type PartyPayableRollup,
+  type PartyReceivableRollup,
+} from "@/lib/outstanding-balances";
 
 // Role-aware dashboard. Each branch fetches only the data its cards need.
-// Full Recharts dashboards are deferred to Phase 7 — these cards are minimal
-// landing-page summaries so every role has somewhere to land after sign-in.
+// Phase 17b: every non-LABOUR_MGMT branch gets payables (and ADMIN also
+// gets receivables) cards + top-3 party lists.
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -63,32 +70,85 @@ function Card({
   );
 }
 
+// Top-3 list under a summary card. Each row links to /payables/<id>
+// or /receivables/<id> for the detail page where the user can pay.
+function TopThreeList({
+  title,
+  rollups,
+  basePath,
+  emptyText,
+}: {
+  title: string;
+  rollups: { id: string; name: string; outstanding: number }[];
+  basePath: "/payables" | "/receivables";
+  emptyText: string;
+}) {
+  return (
+    <div className="p-6 bg-surface-container border border-outline-variant">
+      <p className="text-xs uppercase tracking-wider text-on-surface-variant mb-3">
+        {title}
+      </p>
+      {rollups.length === 0 ? (
+        <p className="text-sm text-on-surface-variant">{emptyText}</p>
+      ) : (
+        <ul className="space-y-2">
+          {rollups.slice(0, 3).map((r) => (
+            <li key={r.id} className="flex items-center justify-between gap-2">
+              <Link
+                href={`${basePath}/${r.id}`}
+                className="flex-1 text-sm text-on-surface hover:underline truncate"
+              >
+                {r.name}
+              </Link>
+              <span className="tabular-nums font-mono text-sm text-on-surface">
+                {formatCurrency(r.outstanding)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ---------- per-role dashboards ----------
 
 async function AdminDashboard({ name }: { name: string }) {
   const monthRange = currentMonthRange();
 
-  const [customerCount, supplierCount, salesAgg, purchasesAgg, billsReady] =
-    await Promise.all([
-      prisma.party.count({ where: { isCustomer: true, deletedAt: null } }),
-      prisma.party.count({ where: { isSupplier: true, deletedAt: null } }),
-      prisma.sale.aggregate({
-        where: { deletedAt: null, date: monthRange },
-        _count: { _all: true },
-        _sum: { total: true },
-      }),
-      prisma.purchase.aggregate({
-        where: { deletedAt: null, date: monthRange },
-        _count: { _all: true },
-        _sum: { total: true },
-      }),
-      prisma.attachment.count({ where: { deletedAt: null, status: "READY" } }),
-    ]);
+  const [
+    customerCount,
+    supplierCount,
+    salesAgg,
+    purchasesAgg,
+    billsReady,
+    payables,
+    receivables,
+  ] = await Promise.all([
+    prisma.party.count({ where: { isCustomer: true, deletedAt: null } }),
+    prisma.party.count({ where: { isSupplier: true, deletedAt: null } }),
+    prisma.sale.aggregate({
+      where: { deletedAt: null, date: monthRange },
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    prisma.purchase.aggregate({
+      where: { deletedAt: null, date: monthRange },
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    prisma.attachment.count({ where: { deletedAt: null, status: "READY" } }),
+    listPayables("all"),
+    listReceivables(),
+  ]);
+
+  const totalPayables = payables.reduce((s, p) => s + p.totalOutstanding, 0);
+  const totalReceivables = receivables.reduce((s, r) => s + r.totalOutstanding, 0);
 
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Admin overview" />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
         <Card label="Customers" value={String(customerCount)} />
         <Card label="Suppliers" value={String(supplierCount)} />
         <Card
@@ -102,9 +162,42 @@ async function AdminDashboard({ name }: { name: string }) {
           hint={`${purchasesAgg._count._all} transactions`}
         />
         <Card
+          label="Total Payables"
+          value={formatCurrency(totalPayables)}
+          hint={`${payables.length} parties`}
+        />
+        <Card
+          label="Total Receivables"
+          value={formatCurrency(totalReceivables)}
+          hint={`${receivables.length} customers`}
+        />
+        <Card
           label="Bills stored"
           value={String(billsReady)}
           hint="Active receipts in R2"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <TopThreeList
+          title="Top parties you owe"
+          rollups={payables.map((p: PartyPayableRollup) => ({
+            id: p.party.id,
+            name: p.party.name,
+            outstanding: p.totalOutstanding,
+          }))}
+          basePath="/payables"
+          emptyText="No outstanding payables."
+        />
+        <TopThreeList
+          title="Top customers who owe you"
+          rollups={receivables.map((r: PartyReceivableRollup) => ({
+            id: r.party.id,
+            name: r.party.name,
+            outstanding: r.totalOutstanding,
+          }))}
+          basePath="/receivables"
+          emptyText="No outstanding receivables."
         />
       </div>
     </div>
@@ -114,20 +207,22 @@ async function AdminDashboard({ name }: { name: string }) {
 async function PurchaseDashboard({ name }: { name: string }) {
   const monthRange = currentMonthRange();
 
-  const [supplierCount, purchasesAgg, owedToSuppliers] = await Promise.all([
+  const [supplierCount, purchasesAgg, payables] = await Promise.all([
     prisma.party.count({ where: { isSupplier: true, deletedAt: null } }),
     prisma.purchase.aggregate({
       where: { deletedAt: null, date: monthRange },
       _count: { _all: true },
       _sum: { total: true },
     }),
-    sumOwedToSuppliers(),
+    listPayables("purchase"),
   ]);
+
+  const totalPayables = payables.reduce((s, p) => s + p.totalOutstanding, 0);
 
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Purchases overview" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
         <Card label="Suppliers" value={String(supplierCount)} />
         <Card
           label="Purchases (this month)"
@@ -135,11 +230,22 @@ async function PurchaseDashboard({ name }: { name: string }) {
           hint={`${purchasesAgg._count._all} transactions`}
         />
         <Card
-          label="Owed to suppliers"
-          value={formatCurrency(Number(owedToSuppliers))}
-          hint="Across all non-completed purchases"
+          label="Purchase Payables"
+          value={formatCurrency(totalPayables)}
+          hint={`${payables.length} suppliers`}
         />
       </div>
+
+      <TopThreeList
+        title="Top suppliers you owe"
+        rollups={payables.map((p) => ({
+          id: p.party.id,
+          name: p.party.name,
+          outstanding: p.totalOutstanding,
+        }))}
+        basePath="/payables"
+        emptyText="No outstanding supplier payables."
+      />
     </div>
   );
 }
@@ -176,7 +282,7 @@ async function LabourDashboard({ name }: { name: string }) {
 async function CastingPlatingDashboard({ name }: { name: string }) {
   const monthRange = currentMonthRange();
 
-  const [castingAgg, platingAgg, vendorCount, owed] = await Promise.all([
+  const [castingAgg, platingAgg, vendorCount, payables] = await Promise.all([
     prisma.castingEntry.aggregate({
       where: { deletedAt: null, date: monthRange },
       _count: { _all: true },
@@ -193,13 +299,15 @@ async function CastingPlatingDashboard({ name }: { name: string }) {
         deletedAt: null,
       },
     }),
-    sumOwedToCastingPlatingVendors(),
+    listPayables("casting_plating"),
   ]);
+
+  const totalPayables = payables.reduce((s, p) => s + p.totalOutstanding, 0);
 
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Casting & Plating" />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
         <Card
           label="Casting (this month)"
           value={formatCurrency(Number(castingAgg._sum.total ?? 0n))}
@@ -211,12 +319,23 @@ async function CastingPlatingDashboard({ name }: { name: string }) {
           hint={`${platingAgg._count._all} entries`}
         />
         <Card
-          label="Total owed"
-          value={formatCurrency(Number(owed))}
-          hint="Across all open casting/plating entries"
+          label="Casting/Plating Payables"
+          value={formatCurrency(totalPayables)}
+          hint={`${payables.length} vendors`}
         />
         <Card label="Vendors" value={String(vendorCount)} />
       </div>
+
+      <TopThreeList
+        title="Top vendors you owe"
+        rollups={payables.map((p) => ({
+          id: p.party.id,
+          name: p.party.name,
+          outstanding: p.totalOutstanding,
+        }))}
+        basePath="/payables"
+        emptyText="No outstanding vendor payables."
+      />
     </div>
   );
 }
@@ -244,59 +363,3 @@ function currentMonthRange() {
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   return { gte: start, lt: end };
 }
-
-async function sumOwedToCastingPlatingVendors(): Promise<bigint> {
-  const [casting, plating] = await Promise.all([
-    prisma.castingEntry.findMany({
-      where: { deletedAt: null },
-      include: { payments: { where: { deletedAt: null } } },
-    }),
-    prisma.platingEntry.findMany({
-      where: { deletedAt: null },
-      include: { payments: { where: { deletedAt: null } } },
-    }),
-  ]);
-
-  let owed = 0n;
-  for (const e of casting) {
-    const netPaid = e.payments.reduce(
-      (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
-      0n,
-    );
-    const remaining = e.total - netPaid;
-    if (remaining > 0n) owed += remaining;
-  }
-  for (const e of plating) {
-    const netPaid = e.payments.reduce(
-      (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
-      0n,
-    );
-    const remaining = e.total - netPaid;
-    if (remaining > 0n) owed += remaining;
-  }
-  return owed;
-}
-
-async function sumOwedToSuppliers(): Promise<bigint> {
-  const purchases = await prisma.purchase.findMany({
-    where: { deletedAt: null },
-    include: {
-      payments: { where: { deletedAt: null } },
-      returns: { where: { deletedAt: null } },
-    },
-  });
-
-  let owed = 0n;
-  for (const p of purchases) {
-    const netPaid = p.payments.reduce(
-      (sum, pay) => (pay.type === "PAYMENT" ? sum + pay.amount : sum - pay.amount),
-      0n,
-    );
-    const returnTotal = p.returns.reduce((sum, r) => sum + r.refundAmount, 0n);
-    const effectiveTotal = p.total - returnTotal;
-    const remaining = effectiveTotal - netPaid;
-    if (remaining > 0n) owed += remaining;
-  }
-  return owed;
-}
-

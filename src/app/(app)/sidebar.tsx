@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
   BarChart3,
   Building2,
   CheckCircle2,
@@ -53,6 +55,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/casting", label: "Casting", icon: Flame, enabled: true, allowedRoles: ["ADMIN", "CASTING_PLATING_MGMT"] },
   { href: "/plating", label: "Plating", icon: Sparkles, enabled: true, allowedRoles: ["ADMIN", "CASTING_PLATING_MGMT"] },
   { href: "/vendors", label: "Vendors", icon: Factory, enabled: true, allowedRoles: ["ADMIN", "CASTING_PLATING_MGMT"] },
+  { href: "/payables", label: "Payables", icon: ArrowUpFromLine, enabled: true, allowedRoles: ["ADMIN", "PURCHASE_DEPT", "CASTING_PLATING_MGMT"] },
+  { href: "/receivables", label: "Receivables", icon: ArrowDownToLine, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: false, allowedRoles: ["ADMIN"] },
   { href: "/reports", label: "Reports", icon: BarChart3, enabled: false, allowedRoles: ["ADMIN"] },
   { href: "/users", label: "Users", icon: ShieldCheck, enabled: false, allowedRoles: ["ADMIN"] },

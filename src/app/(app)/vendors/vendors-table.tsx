@@ -49,6 +49,14 @@ export type VendorForClient = {
   castingCount: number;
   platingCount: number;
   owedPaise: number;
+  // Phase 17b — surfaced to detail modal for role-chip rendering. A vendor
+  // can be a casting vendor, plating vendor, or both (the /vendors form
+  // sets both). May also have isCustomer / isSupplier set if the party
+  // wears more hats than vendor.
+  isCustomer: boolean;
+  isSupplier: boolean;
+  isCastingVendor: boolean;
+  isPlatingVendor: boolean;
 };
 
 type Props = { parties: VendorForClient[] };

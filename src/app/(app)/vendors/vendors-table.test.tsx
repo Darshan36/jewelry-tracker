@@ -36,6 +36,10 @@ function makeParty(overrides: Partial<VendorForClient> = {}): VendorForClient {
     castingCount: 0,
     platingCount: 0,
     owedPaise: 0,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: true,
+    isPlatingVendor: true,
     ...overrides,
   };
 }

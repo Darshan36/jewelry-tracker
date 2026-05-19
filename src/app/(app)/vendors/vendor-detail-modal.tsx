@@ -11,6 +11,7 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
+import { PartyRoleChips } from "@/components/party-role-chips";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 import { softDeleteVendor } from "./actions";
@@ -56,6 +57,7 @@ export function VendorDetailModal({
       >
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{vendor.name}</ResponsiveDialogTitle>
+          <PartyRoleChips party={vendor} className="mt-2" />
         </ResponsiveDialogHeader>
 
         <div className="space-y-5">

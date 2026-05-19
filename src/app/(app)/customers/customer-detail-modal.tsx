@@ -11,6 +11,7 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
+import { PartyRoleChips } from "@/components/party-role-chips";
 import type { Party as Customer } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
 
@@ -58,6 +59,7 @@ export function CustomerDetailModal({
       >
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{customer.name}</ResponsiveDialogTitle>
+          <PartyRoleChips party={customer} className="mt-2" />
         </ResponsiveDialogHeader>
 
         <div className="space-y-5">

@@ -64,6 +64,10 @@ export default async function VendorsPage() {
       castingCount,
       platingCount,
       owedPaise: Number(owed),
+      isCustomer: v.isCustomer,
+      isSupplier: v.isSupplier,
+      isCastingVendor: v.isCastingVendor,
+      isPlatingVendor: v.isPlatingVendor,
     };
   });
 

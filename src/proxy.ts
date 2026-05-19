@@ -19,6 +19,13 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   "/casting": ["ADMIN", "CASTING_PLATING_MGMT"],
   "/plating": ["ADMIN", "CASTING_PLATING_MGMT"],
   "/vendors": ["ADMIN", "CASTING_PLATING_MGMT"],
+  // Phase 17b: Payables visible to ADMIN, PURCHASE_DEPT, CASTING_PLATING_MGMT
+  // (each role's page server-component re-filters by effective scope —
+  // PURCHASE_DEPT can't see casting payables and vice versa even at this
+  // route level). LABOUR_MGMT has no payables to view.
+  "/payables": ["ADMIN", "PURCHASE_DEPT", "CASTING_PLATING_MGMT"],
+  // Receivables is ADMIN-only — customer-facing book.
+  "/receivables": ["ADMIN"],
   "/admin": ["ADMIN"],
   "/dashboard": ["ADMIN", "PURCHASE_DEPT", "LABOUR_MGMT", "CASTING_PLATING_MGMT"],
 };
