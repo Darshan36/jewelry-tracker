@@ -17,14 +17,14 @@ export default async function PurchasesPage() {
     },
   });
 
-  // Phase 12a — photo counts. Bill rows aren't a relation off Purchase
+  // Phase 12a — photo counts. Attachment rows aren't a relation off Purchase
   // (no FK; just the discriminator pair), so we count in a single
   // groupBy query and merge by id. Single extra round-trip regardless
   // of page size.
   const photoIds = purchaseRows.map((p) => p.id);
   const photoCountRows =
     photoIds.length > 0
-      ? await prisma.bill.groupBy({
+      ? await prisma.attachment.groupBy({
           by: ["attachedToId"],
           where: {
             attachedToType: "PURCHASE_PHOTO",

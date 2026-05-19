@@ -13,7 +13,7 @@
 //      attachedToId=entry.id) → R2 PUT → confirmUpload
 //   3. Navigate via SaveMode (return) or reset (another)
 // If step 2 fails, the entry IS saved — error banner shows + the user
-// can use the inline 📎 BillActionModal from the row to retry. No
+// can use the inline 📎 AttachmentActionModal from the row to retry. No
 // rollback of step 1 (the entry stands on its own).
 
 import { useEffect, useRef, useState } from "react";
@@ -30,7 +30,7 @@ import {
   FormTextarea,
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
-import { BillPreview } from "@/components/bill-preview";
+import { AttachmentPreview } from "@/components/attachment-preview";
 import {
   dateToIsoIST,
   formatCurrency,
@@ -40,11 +40,11 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   type AllowedMimeType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 import {
   confirmUpload,
   prepareUpload,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 
 import { createSale, updateSale } from "./actions";
 import { PartyPicker, type CustomerOption } from "./party-picker";
@@ -111,7 +111,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
   // Phase 10.5: optional bill-in-form. Picked file lives in state;
   // upload runs after the entry create/update succeeds. Replacing an
   // existing bill from the form page isn't supported — that flow lives
-  // in the row-level BillActionModal.
+  // in the row-level AttachmentActionModal.
   const [pickedBillFile, setPickedBillFile] = useState<File | null>(null);
   const [billPickerError, setBillPickerError] = useState<string | null>(null);
   const [billUploadStatus, setBillUploadStatus] = useState<
@@ -202,7 +202,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
     // Entry is saved. If a bill is picked, run the upload chain
     // attached to the entry's id. On failure, leave the entry saved
     // and surface a banner — the user can retry via the row-level
-    // BillActionModal.
+    // AttachmentActionModal.
     const savedSaleId = result.sale.id;
     if (pickedBillFile) {
       try {
@@ -221,7 +221,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
         setBillUploadStatus("uploading");
         await putToR2(prep.presignedUrl, pickedBillFile);
         setBillUploadStatus("confirming");
-        const conf = await confirmUpload({ billId: prep.billId });
+        const conf = await confirmUpload({ attachmentId: prep.attachmentId });
         if (!conf.ok) {
           const first = Object.values(conf.errors).flat().find(Boolean);
           throw new Error(first ?? "Bill confirmation failed");
@@ -534,7 +534,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
                   Remove
                 </button>
               </div>
-              <BillPreview file={pickedBillFile} />
+              <AttachmentPreview file={pickedBillFile} />
             </div>
           )}
           <p className="text-[10px] text-on-surface-variant uppercase tracking-wider">

@@ -107,7 +107,7 @@ export async function createPlatingPayment(input: PlatingPaymentInput) {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
       vendor: true,
-      bill: true,
+      attachment: true,
     },
   });
   return {

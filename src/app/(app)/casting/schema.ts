@@ -57,13 +57,13 @@ export const castingEntryInputSchema = z.object({
 
   discount: z.number().nonnegative("Discount cannot be negative").default(0),
 
-  // Optional billId — when set, links a previously-uploaded Bill to this
-  // entry. Bill upload happens AFTER entry creation (the bill needs
+  // Optional attachmentId — when set, links a previously-uploaded Attachment to this
+  // entry. Attachment upload happens AFTER entry creation (the bill needs
   // attachedToId = entry.id), so the create flow leaves this null; the
   // form's bill picker runs a follow-up `updateCastingEntry` to attach.
   // Empty-string-to-null matches the pattern used on other optional
   // fields so a form that submits "" for an unset bill normalises cleanly.
-  billId: z
+  attachmentId: z
     .string()
     .nullish()
     .transform((v) => (v === undefined || v === null || v === "" ? null : v)),

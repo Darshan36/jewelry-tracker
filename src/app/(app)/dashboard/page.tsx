@@ -82,7 +82,7 @@ async function AdminDashboard({ name }: { name: string }) {
         _count: { _all: true },
         _sum: { total: true },
       }),
-      prisma.bill.count({ where: { deletedAt: null, status: "READY" } }),
+      prisma.attachment.count({ where: { deletedAt: null, status: "READY" } }),
     ]);
 
   return (

@@ -1,4 +1,4 @@
-// Role-based access control for Bill rows.
+// Role-based access control for Attachment rows.
 //
 // Bills inherit their access rule from the parent entity they're attached
 // to (the `attachedToType` discriminator). ADMIN sees every bill regardless
@@ -14,14 +14,14 @@
 //
 // Server only (imports prisma + r2). Do not import from 'use client'.
 
-import type { Bill, Role } from "@/generated/prisma";
+import type { Attachment, Role } from "@/generated/prisma";
 
 import { prisma } from "@/lib/prisma";
 import { generatePresignedGetUrl } from "@/lib/r2";
 import {
   ATTACHED_TO_TYPES,
   type AttachedToType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 
 // Per-attachment-type role rule. Standalone bills (`attachedToType: null`)
 // are admin-only since they have no parent to inherit from — the admin
@@ -48,9 +48,9 @@ function isAttachedToType(value: string | null): value is AttachedToType {
  *   - Bills with a known `attachedToType` consult the role matrix above.
  *   - Bills with an unrecognised `attachedToType` fail closed (admin-only).
  */
-export function canAccessBill(
+export function canAccessAttachment(
   role: Role,
-  bill: Pick<Bill, "attachedToType">,
+  bill: Pick<Attachment, "attachedToType">,
 ): boolean {
   if (role === "ADMIN") return true;
   if (bill.attachedToType === null) return false;
@@ -65,14 +65,14 @@ export function canAccessBill(
  * have no usable R2 object).
  */
 export async function getViewableBillUrl(
-  billId: string,
+  attachmentId: string,
   role: Role,
 ): Promise<string | null> {
-  const bill = await prisma.bill.findUnique({ where: { id: billId } });
+  const bill = await prisma.attachment.findUnique({ where: { id: attachmentId } });
   if (!bill) return null;
   if (bill.deletedAt !== null) return null;
   if (bill.status !== "READY") return null;
-  if (!canAccessBill(role, bill)) return null;
+  if (!canAccessAttachment(role, bill)) return null;
 
   return generatePresignedGetUrl(bill.r2Key);
 }

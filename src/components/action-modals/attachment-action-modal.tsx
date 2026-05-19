@@ -3,14 +3,14 @@
 // Shared inline bill modal — opens from the Actions column on any
 // transaction row. Shows the currently-attached bill (filename + view
 // link) if one exists; lets the user upload a new bill or replace the
-// existing one. Browser-side preview via <BillPreview> renders the
+// existing one. Browser-side preview via <AttachmentPreview> renders the
 // selected file BEFORE the user clicks Upload — gives them a chance
 // to confirm the right file before the R2 round-trip.
 //
-// Bill attachment is tracked via the Bill row's discriminator
+// Attachment attachment is tracked via the Attachment row's discriminator
 // (`attachedToType` + `attachedToId`). For Sales / Purchases the
-// discriminator is the only link (no `billId` FK on the entity row);
-// for Casting / Plating the entry row also carries a `billId @unique`
+// discriminator is the only link (no `attachmentId` FK on the entity row);
+// for Casting / Plating the entry row also carries a `attachmentId @unique`
 // FK that gets set/cleared via attach/detach actions. The modal
 // dispatches by entityType to handle both shapes.
 
@@ -25,34 +25,34 @@ import {
   ResponsiveDialogHeader,
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
-import { BillPreview } from "@/components/bill-preview";
+import { AttachmentPreview } from "@/components/attachment-preview";
 import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   type AllowedMimeType,
   type AttachedToType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 import {
   confirmUpload,
-  getBillForEntity,
-  getBillViewUrl,
+  getAttachmentForEntity,
+  getAttachmentViewUrl,
   prepareUpload,
-  softDeleteBill,
-} from "@/app/(app)/bills/actions";
+  softDeleteAttachment,
+} from "@/app/(app)/attachments/actions";
 
 export type BillEntityType = "sale" | "purchase" | "casting" | "plating";
 
 // Phase 10.5: the modal is entity-agnostic. The bill-preparation
-// chain — `getBillForEntity` (discriminator lookup), `softDeleteBill`,
+// chain — `getAttachmentForEntity` (discriminator lookup), `softDeleteAttachment`,
 // `prepareUpload`, the browser-side R2 PUT, and `confirmUpload` — is
 // the same for every entity type, so those calls stay internal.
 //
-// For Casting/Plating, the entry row carries a `billId @unique` FK
+// For Casting/Plating, the entry row carries a `attachmentId @unique` FK
 // that must be CLEARED before the old bill can be soft-deleted (to
 // avoid tripping the unique constraint during the replace transient
 // state) and SET after the new bill confirms. Sales/Purchases don't
 // have that FK — the discriminator-only link is set at prepare time
-// and picked up by the next `getBillForEntity` call.
+// and picked up by the next `getAttachmentForEntity` call.
 //
 // `onAttach` / `onDetach` are the entity-specific FK actions; absent
 // for Sales/Purchases, present for Casting/Plating. The modal calls
@@ -62,9 +62,9 @@ type Props = {
   entityId: string;
   open: boolean;
   onClose: () => void;
-  /** Sets the entity's `billId` FK after a new bill is confirmed. Casting/Plating only. */
-  onAttach?: (entityId: string, billId: string) => Promise<{ ok: boolean }>;
-  /** Clears the entity's `billId` FK before a soft-delete + new upload. Casting/Plating only. */
+  /** Sets the entity's `attachmentId` FK after a new bill is confirmed. Casting/Plating only. */
+  onAttach?: (entityId: string, attachmentId: string) => Promise<{ ok: boolean }>;
+  /** Clears the entity's `attachmentId` FK before a soft-delete + new upload. Casting/Plating only. */
   onDetach?: (entityId: string) => Promise<{ ok: boolean }>;
 };
 
@@ -98,7 +98,7 @@ type ExistingBill = {
   sizeBytes: number;
 };
 
-export function BillActionModal({
+export function AttachmentActionModal({
   entityType,
   entityId,
   open,
@@ -127,7 +127,7 @@ export function BillActionModal({
     setUploadError(null);
     setUploadStatus("idle");
     void (async () => {
-      const res = await getBillForEntity(
+      const res = await getAttachmentForEntity(
         attachedToTypeFor(entityType),
         entityId,
       );
@@ -169,13 +169,13 @@ export function BillActionModal({
 
     try {
       // If replacing an existing bill, detach + soft-delete the old one
-      // first so the entity's billId FK (Casting/Plating) is cleared
+      // first so the entity's attachmentId FK (Casting/Plating) is cleared
       // before we attempt to attach the new one. For Sales/Purchases
       // there's no FK to clear (no onDetach prop supplied); soft-delete
       // alone is enough — the discriminator lookup picks up the new bill.
       if (existing) {
         if (onDetach) await onDetach(entityId);
-        await softDeleteBill({ billId: existing.id });
+        await softDeleteAttachment({ attachmentId: existing.id });
       }
 
       setUploadStatus("preparing");
@@ -195,19 +195,19 @@ export function BillActionModal({
       await putToR2(prep.presignedUrl, pickedFile);
 
       setUploadStatus("confirming");
-      const conf = await confirmUpload({ billId: prep.billId });
+      const conf = await confirmUpload({ attachmentId: prep.attachmentId });
       if (!conf.ok) {
         const first = Object.values(conf.errors).flat().find(Boolean);
         throw new Error(first ?? "Bill confirmation failed");
       }
 
-      // For entities with a billId FK (Casting/Plating — they pass an
+      // For entities with a attachmentId FK (Casting/Plating — they pass an
       // onAttach prop), set the new bill's id on the entry row.
       // Sales/Purchases skip this — the discriminator-only link is
       // already established by prepareUpload's attachedToId arg.
       if (onAttach) {
         setUploadStatus("attaching");
-        await onAttach(entityId, prep.billId);
+        await onAttach(entityId, prep.attachmentId);
       }
 
       setUploadStatus("idle");
@@ -223,7 +223,7 @@ export function BillActionModal({
 
   const handleViewExisting = async () => {
     if (!existing) return;
-    const res = await getBillViewUrl(existing.id);
+    const res = await getAttachmentViewUrl(existing.id);
     if (res.ok) {
       window.open(res.url, "_blank", "noopener,noreferrer");
     }
@@ -334,7 +334,7 @@ export function BillActionModal({
                   {formatBytes(pickedFile.size)}
                 </span>
               </div>
-              <BillPreview file={pickedFile} />
+              <AttachmentPreview file={pickedFile} />
             </div>
           )}
 

@@ -6,7 +6,7 @@
 // and after any add/delete. Reuses the Phase 8 R2 prepare/confirm flow per
 // file. For each picked file the chain is:
 //   prepareUpload(PURCHASE_PHOTO, entityId) → presigned PUT to R2 →
-//   confirmUpload(billId).
+//   confirmUpload(attachmentId).
 // Failures on individual files don't halt the batch — the others still
 // upload; failures are surfaced in an inline error banner.
 //
@@ -23,15 +23,15 @@ import {
   PHOTO_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   type PhotoMimeType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 import {
   confirmUpload,
-  getBillViewUrl,
+  getAttachmentViewUrl,
   getPhotosForEntity,
   prepareUpload,
-  softDeleteBill,
+  softDeleteAttachment,
   type PhotoForClient,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 
 import { PhotoLightbox } from "./photo-lightbox";
 
@@ -100,7 +100,7 @@ export function PhotoGallery({
     void (async () => {
       const entries = await Promise.all(
         photos.map(async (p) => {
-          const res = await getBillViewUrl(p.id);
+          const res = await getAttachmentViewUrl(p.id);
           return [p.id, res.ok ? res.url : ""] as const;
         }),
       );
@@ -154,7 +154,7 @@ export function PhotoGallery({
           throw new Error(first ?? "Prepare failed");
         }
         await putToR2(prep.presignedUrl, file);
-        const conf = await confirmUpload({ billId: prep.billId });
+        const conf = await confirmUpload({ attachmentId: prep.attachmentId });
         if (!conf.ok) {
           const first = Object.values(conf.errors).flat().find(Boolean);
           throw new Error(first ?? "Confirm failed");
@@ -177,7 +177,7 @@ export function PhotoGallery({
     setError(null);
     setBusy(true);
     try {
-      const res = await softDeleteBill({ billId: photoId });
+      const res = await softDeleteAttachment({ attachmentId: photoId });
       if (!res.ok) {
         const first = Object.values(res.errors).flat().find(Boolean);
         throw new Error(first ?? "Delete failed");

@@ -1,6 +1,6 @@
 // Tests for PhotoGallery — Phase 12a.
 //
-// Mocks @/app/(app)/bills/actions so the upload + delete + fetch chain
+// Mocks @/app/(app)/attachments/actions so the upload + delete + fetch chain
 // can be asserted without R2 / DB. Uses fireEvent.change on the file
 // input to bypass the accept= filter on bad MIME types (jsdom + RTL
 // silently drops disallowed files via userEvent.upload).
@@ -16,22 +16,22 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/app/(app)/bills/actions", () => ({
+vi.mock("@/app/(app)/attachments/actions", () => ({
   getPhotosForEntity: vi.fn(),
-  getBillViewUrl: vi.fn(),
+  getAttachmentViewUrl: vi.fn(),
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
-  softDeleteBill: vi.fn(),
+  softDeleteAttachment: vi.fn(),
 }));
 
 import {
   confirmUpload,
-  getBillViewUrl,
+  getAttachmentViewUrl,
   getPhotosForEntity,
   prepareUpload,
-  softDeleteBill,
+  softDeleteAttachment,
   type PhotoForClient,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 
 import { PhotoGallery } from "./photo-gallery";
 
@@ -85,20 +85,20 @@ beforeEach(() => {
   );
 
   vi.mocked(getPhotosForEntity).mockResolvedValue({ ok: true, photos: [] });
-  vi.mocked(getBillViewUrl).mockResolvedValue({
+  vi.mocked(getAttachmentViewUrl).mockResolvedValue({
     ok: true,
     url: "https://signed.example/thumb",
   });
   vi.mocked(prepareUpload).mockResolvedValue({
     ok: true,
-    billId: "new-bill",
+    attachmentId: "new-bill",
     presignedUrl: "https://signed.example/put",
   });
   vi.mocked(confirmUpload).mockResolvedValue({
     ok: true,
     bill: {} as never,
   });
-  vi.mocked(softDeleteBill).mockResolvedValue({ ok: true });
+  vi.mocked(softDeleteAttachment).mockResolvedValue({ ok: true });
 
   cleanup();
 });
@@ -278,7 +278,7 @@ describe("PhotoGallery — edit mode", () => {
     await user.click(deleteBtn);
 
     await waitFor(() => {
-      expect(softDeleteBill).toHaveBeenCalledWith({ billId: "deleteme" });
+      expect(softDeleteAttachment).toHaveBeenCalledWith({ attachmentId: "deleteme" });
     });
   });
 
@@ -322,7 +322,7 @@ describe("PhotoGallery — edit mode", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        billId: "ok-id",
+        attachmentId: "ok-id",
         presignedUrl: "https://signed.example/put",
       });
 

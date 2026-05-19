@@ -15,7 +15,7 @@ export default async function BillsTestPage() {
   if (!session?.user) redirect("/auth/login");
   if (session.user.role !== "ADMIN") redirect("/dashboard");
 
-  const bills = await prisma.bill.findMany({
+  const bills = await prisma.attachment.findMany({
     where: { deletedAt: null },
     orderBy: { uploadedAt: "desc" },
     take: 50,

@@ -279,7 +279,7 @@ function SortIndicator({ sorted }: { sorted: false | "asc" | "desc" }) {
 // inline action buttons. Mutations go through the detail modal's Edit
 // link (tap card → detail modal → Edit) — different workflow shape
 // from transactional entities (Sales/Purchases etc.) which surface
-// Pay/Bill/Return as inline quick actions.
+// Pay/Attachment/Return as inline quick actions.
 function CustomerMobileCard({
   customer,
   onCardClick,

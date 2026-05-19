@@ -10,7 +10,7 @@ import {
   generatePresignedPutUrl,
   headObject,
 } from "@/lib/r2";
-import { canAccessBill, getViewableBillUrl } from "@/lib/bill-access";
+import { canAccessAttachment, getViewableBillUrl } from "@/lib/attachment-access";
 import type { Role } from "@/generated/prisma";
 
 import {
@@ -50,7 +50,7 @@ function pad2(n: number): string {
 }
 
 // R2 key format: bills/YYYY/MM/<uuid>-<sanitized-filename-prefix>.
-// The UUID is independent of the Bill row's PK so we don't need a
+// The UUID is independent of the Attachment row's PK so we don't need a
 // pre-insert id allocation step; the @@unique on r2Key is the database
 // safety net against collision. The filename prefix is purely cosmetic
 // — lets a human glancing at the R2 dashboard recognise what's inside.
@@ -77,7 +77,7 @@ export async function prepareUpload(input: PrepareUploadInput) {
   const now = new Date();
   const r2Key = buildR2Key(parsed.data.originalFilename, now);
 
-  const bill = await prisma.bill.create({
+  const bill = await prisma.attachment.create({
     data: {
       r2Key,
       mimeType: parsed.data.mimeType,
@@ -98,7 +98,7 @@ export async function prepareUpload(input: PrepareUploadInput) {
 
   return {
     ok: true as const,
-    billId: bill.id,
+    attachmentId: bill.id,
     presignedUrl,
   };
 }
@@ -112,9 +112,9 @@ export async function confirmUpload(input: ConfirmUploadInput) {
     };
   }
 
-  const bill = await prisma.bill.findUnique({ where: { id: parsed.data.billId } });
+  const bill = await prisma.attachment.findUnique({ where: { id: parsed.data.attachmentId } });
   if (!bill) {
-    return { ok: false as const, errors: { billId: ["Bill not found"] } };
+    return { ok: false as const, errors: { attachmentId: ["Bill not found"] } };
   }
 
   // Role gate — same matrix as prepareUpload (you can only confirm a bill
@@ -124,7 +124,7 @@ export async function confirmUpload(input: ConfirmUploadInput) {
   if (bill.status !== "PENDING") {
     return {
       ok: false as const,
-      errors: { billId: [`Bill is already ${bill.status.toLowerCase()}`] },
+      errors: { attachmentId: [`Bill is already ${bill.status.toLowerCase()}`] },
     };
   }
 
@@ -148,18 +148,18 @@ export async function confirmUpload(input: ConfirmUploadInput) {
     } catch (err) {
       console.error("[confirmUpload] R2 cleanup failed for failed bill", bill.id, err);
     }
-    await prisma.bill.update({
+    await prisma.attachment.update({
       where: { id: bill.id },
       data: { status: "FAILED" },
     });
     revalidatePath("/admin/bills-test");
     return {
       ok: false as const,
-      errors: { billId: ["Upload verification failed"] },
+      errors: { attachmentId: ["Upload verification failed"] },
     };
   }
 
-  const updated = await prisma.bill.update({
+  const updated = await prisma.attachment.update({
     where: { id: bill.id },
     data: { status: "READY", confirmedAt: new Date() },
   });
@@ -167,7 +167,7 @@ export async function confirmUpload(input: ConfirmUploadInput) {
   return { ok: true as const, bill: updated };
 }
 
-export async function softDeleteBill(input: SoftDeleteBillInput) {
+export async function softDeleteAttachment(input: SoftDeleteBillInput) {
   const parsed = softDeleteBillInputSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -176,19 +176,19 @@ export async function softDeleteBill(input: SoftDeleteBillInput) {
     };
   }
 
-  const bill = await prisma.bill.findUnique({ where: { id: parsed.data.billId } });
+  const bill = await prisma.attachment.findUnique({ where: { id: parsed.data.attachmentId } });
   if (!bill) {
-    return { ok: false as const, errors: { billId: ["Bill not found"] } };
+    return { ok: false as const, errors: { attachmentId: ["Bill not found"] } };
   }
   if (bill.deletedAt !== null) {
-    return { ok: false as const, errors: { billId: ["Bill already deleted"] } };
+    return { ok: false as const, errors: { attachmentId: ["Bill already deleted"] } };
   }
 
   const session = await requireRole(rolesForAttachedTo(bill.attachedToType as AttachedToType | null));
-  // Defense in depth: also check the read-side matrix via canAccessBill,
+  // Defense in depth: also check the read-side matrix via canAccessAttachment,
   // matching the rule used by the viewer. Role write matrix == read matrix
   // by construction; this guards against drift.
-  if (!canAccessBill(session.user.role, bill)) {
+  if (!canAccessAttachment(session.user.role, bill)) {
     throw new Error("Forbidden");
   }
 
@@ -203,7 +203,7 @@ export async function softDeleteBill(input: SoftDeleteBillInput) {
     console.error("[softDeleteBill] R2 delete failed; continuing with DB tombstone", bill.id, err);
   }
 
-  await prisma.bill.update({
+  await prisma.attachment.update({
     where: { id: bill.id },
     data: { deletedAt: new Date() },
   });
@@ -214,19 +214,19 @@ export async function softDeleteBill(input: SoftDeleteBillInput) {
 // Returns a short-lived presigned GET URL for inline viewing, or null if
 // the caller can't see the bill. Calls into the read-side helper so the
 // matrix is enforced consistently.
-export async function getBillViewUrl(billId: string) {
+export async function getAttachmentViewUrl(attachmentId: string) {
   const session = await requireSession();
-  const url = await getViewableBillUrl(billId, session.user.role);
+  const url = await getViewableBillUrl(attachmentId, session.user.role);
   if (!url) return { ok: false as const, error: "Not available" };
   return { ok: true as const, url };
 }
 
 // Fetch the bill currently attached to an entity via the
 // (attachedToType, attachedToId) discriminator. Used by Sales / Purchases
-// rows that don't carry a `billId` FK on the entity (Casting / Plating
+// rows that don't carry a `attachmentId` FK on the entity (Casting / Plating
 // can use either this OR the FK on the entry row — both work). Returns
 // null if no bill is attached or if the caller can't access it.
-export async function getBillForEntity(
+export async function getAttachmentForEntity(
   attachedToType: AttachedToType,
   attachedToId: string,
 ) {
@@ -236,7 +236,7 @@ export async function getBillForEntity(
   // Bills are 1:1 in practice (the upload flow soft-deletes the prior
   // bill before attaching a new one); the orderBy is a defensive tie-
   // breaker.
-  const bill = await prisma.bill.findFirst({
+  const bill = await prisma.attachment.findFirst({
     where: {
       attachedToType,
       attachedToId,
@@ -247,7 +247,7 @@ export async function getBillForEntity(
   });
 
   if (!bill) return { ok: true as const, bill: null };
-  if (!canAccessBill(session.user.role, bill)) {
+  if (!canAccessAttachment(session.user.role, bill)) {
     return { ok: true as const, bill: null };
   }
 
@@ -262,7 +262,7 @@ export async function getBillForEntity(
   };
 }
 
-// Phase 12a — multi-photo variant of getBillForEntity. Returns every
+// Phase 12a — multi-photo variant of getAttachmentForEntity. Returns every
 // READY photo attached to the entity, oldest first. Same role gate as
 // the single-bill lookup. Empty array (not an error) when there are no
 // photos.
@@ -283,7 +283,7 @@ export async function getPhotosForEntity(
 > {
   const session = await requireSession();
 
-  const rows = await prisma.bill.findMany({
+  const rows = await prisma.attachment.findMany({
     where: {
       attachedToType,
       attachedToId,
@@ -297,7 +297,7 @@ export async function getPhotosForEntity(
   // photo (which shouldn't happen since they all share the same
   // attachedToType, but defense in depth), drop it from the list rather
   // than erroring out.
-  const visible = rows.filter((r) => canAccessBill(session.user.role, r));
+  const visible = rows.filter((r) => canAccessAttachment(session.user.role, r));
 
   return {
     ok: true,

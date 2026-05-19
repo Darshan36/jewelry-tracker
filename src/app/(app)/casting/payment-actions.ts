@@ -107,7 +107,7 @@ export async function createCastingPayment(input: CastingPaymentInput) {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
       vendor: true,
-      bill: true,
+      attachment: true,
     },
   });
   return {

@@ -1,4 +1,4 @@
-// Action tests for the Bill upload flow. Mocks Prisma, the R2 wrapper,
+// Action tests for the Attachment upload flow. Mocks Prisma, the R2 wrapper,
 // the auth-guards, next/cache, and the read-side access helper so each
 // action's DB / R2 / auth interactions can be asserted in isolation.
 
@@ -18,8 +18,8 @@ vi.mock("@/lib/r2", () => ({
   headObject: vi.fn(),
   deleteObject: vi.fn(),
 }));
-vi.mock("@/lib/bill-access", () => ({
-  canAccessBill: vi.fn(() => true),
+vi.mock("@/lib/attachment-access", () => ({
+  canAccessAttachment: vi.fn(() => true),
   getViewableBillUrl: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -27,17 +27,17 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { prisma } from "@/lib/prisma";
 import { requireRole, requireSession } from "@/lib/auth-guards";
 import { deleteObject, generatePresignedPutUrl, headObject } from "@/lib/r2";
-import { canAccessBill, getViewableBillUrl } from "@/lib/bill-access";
+import { canAccessAttachment, getViewableBillUrl } from "@/lib/attachment-access";
 import { revalidatePath } from "next/cache";
 
 import {
   confirmUpload,
-  getBillViewUrl,
+  getAttachmentViewUrl,
   getPhotosForEntity,
   prepareUpload,
-  softDeleteBill,
+  softDeleteAttachment,
 } from "./actions";
-import type { Bill, Role } from "@/generated/prisma";
+import type { Attachment, Role } from "@/generated/prisma";
 
 // ---------- helpers ----------
 
@@ -48,7 +48,7 @@ function sessionFor(role: Role) {
   };
 }
 
-function makeBill(overrides: Partial<Bill> = {}): Bill {
+function makeAttachment(overrides: Partial<Attachment> = {}): Attachment {
   return {
     id: "bill-1",
     r2Key: "bills/2026/05/uuid-receipt.pdf",
@@ -84,8 +84,8 @@ beforeEach(() => {
   vi.mocked(generatePresignedPutUrl).mockReset();
   vi.mocked(headObject).mockReset();
   vi.mocked(deleteObject).mockReset();
-  vi.mocked(canAccessBill).mockReset();
-  vi.mocked(canAccessBill).mockReturnValue(true);
+  vi.mocked(canAccessAttachment).mockReset();
+  vi.mocked(canAccessAttachment).mockReturnValue(true);
   vi.mocked(getViewableBillUrl).mockReset();
 
   // Defaults — most tests want a passing role guard and a presign URL.
@@ -102,20 +102,20 @@ beforeEach(() => {
 
 describe("prepareUpload", () => {
   it("happy path — ADMIN + null attachedToType creates a PENDING row and returns the presigned URL", async () => {
-    vi.mocked(prisma.bill.create).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.create).mockResolvedValue(makeAttachment());
 
     const result = await prepareUpload(validPrepare());
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.billId).toBe("bill-1");
+      expect(result.attachmentId).toBe("bill-1");
       expect(result.presignedUrl).toBe("https://signed.example/put");
     }
     // requireRole was called with admin-only for null attachedToType
     expect(requireRole).toHaveBeenCalledWith(["ADMIN"]);
 
-    // prisma.bill.create receives a status:PENDING row with a generated r2Key
-    const call = vi.mocked(prisma.bill.create).mock.calls[0][0];
+    // prisma.attachment.create receives a status:PENDING row with a generated r2Key
+    const call = vi.mocked(prisma.attachment.create).mock.calls[0][0];
     expect(call.data.status).toBe("PENDING");
     expect(call.data.uploadedById).toBe("user-1");
     expect(call.data.mimeType).toBe("application/pdf");
@@ -138,8 +138,8 @@ describe("prepareUpload", () => {
 
   it("happy path — PURCHASE_DEPT can attach a bill to a PURCHASE", async () => {
     vi.mocked(requireRole).mockResolvedValueOnce(sessionFor("PURCHASE_DEPT"));
-    vi.mocked(prisma.bill.create).mockResolvedValue(
-      makeBill({
+    vi.mocked(prisma.attachment.create).mockResolvedValue(
+      makeAttachment({
         attachedToType: "PURCHASE",
         attachedToId: "purchase-1",
         uploadedById: "user-1",
@@ -164,7 +164,7 @@ describe("prepareUpload", () => {
     if (!result.ok) {
       expect(result.errors.mimeType).toBeDefined();
     }
-    expect(prisma.bill.create).not.toHaveBeenCalled();
+    expect(prisma.attachment.create).not.toHaveBeenCalled();
     expect(generatePresignedPutUrl).not.toHaveBeenCalled();
   });
 
@@ -176,25 +176,25 @@ describe("prepareUpload", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.sizeBytes).toBeDefined();
-    expect(prisma.bill.create).not.toHaveBeenCalled();
+    expect(prisma.attachment.create).not.toHaveBeenCalled();
   });
 
   it("propagates Forbidden when requireRole rejects (non-admin tries null attachedToType)", async () => {
     vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
 
     await expect(prepareUpload(validPrepare())).rejects.toThrow("Forbidden");
-    expect(prisma.bill.create).not.toHaveBeenCalled();
+    expect(prisma.attachment.create).not.toHaveBeenCalled();
     expect(generatePresignedPutUrl).not.toHaveBeenCalled();
   });
 
   it("r2Key is unique per call (uuid component changes across invocations)", async () => {
-    vi.mocked(prisma.bill.create).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.create).mockResolvedValue(makeAttachment());
 
     await prepareUpload(validPrepare());
     await prepareUpload(validPrepare());
 
-    const k1 = vi.mocked(prisma.bill.create).mock.calls[0][0].data.r2Key;
-    const k2 = vi.mocked(prisma.bill.create).mock.calls[1][0].data.r2Key;
+    const k1 = vi.mocked(prisma.attachment.create).mock.calls[0][0].data.r2Key;
+    const k2 = vi.mocked(prisma.attachment.create).mock.calls[1][0].data.r2Key;
     expect(k1).not.toBe(k2);
   });
 });
@@ -205,19 +205,19 @@ describe("prepareUpload", () => {
 
 describe("confirmUpload", () => {
   it("happy path — HEAD matches → status READY + confirmedAt set + revalidate", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(makeAttachment());
     vi.mocked(headObject).mockResolvedValue({
       contentType: "application/pdf",
       contentLength: 4096,
     });
-    vi.mocked(prisma.bill.update).mockResolvedValue(
-      makeBill({ status: "READY", confirmedAt: new Date() }),
+    vi.mocked(prisma.attachment.update).mockResolvedValue(
+      makeAttachment({ status: "READY", confirmedAt: new Date() }),
     );
 
-    const result = await confirmUpload({ billId: "bill-1" });
+    const result = await confirmUpload({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(true);
-    const updateCall = vi.mocked(prisma.bill.update).mock.calls[0][0];
+    const updateCall = vi.mocked(prisma.attachment.update).mock.calls[0][0];
     expect(updateCall.where).toEqual({ id: "bill-1" });
     expect(updateCall.data.status).toBe("READY");
     expect(updateCall.data.confirmedAt).toBeInstanceOf(Date);
@@ -226,107 +226,107 @@ describe("confirmUpload", () => {
   });
 
   it("returns ok=false when the bill does not exist", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(null);
 
-    const result = await confirmUpload({ billId: "missing" });
+    const result = await confirmUpload({ attachmentId: "missing" });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.billId).toContain("Bill not found");
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    if (!result.ok) expect(result.errors.attachmentId).toContain("Bill not found");
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
   });
 
   it("returns ok=false when the bill is already READY (idempotent guard)", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(
-      makeBill({ status: "READY" }),
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(
+      makeAttachment({ status: "READY" }),
     );
 
-    const result = await confirmUpload({ billId: "bill-1" });
+    const result = await confirmUpload({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.billId?.[0]).toMatch(/already ready/i);
+      expect(result.errors.attachmentId?.[0]).toMatch(/already ready/i);
     }
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
     expect(headObject).not.toHaveBeenCalled();
   });
 
   it("marks bill FAILED + does NOT delete R2 when headObject returns null (missing object)", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(makeAttachment());
     vi.mocked(headObject).mockResolvedValue(null);
-    vi.mocked(prisma.bill.update).mockResolvedValue(
-      makeBill({ status: "FAILED" }),
+    vi.mocked(prisma.attachment.update).mockResolvedValue(
+      makeAttachment({ status: "FAILED" }),
     );
 
-    const result = await confirmUpload({ billId: "bill-1" });
+    const result = await confirmUpload({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(false);
-    const updateCall = vi.mocked(prisma.bill.update).mock.calls[0][0];
+    const updateCall = vi.mocked(prisma.attachment.update).mock.calls[0][0];
     expect(updateCall.data.status).toBe("FAILED");
     // No R2 object to delete; deleteObject not called
     expect(deleteObject).not.toHaveBeenCalled();
   });
 
   it("marks bill FAILED + DELETES R2 object when MIME type does not match the registered value", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(makeAttachment());
     vi.mocked(headObject).mockResolvedValue({
       contentType: "image/png", // mismatch — bill registered as application/pdf
       contentLength: 4096,
     });
-    vi.mocked(prisma.bill.update).mockResolvedValue(
-      makeBill({ status: "FAILED" }),
+    vi.mocked(prisma.attachment.update).mockResolvedValue(
+      makeAttachment({ status: "FAILED" }),
     );
     vi.mocked(deleteObject).mockResolvedValue(undefined);
 
-    const result = await confirmUpload({ billId: "bill-1" });
+    const result = await confirmUpload({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(false);
     expect(deleteObject).toHaveBeenCalledWith("bills/2026/05/uuid-receipt.pdf");
-    expect(vi.mocked(prisma.bill.update).mock.calls[0][0].data.status).toBe(
+    expect(vi.mocked(prisma.attachment.update).mock.calls[0][0].data.status).toBe(
       "FAILED",
     );
   });
 
   it("marks bill FAILED + DELETES R2 object when size does not match", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(makeAttachment());
     vi.mocked(headObject).mockResolvedValue({
       contentType: "application/pdf",
       contentLength: 1, // mismatch — bill registered 4096
     });
-    vi.mocked(prisma.bill.update).mockResolvedValue(makeBill({ status: "FAILED" }));
+    vi.mocked(prisma.attachment.update).mockResolvedValue(makeAttachment({ status: "FAILED" }));
 
-    const result = await confirmUpload({ billId: "bill-1" });
+    const result = await confirmUpload({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(false);
     expect(deleteObject).toHaveBeenCalled();
   });
 
   it("propagates Forbidden when requireRole rejects", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(makeBill());
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(makeAttachment());
     vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
 
-    await expect(confirmUpload({ billId: "bill-1" })).rejects.toThrow(
+    await expect(confirmUpload({ attachmentId: "bill-1" })).rejects.toThrow(
       "Forbidden",
     );
     expect(headObject).not.toHaveBeenCalled();
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
   });
 });
 
 // =====================================================================
-// softDeleteBill
+// softDeleteAttachment
 // =====================================================================
 
 describe("softDeleteBill", () => {
   it("happy path — deletes R2 object first, then tombstones the DB row", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(
-      makeBill({ status: "READY" }),
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(
+      makeAttachment({ status: "READY" }),
     );
     vi.mocked(deleteObject).mockResolvedValue(undefined);
-    vi.mocked(prisma.bill.update).mockResolvedValue(
-      makeBill({ deletedAt: new Date() }),
+    vi.mocked(prisma.attachment.update).mockResolvedValue(
+      makeAttachment({ deletedAt: new Date() }),
     );
 
-    const result = await softDeleteBill({ billId: "bill-1" });
+    const result = await softDeleteAttachment({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(true);
     // R2 delete happened
@@ -334,84 +334,84 @@ describe("softDeleteBill", () => {
       "bills/2026/05/uuid-receipt.pdf",
     );
     // DB tombstone happened
-    const call = vi.mocked(prisma.bill.update).mock.calls[0][0];
+    const call = vi.mocked(prisma.attachment.update).mock.calls[0][0];
     expect(call.data.deletedAt).toBeInstanceOf(Date);
     expect(revalidatePath).toHaveBeenCalledWith("/admin/bills-test");
   });
 
   it("still tombstones the DB row if R2 deleteObject throws (orphan cleanup deferred)", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(
-      makeBill({ status: "READY" }),
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(
+      makeAttachment({ status: "READY" }),
     );
     vi.mocked(deleteObject).mockRejectedValue(new Error("AccessDenied"));
-    vi.mocked(prisma.bill.update).mockResolvedValue(
-      makeBill({ deletedAt: new Date() }),
+    vi.mocked(prisma.attachment.update).mockResolvedValue(
+      makeAttachment({ deletedAt: new Date() }),
     );
 
-    const result = await softDeleteBill({ billId: "bill-1" });
+    const result = await softDeleteAttachment({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(true);
-    expect(prisma.bill.update).toHaveBeenCalledOnce();
+    expect(prisma.attachment.update).toHaveBeenCalledOnce();
   });
 
   it("returns ok=false when the bill does not exist", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(null);
 
-    const result = await softDeleteBill({ billId: "missing" });
+    const result = await softDeleteAttachment({ attachmentId: "missing" });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.billId).toContain("Bill not found");
+    if (!result.ok) expect(result.errors.attachmentId).toContain("Bill not found");
     expect(deleteObject).not.toHaveBeenCalled();
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
   });
 
   it("returns ok=false when the bill is already soft-deleted (idempotency)", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(
-      makeBill({ deletedAt: new Date() }),
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(
+      makeAttachment({ deletedAt: new Date() }),
     );
 
-    const result = await softDeleteBill({ billId: "bill-1" });
+    const result = await softDeleteAttachment({ attachmentId: "bill-1" });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.billId?.[0]).toMatch(/already deleted/i);
+      expect(result.errors.attachmentId?.[0]).toMatch(/already deleted/i);
     }
     expect(deleteObject).not.toHaveBeenCalled();
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
   });
 
   it("propagates Forbidden when requireRole rejects on the bill's attachedToType", async () => {
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(
-      makeBill({ attachedToType: "PURCHASE", status: "READY" }),
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(
+      makeAttachment({ attachedToType: "PURCHASE", status: "READY" }),
     );
     vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
 
-    await expect(softDeleteBill({ billId: "bill-1" })).rejects.toThrow(
+    await expect(softDeleteAttachment({ attachmentId: "bill-1" })).rejects.toThrow(
       "Forbidden",
     );
     expect(deleteObject).not.toHaveBeenCalled();
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
   });
 
   it("throws Forbidden via canAccessBill drift check when role write/read matrices diverge", async () => {
-    // The action calls requireRole (write matrix) AND canAccessBill (read
+    // The action calls requireRole (write matrix) AND canAccessAttachment (read
     // matrix) as defense in depth — a misconfiguration that lets the
     // write through but is denied on read is caught here.
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(
-      makeBill({ status: "READY" }),
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(
+      makeAttachment({ status: "READY" }),
     );
-    vi.mocked(canAccessBill).mockReturnValue(false);
+    vi.mocked(canAccessAttachment).mockReturnValue(false);
 
-    await expect(softDeleteBill({ billId: "bill-1" })).rejects.toThrow(
+    await expect(softDeleteAttachment({ attachmentId: "bill-1" })).rejects.toThrow(
       "Forbidden",
     );
     expect(deleteObject).not.toHaveBeenCalled();
-    expect(prisma.bill.update).not.toHaveBeenCalled();
+    expect(prisma.attachment.update).not.toHaveBeenCalled();
   });
 });
 
 // =====================================================================
-// getBillViewUrl
+// getAttachmentViewUrl
 // =====================================================================
 
 describe("getBillViewUrl", () => {
@@ -420,7 +420,7 @@ describe("getBillViewUrl", () => {
       "https://signed.example/view",
     );
 
-    const result = await getBillViewUrl("bill-1");
+    const result = await getAttachmentViewUrl("bill-1");
 
     expect(result).toEqual({ ok: true, url: "https://signed.example/view" });
     expect(requireSession).toHaveBeenCalledOnce();
@@ -430,7 +430,7 @@ describe("getBillViewUrl", () => {
   it("returns ok=false when the helper denies the view (role mismatch, deleted, non-ready, or missing)", async () => {
     vi.mocked(getViewableBillUrl).mockResolvedValue(null);
 
-    const result = await getBillViewUrl("bill-1");
+    const result = await getAttachmentViewUrl("bill-1");
 
     expect(result).toEqual({ ok: false, error: "Not available" });
   });
@@ -458,12 +458,12 @@ describe.each(ROLE_MATRIX)(
       const attachedToType = attachKind === "null" ? null : "PURCHASE";
       if (allowed) {
         vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-        vi.mocked(prisma.bill.create).mockResolvedValue(makeBill());
+        vi.mocked(prisma.attachment.create).mockResolvedValue(makeAttachment());
         const result = await prepareUpload(
           validPrepare({ attachedToType, attachedToId: null }),
         );
         expect(result.ok).toBe(true);
-        expect(prisma.bill.create).toHaveBeenCalledOnce();
+        expect(prisma.attachment.create).toHaveBeenCalledOnce();
       } else {
         vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
         await expect(
@@ -471,7 +471,7 @@ describe.each(ROLE_MATRIX)(
             validPrepare({ attachedToType, attachedToId: null }),
           ),
         ).rejects.toThrow("Forbidden");
-        expect(prisma.bill.create).not.toHaveBeenCalled();
+        expect(prisma.attachment.create).not.toHaveBeenCalled();
       }
     });
   },
@@ -484,7 +484,7 @@ describe.each(ROLE_MATRIX)(
 describe("getPhotosForEntity", () => {
   it("happy path — returns READY photos for the discriminator pair, oldest first", async () => {
     const photos = [
-      makeBill({
+      makeAttachment({
         id: "p-1",
         originalFilename: "red.png",
         mimeType: "image/png",
@@ -494,7 +494,7 @@ describe("getPhotosForEntity", () => {
         status: "READY",
         uploadedAt: new Date("2026-05-17T10:00:00Z"),
       }),
-      makeBill({
+      makeAttachment({
         id: "p-2",
         originalFilename: "green.png",
         mimeType: "image/png",
@@ -505,7 +505,7 @@ describe("getPhotosForEntity", () => {
         uploadedAt: new Date("2026-05-17T10:01:00Z"),
       }),
     ];
-    vi.mocked(prisma.bill.findMany).mockResolvedValue(photos);
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue(photos);
 
     const res = await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
 
@@ -519,7 +519,7 @@ describe("getPhotosForEntity", () => {
 
     // Query filters: attachedToType + attachedToId + READY + not deleted,
     // sorted asc by uploadedAt.
-    const call = vi.mocked(prisma.bill.findMany).mock.calls[0][0];
+    const call = vi.mocked(prisma.attachment.findMany).mock.calls[0][0];
     expect(call?.where).toMatchObject({
       attachedToType: "PURCHASE_PHOTO",
       attachedToId: "purchase-X",
@@ -530,7 +530,7 @@ describe("getPhotosForEntity", () => {
   });
 
   it("returns an empty array (ok=true) when no photos exist", async () => {
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([]);
 
     const res = await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
 
@@ -539,12 +539,12 @@ describe("getPhotosForEntity", () => {
   });
 
   it("filters out photos the role can't access (defense in depth)", async () => {
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([
-      makeBill({ id: "p-1", attachedToType: "PURCHASE_PHOTO" }),
-      makeBill({ id: "p-2", attachedToType: "PURCHASE_PHOTO" }),
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([
+      makeAttachment({ id: "p-1", attachedToType: "PURCHASE_PHOTO" }),
+      makeAttachment({ id: "p-2", attachedToType: "PURCHASE_PHOTO" }),
     ]);
     // First photo passes the check, second is denied.
-    vi.mocked(canAccessBill)
+    vi.mocked(canAccessAttachment)
       .mockReturnValueOnce(true)
       .mockReturnValueOnce(false);
 
@@ -558,14 +558,14 @@ describe("getPhotosForEntity", () => {
   });
 
   it("requires a session (calls requireSession)", async () => {
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([]);
     await getPhotosForEntity("PURCHASE_PHOTO", "purchase-X");
     expect(requireSession).toHaveBeenCalledOnce();
   });
 
   it("returns serialized fields only (no internal columns like r2Key)", async () => {
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([
-      makeBill({
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([
+      makeAttachment({
         id: "p-1",
         attachedToType: "PURCHASE_PHOTO",
         r2Key: "bills/2026/05/private-key",

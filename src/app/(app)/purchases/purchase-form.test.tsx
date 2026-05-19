@@ -23,19 +23,19 @@ vi.mock("./actions", () => ({
 // Phase 10.6: PurchaseForm now imports prepareUpload/confirmUpload for
 // the inline bill section. Mock the bills action module so the test
 // doesn't pull next-auth's runtime into the jsdom environment.
-vi.mock("@/app/(app)/bills/actions", () => ({
+vi.mock("@/app/(app)/attachments/actions", () => ({
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
   // Phase 12a — PhotoGallery (edit mode) self-loads via getPhotosForEntity
-  // and resolves a presigned URL per thumb via getBillViewUrl. Stub both so
+  // and resolves a presigned URL per thumb via getAttachmentViewUrl. Stub both so
   // the edit-mode form render doesn't trip an unhandled rejection.
   getPhotosForEntity: vi.fn(async () => ({ ok: true, photos: [] })),
-  getBillViewUrl: vi.fn(async () => ({ ok: false, error: "stubbed" })),
-  softDeleteBill: vi.fn(),
+  getAttachmentViewUrl: vi.fn(async () => ({ ok: false, error: "stubbed" })),
+  softDeleteAttachment: vi.fn(),
 }));
 
 import { createPurchase, updatePurchase } from "./actions";
-import { confirmUpload, prepareUpload } from "@/app/(app)/bills/actions";
+import { confirmUpload, prepareUpload } from "@/app/(app)/attachments/actions";
 
 import { PurchaseForm } from "./purchase-form";
 
@@ -307,7 +307,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
       callOrder.push("prepareUpload");
       return {
         ok: true as const,
-        billId: "bill-id",
+        attachmentId: "bill-id",
         presignedUrl: "https://signed.example/put",
       };
     });
@@ -392,7 +392,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
-      billId: "bill-id",
+      attachmentId: "bill-id",
       presignedUrl: "https://signed.example/put",
     });
     StubXHR.failNext = true;
@@ -550,7 +550,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
-      billId: "bill-x",
+      attachmentId: "bill-x",
       presignedUrl: "https://signed.example/put",
     });
     vi.mocked(confirmUpload).mockResolvedValue({

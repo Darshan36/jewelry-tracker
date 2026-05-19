@@ -33,8 +33,8 @@ import {
   PaymentActionModal,
 } from "@/components/action-modals/payment-action-modal";
 import {
-  BillActionModal,
-} from "@/components/action-modals/bill-action-modal";
+  AttachmentActionModal,
+} from "@/components/action-modals/attachment-action-modal";
 import {
   ResponsiveTable,
   MobileCard,
@@ -44,8 +44,8 @@ import {
 } from "@/components/responsive-table";
 
 import {
-  attachBillToPlatingEntry,
-  detachBillFromPlatingEntry,
+  attachAttachmentToPlatingEntry,
+  detachAttachmentFromPlatingEntry,
   softDeletePlatingEntry,
 } from "./actions";
 import { createPlatingPayment } from "./payment-actions";
@@ -68,7 +68,7 @@ export function PlatingTable({ entries }: Props) {
     : null;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Phase 10.6: TWO action-modal state slots (Pay, Bill) — Plating has
+  // Phase 10.6: TWO action-modal state slots (Pay, Attachment) — Plating has
   // no Returns workflow so there's no third slot.
   const [paymentRowId, setPaymentRowId] = useState<string | null>(null);
   const [billRowId, setBillRowId] = useState<string | null>(null);
@@ -354,20 +354,20 @@ export function PlatingTable({ entries }: Props) {
 
       {billRowId && (
         // Plating bill flow uses the FK-based attachment pattern (the
-        // PlatingEntry row carries a `billId @unique` FK), so the modal
+        // PlatingEntry row carries a `attachmentId @unique` FK), so the modal
         // gets the onAttach/onDetach callbacks. The modal still runs the
-        // discriminator-side `getBillForEntity` to load the existing
+        // discriminator-side `getAttachmentForEntity` to load the existing
         // bill (via attachedToType="PLATING_ENTRY" + attachedToId), then
         // attaches/detaches the FK on either side of the upload.
-        <BillActionModal
+        <AttachmentActionModal
           entityType="plating"
           entityId={billRowId}
           open={billRowId !== null}
           onClose={() => setBillRowId(null)}
-          onAttach={(entityId, billId) =>
-            attachBillToPlatingEntry(entityId, billId)
+          onAttach={(entityId, attachmentId) =>
+            attachAttachmentToPlatingEntry(entityId, attachmentId)
           }
-          onDetach={(entityId) => detachBillFromPlatingEntry(entityId)}
+          onDetach={(entityId) => detachAttachmentFromPlatingEntry(entityId)}
         />
       )}
     </>
@@ -503,7 +503,7 @@ function RowActions({
   );
 }
 
-// Phase 11 mobile card — TWO action buttons (Pay, Bill). Plating has
+// Phase 11 mobile card — TWO action buttons (Pay, Attachment). Plating has
 // no Returns workflow (Phase 9 decision: outsourced services).
 function PlatingMobileCard({
   entry,
@@ -583,7 +583,7 @@ function PlatingMobileCard({
           className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
         >
           <Paperclip className="size-4" />
-          <span>Bill</span>
+          <span>Attachment</span>
         </button>
       </MobileCardActions>
     </MobileCard>

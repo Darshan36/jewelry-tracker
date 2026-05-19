@@ -41,7 +41,7 @@ type BuiltCastingData = {
   discount: bigint;
   total: bigint;
   notes: string | null;
-  billId: string | null;
+  attachmentId: string | null;
   lineItemCreates: BuiltLine[];
 };
 
@@ -109,14 +109,14 @@ async function buildCastingData(
     };
   }
 
-  // Validate billId if provided — must exist, be READY, not be already
+  // Validate attachmentId if provided — must exist, be READY, not be already
   // attached to a different entry (the @unique constraint enforces this
   // at the DB level too, but a clean error here is better UX).
-  let billId: string | null = parsed.billId;
-  if (billId !== null) {
-    const bill = await tx.bill.findUnique({ where: { id: billId } });
-    if (!bill || bill.deletedAt !== null || bill.status !== "READY") {
-      return { ok: false, errors: { billId: ["Bill not found or not ready"] } };
+  let attachmentId: string | null = parsed.attachmentId;
+  if (attachmentId !== null) {
+    const attachment = await tx.attachment.findUnique({ where: { id: attachmentId } });
+    if (!attachment || attachment.deletedAt !== null || attachment.status !== "READY") {
+      return { ok: false, errors: { attachmentId: ["Bill not found or not ready"] } };
     }
   }
 
@@ -130,7 +130,7 @@ async function buildCastingData(
       discount: discountPaise,
       total: subtotal - discountPaise,
       notes: parsed.notes,
-      billId,
+      attachmentId,
       lineItemCreates,
     },
   };
@@ -164,7 +164,7 @@ export async function createCastingEntry(input: CastingEntryInput) {
       include: {
         lineItems: { orderBy: { createdAt: "asc" } },
         vendor: true,
-        bill: true,
+        attachment: true,
       },
     });
     return { ok: true as const, entry: created };
@@ -207,7 +207,7 @@ export async function updateCastingEntry(id: string, input: CastingEntryInput) {
       include: {
         lineItems: { orderBy: { createdAt: "asc" } },
         vendor: true,
-        bill: true,
+        attachment: true,
       },
     });
     return { ok: true as const, entry: updated };
@@ -231,28 +231,28 @@ export async function softDeleteCastingEntry(id: string) {
   return { ok: true as const };
 }
 
-// Attaches an existing Bill row to a casting entry. Called from the
+// Attaches an existing Attachment row to a casting entry. Called from the
 // form-modal AFTER the entry has been created and the bill has been
 // uploaded + confirmed (with attachedToType: 'CASTING_ENTRY',
 // attachedToId: entry.id). Used by both the create flow and the edit-
 // replace-bill flow.
-export async function attachBillToCastingEntry(entryId: string, billId: string) {
+export async function attachAttachmentToCastingEntry(entryId: string, attachmentId: string) {
   await requireRole([...CASTING_ROLES]);
 
   await prisma.castingEntry.update({
     where: { id: entryId, deletedAt: null },
-    data: { billId },
+    data: { attachmentId },
   });
   revalidatePath("/casting");
   return { ok: true as const };
 }
 
-export async function detachBillFromCastingEntry(entryId: string) {
+export async function detachAttachmentFromCastingEntry(entryId: string) {
   await requireRole([...CASTING_ROLES]);
 
   await prisma.castingEntry.update({
     where: { id: entryId, deletedAt: null },
-    data: { billId: null },
+    data: { attachmentId: null },
   });
   revalidatePath("/casting");
   return { ok: true as const };

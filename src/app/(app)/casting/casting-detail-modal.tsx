@@ -1,7 +1,7 @@
 "use client";
 
 // Phase 10.6: CastingDetailModal is now read-only. All mutation surfaces
-// (Add Payment, Replace Bill, Delete) have moved off the detail modal:
+// (Add Payment, Replace Attachment, Delete) have moved off the detail modal:
 // payments + bill replace happen via the inline action buttons in the
 // row's Actions column (which open dedicated modals); the full edit
 // lives at /casting/[id]/edit; soft-delete is on the row's hover-action
@@ -10,7 +10,7 @@
 // What stays in the detail modal:
 //   - Read-only Materials table (formatKg + ratePerKg/kg + lineTotal)
 //   - Subtotal / discount / total
-//   - Read-only Bill section (filename + View button only — no Replace)
+//   - Read-only Attachment section (filename + View button only — no Replace)
 //   - Read-only Payments history list
 //   - Notes
 //   - Status chip
@@ -33,7 +33,7 @@ import { LabeledField } from "@/components/labeled-field";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatKg } from "@/lib/weight-helpers";
-import { getBillViewUrl } from "@/app/(app)/bills/actions";
+import { getAttachmentViewUrl } from "@/app/(app)/attachments/actions";
 
 import type { CastingEntryForClient } from "./casting-helpers";
 
@@ -54,7 +54,7 @@ export function CastingDetailModal({ open, onOpenChange, entry }: Props) {
     if (!entry.bill) return;
     setBillOpening(true);
     try {
-      const res = await getBillViewUrl(entry.bill.id);
+      const res = await getAttachmentViewUrl(entry.bill.id);
       if (res.ok) {
         window.open(res.url, "_blank", "noopener,noreferrer");
       }
@@ -156,10 +156,10 @@ export function CastingDetailModal({ open, onOpenChange, entry }: Props) {
             <LabeledField label="Notes" value={entry.notes} multiline />
           )}
 
-          {/* Bill (read-only — Replace lives in the row-level 📎 modal) */}
+          {/* Attachment (read-only — Replace lives in the row-level 📎 modal) */}
           <div>
             <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
-              Bill
+              Attachment
             </p>
             {entry.bill ? (
               <div className="border border-outline-variant bg-surface-container-low p-3 flex items-center justify-between text-sm">

@@ -47,8 +47,8 @@ vi.mock("@/components/action-modals/payment-action-modal", () => ({
     );
   },
 }));
-vi.mock("@/components/action-modals/bill-action-modal", () => ({
-  BillActionModal: (props: { entityType: string; entityId: string }) => {
+vi.mock("@/components/action-modals/attachment-action-modal", () => ({
+  AttachmentActionModal: (props: { entityType: string; entityId: string }) => {
     billModalSpy(props);
     return (
       <div

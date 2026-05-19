@@ -14,7 +14,7 @@
 import { Decimal } from "decimal.js";
 
 import type {
-  Bill,
+  Attachment,
   CastingEntry,
   CastingLineItem,
   CastingPayment,
@@ -49,7 +49,7 @@ export type CastingEntryForClient = Omit<CastingEntry, "discount" | "total"> & {
   status: CastingStatus;
   payments: CastingPaymentForClient[];
   vendor: CastingPlatingVendor | null;
-  bill: Bill | null;
+  bill: Attachment | null;
 };
 
 export function serializeCastingPayment(
@@ -87,7 +87,7 @@ export function serializeCastingEntry(
     lineItems?: CastingLineItem[];
     payments?: CastingPayment[];
     vendor?: CastingPlatingVendor | null;
-    bill?: Bill | null;
+    bill?: Attachment | null;
   },
 ): CastingEntryForClient {
   const {

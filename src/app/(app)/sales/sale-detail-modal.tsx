@@ -1,7 +1,7 @@
 "use client";
 
 // Phase 10: SaleDetailModal is now read-only. All mutation surfaces
-// (Add Payment, Add Return, Replace Bill, Delete) have moved off the
+// (Add Payment, Add Return, Replace Attachment, Delete) have moved off the
 // detail modal: payments + returns happen via the inline action
 // buttons in the row's Actions column (which open dedicated modals);
 // the full edit lives at /sales/[id]/edit; soft-delete is on the row's

@@ -16,9 +16,9 @@ import { revalidatePath } from "next/cache";
 import type { Role } from "@/generated/prisma";
 
 import {
-  attachBillToPlatingEntry,
+  attachAttachmentToPlatingEntry,
   createPlatingEntry,
-  detachBillFromPlatingEntry,
+  detachAttachmentFromPlatingEntry,
   softDeletePlatingEntry,
   updatePlatingEntry,
 } from "./actions";
@@ -65,7 +65,7 @@ function makeEntry(
     partyPhone: string | null;
     total: bigint;
     discount: bigint;
-    billId: string | null;
+    attachmentId: string | null;
     deletedAt: Date | null;
   }> = {},
 ) {
@@ -78,7 +78,7 @@ function makeEntry(
     discount: 10000n, // ₹100
     total: 155625n, // ₹1,556.25
     notes: null,
-    billId: null,
+    attachmentId: null,
     createdAt: new Date("2026-05-17T00:00:00Z"),
     updatedAt: new Date("2026-05-17T00:00:00Z"),
     deletedAt: null,
@@ -100,7 +100,7 @@ function validInput(overrides: Record<string, unknown> = {}) {
       { materialDescription: "Brass", weightKg: 2.5, ratePerKg: 400 },
     ],
     discount: 0,
-    billId: null,
+    attachmentId: null,
     notes: null,
     ...overrides,
   };
@@ -293,18 +293,18 @@ describe("createPlatingEntry — vendor auto-promotion (Phase 6 pattern)", () =>
 describe("createPlatingEntry — billId validation", () => {
   it("rejects when billId references a non-existent / non-READY / soft-deleted bill", async () => {
     vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue(null);
 
-    const result = await createPlatingEntry(validInput({ billId: "missing-bill" }));
+    const result = await createPlatingEntry(validInput({ attachmentId: "missing-bill" }));
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.billId).toBeDefined();
+    if (!result.ok) expect(result.errors.attachmentId).toBeDefined();
     expect(prisma.platingEntry.create).not.toHaveBeenCalled();
   });
 
   it("rejects a billId pointing at a FAILED bill", async () => {
     vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue({
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue({
       id: "bill-1",
       r2Key: "bills/2026/05/x",
       mimeType: "image/png",
@@ -319,15 +319,15 @@ describe("createPlatingEntry — billId validation", () => {
       deletedAt: null,
     });
 
-    const result = await createPlatingEntry(validInput({ billId: "bill-1" }));
+    const result = await createPlatingEntry(validInput({ attachmentId: "bill-1" }));
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.billId).toBeDefined();
+    if (!result.ok) expect(result.errors.attachmentId).toBeDefined();
   });
 
   it("accepts a billId pointing at a READY non-deleted bill", async () => {
     vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
-    vi.mocked(prisma.bill.findUnique).mockResolvedValue({
+    vi.mocked(prisma.attachment.findUnique).mockResolvedValue({
       id: "bill-1",
       r2Key: "bills/2026/05/x",
       mimeType: "image/png",
@@ -341,13 +341,13 @@ describe("createPlatingEntry — billId validation", () => {
       confirmedAt: new Date(),
       deletedAt: null,
     });
-    vi.mocked(prisma.platingEntry.create).mockResolvedValue(makeEntry({ billId: "bill-1" }));
+    vi.mocked(prisma.platingEntry.create).mockResolvedValue(makeEntry({ attachmentId: "bill-1" }));
 
-    const result = await createPlatingEntry(validInput({ billId: "bill-1" }));
+    const result = await createPlatingEntry(validInput({ attachmentId: "bill-1" }));
 
     expect(result.ok).toBe(true);
     const call = vi.mocked(prisma.platingEntry.create).mock.calls[0][0];
-    expect(call.data.billId).toBe("bill-1");
+    expect(call.data.attachmentId).toBe("bill-1");
   });
 });
 
@@ -428,31 +428,31 @@ describe("softDeletePlatingEntry", () => {
 });
 
 // =====================================================================
-// attachBillToPlatingEntry / detachBillFromPlatingEntry
+// attachAttachmentToPlatingEntry / detachAttachmentFromPlatingEntry
 // =====================================================================
 
 describe("attachBillToPlatingEntry", () => {
   it("sets billId on the entry", async () => {
-    vi.mocked(prisma.platingEntry.update).mockResolvedValue(makeEntry({ billId: "bill-x" }));
+    vi.mocked(prisma.platingEntry.update).mockResolvedValue(makeEntry({ attachmentId: "bill-x" }));
 
-    const result = await attachBillToPlatingEntry("entry-1", "bill-x");
+    const result = await attachAttachmentToPlatingEntry("entry-1", "bill-x");
 
     expect(result.ok).toBe(true);
     const call = vi.mocked(prisma.platingEntry.update).mock.calls[0][0];
-    expect(call.data.billId).toBe("bill-x");
+    expect(call.data.attachmentId).toBe("bill-x");
     expect(revalidatePath).toHaveBeenCalledWith("/plating");
   });
 });
 
 describe("detachBillFromPlatingEntry", () => {
   it("clears billId on the entry", async () => {
-    vi.mocked(prisma.platingEntry.update).mockResolvedValue(makeEntry({ billId: null }));
+    vi.mocked(prisma.platingEntry.update).mockResolvedValue(makeEntry({ attachmentId: null }));
 
-    const result = await detachBillFromPlatingEntry("entry-1");
+    const result = await detachAttachmentFromPlatingEntry("entry-1");
 
     expect(result.ok).toBe(true);
     const call = vi.mocked(prisma.platingEntry.update).mock.calls[0][0];
-    expect(call.data.billId).toBeNull();
+    expect(call.data.attachmentId).toBeNull();
   });
 });
 

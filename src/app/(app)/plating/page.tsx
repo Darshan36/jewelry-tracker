@@ -11,7 +11,7 @@ export default async function PlatingPage() {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
       vendor: true,
-      bill: true,
+      attachment: true,
     },
   });
 

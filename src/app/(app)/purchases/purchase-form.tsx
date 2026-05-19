@@ -3,9 +3,9 @@
 // Standalone purchase form — extracted from purchase-form-modal.tsx in Phase 10.
 // Phase 10.6: bill-in-form retrofit. Mirrors the Sales-form pattern from
 // Phase 10.5 — inline bill picker between line items and totals, file
-// preview via BillPreview, R2 upload chain runs AFTER the createPurchase
+// preview via AttachmentPreview, R2 upload chain runs AFTER the createPurchase
 // / updatePurchase succeeds. Purchases use the discriminator-only
-// attachment (no `billId` FK on the Purchase row), so the chain stops
+// attachment (no `attachmentId` FK on the Purchase row), so the chain stops
 // at confirmUpload — no attach step.
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +22,7 @@ import {
   FormTextarea,
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
-import { BillPreview } from "@/components/bill-preview";
+import { AttachmentPreview } from "@/components/attachment-preview";
 import { PhotoGallery } from "@/components/photo-gallery";
 import {
   dateToIsoIST,
@@ -35,11 +35,11 @@ import {
   PHOTO_MIME_TYPES,
   type AllowedMimeType,
   type PhotoMimeType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 import {
   confirmUpload,
   prepareUpload,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 
 import { createPurchase, updatePurchase } from "./actions";
 import { PartyPicker, type SupplierOption } from "./party-picker";
@@ -202,7 +202,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
 
     // Entry is saved. If a bill is picked, run the upload chain attached
     // to the entry's id. On failure, leave the entry saved and surface
-    // a banner — the user can retry via the row-level 📎 BillActionModal.
+    // a banner — the user can retry via the row-level 📎 AttachmentActionModal.
     const savedPurchaseId = result.purchase.id;
     if (pickedBillFile) {
       try {
@@ -221,7 +221,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         setBillUploadStatus("uploading");
         await putToR2(prep.presignedUrl, pickedBillFile);
         setBillUploadStatus("confirming");
-        const conf = await confirmUpload({ billId: prep.billId });
+        const conf = await confirmUpload({ attachmentId: prep.attachmentId });
         if (!conf.ok) {
           const first = Object.values(conf.errors).flat().find(Boolean);
           throw new Error(first ?? "Bill confirmation failed");
@@ -260,7 +260,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
             throw new Error(first ?? "Prepare failed");
           }
           await putToR2(prep.presignedUrl, file);
-          const conf = await confirmUpload({ billId: prep.billId });
+          const conf = await confirmUpload({ attachmentId: prep.attachmentId });
           if (!conf.ok) {
             const first = Object.values(conf.errors).flat().find(Boolean);
             throw new Error(first ?? "Confirm failed");
@@ -605,7 +605,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
                   Remove
                 </button>
               </div>
-              <BillPreview file={pickedBillFile} />
+              <AttachmentPreview file={pickedBillFile} />
             </div>
           )}
           <p className="text-[10px] text-on-surface-variant uppercase tracking-wider">

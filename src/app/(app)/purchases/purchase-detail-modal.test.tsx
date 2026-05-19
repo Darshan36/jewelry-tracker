@@ -13,12 +13,12 @@ vi.mock("next/navigation", () => ({
 
 // PhotoGallery self-loads via getPhotosForEntity. Stub to keep the test
 // surface focused on the modal's render gate behaviour.
-vi.mock("@/app/(app)/bills/actions", () => ({
+vi.mock("@/app/(app)/attachments/actions", () => ({
   getPhotosForEntity: vi.fn(async () => ({ ok: true, photos: [] })),
-  getBillViewUrl: vi.fn(async () => ({ ok: false, error: "stubbed" })),
+  getAttachmentViewUrl: vi.fn(async () => ({ ok: false, error: "stubbed" })),
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
-  softDeleteBill: vi.fn(),
+  softDeleteAttachment: vi.fn(),
 }));
 
 import { PurchaseDetailModal } from "./purchase-detail-modal";
@@ -92,7 +92,7 @@ describe("PurchaseDetailModal — photos render gate (Phase 12a)", () => {
   });
 
   it("mounts the PhotoGallery in view mode when photoCount > 0 + photos returned", async () => {
-    const { getPhotosForEntity } = await import("@/app/(app)/bills/actions");
+    const { getPhotosForEntity } = await import("@/app/(app)/attachments/actions");
     vi.mocked(getPhotosForEntity).mockResolvedValueOnce({
       ok: true,
       photos: [

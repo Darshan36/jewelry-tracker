@@ -26,29 +26,35 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  uploadedBills Bill[]
+  uploadedAttachments Attachment[]
 
   @@map("users")
 }
 
-enum BillStatus {
+enum AttachmentStatus {
   PENDING
   READY
   FAILED
 }
 
-model Bill {
-  id               String     @id @default(cuid())
-  r2Key            String     @unique
+// Polymorphic attachment table — stores both invoice bills and visual
+// photos. The discriminator (attachedToType + attachedToId) determines
+// which parent entity owns the attachment. See CLAUDE.md §4 for the full
+// rationale and KNOWN_GAPS for the Phase-12a discriminator-vs-FK lineage.
+// User-facing UI continues to call these "bills" — the rename only
+// affects the internal data layer.
+model Attachment {
+  id               String           @id @default(cuid())
+  r2Key            String           @unique
   mimeType         String
   sizeBytes        Int
   originalFilename String
   uploadedById     String
-  uploadedBy       User       @relation(fields: [uploadedById], references: [id])
+  uploadedBy       User             @relation(fields: [uploadedById], references: [id])
   attachedToType   String?
   attachedToId     String?
-  status           BillStatus @default(PENDING)
-  uploadedAt       DateTime   @default(now())
+  status           AttachmentStatus @default(PENDING)
+  uploadedAt       DateTime         @default(now())
   confirmedAt      DateTime?
   deletedAt        DateTime?
 
@@ -59,7 +65,7 @@ model Bill {
   @@index([attachedToType, attachedToId])
   @@index([deletedAt])
   @@index([status])
-  @@map("bills")
+  @@map("attachments")
 }
 
 model Customer {
@@ -299,8 +305,8 @@ model CastingEntry {
   discount   BigInt                @default(0)
   total      BigInt
   notes      String?
-  billId     String?               @unique
-  bill       Bill?                 @relation(fields: [billId], references: [id])
+  attachmentId String?              @unique
+  attachment   Attachment?           @relation(fields: [attachmentId], references: [id])
   createdAt  DateTime              @default(now())
   updatedAt  DateTime              @updatedAt
   deletedAt  DateTime?
@@ -356,8 +362,8 @@ model PlatingEntry {
   discount   BigInt                @default(0)
   total      BigInt
   notes      String?
-  billId     String?               @unique
-  bill       Bill?                 @relation(fields: [billId], references: [id])
+  attachmentId String?              @unique
+  attachment   Attachment?           @relation(fields: [attachmentId], references: [id])
   createdAt  DateTime              @default(now())
   updatedAt  DateTime              @updatedAt
   deletedAt  DateTime?

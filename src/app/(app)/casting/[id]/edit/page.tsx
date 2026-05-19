@@ -21,7 +21,7 @@ export default async function EditCastingEntryPage({ params }: Props) {
         lineItems: { orderBy: { createdAt: "asc" } },
         payments: true,
         vendor: true,
-        bill: true,
+        attachment: true,
       },
     }),
     prisma.castingPlatingVendor.findMany({

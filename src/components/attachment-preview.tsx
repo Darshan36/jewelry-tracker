@@ -15,7 +15,7 @@ type Props = {
   className?: string;
 };
 
-export function BillPreview({ file, className = "" }: Props) {
+export function AttachmentPreview({ file, className = "" }: Props) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {

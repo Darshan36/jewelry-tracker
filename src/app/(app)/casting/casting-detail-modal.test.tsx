@@ -1,7 +1,7 @@
 // Smoke tests for CastingDetailModal — Phase 10.6 read-only conversion.
 //
 // Detail modal is now read-only. These tests pin the Phase 10.6 contract:
-//   - ZERO mutation buttons (no Add Payment / Replace Bill / Delete inside).
+//   - ZERO mutation buttons (no Add Payment / Replace Attachment / Delete inside).
 //   - Edit link routes to /casting/[id]/edit.
 //   - Materials table renders with formatKg + ratePerKg/kg + lineTotal.
 //   - Payments history renders read-only (no × delete affordance).
@@ -13,8 +13,8 @@ import { render, screen } from "@testing-library/react";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
-vi.mock("@/app/(app)/bills/actions", () => ({
-  getBillViewUrl: vi.fn(),
+vi.mock("@/app/(app)/attachments/actions", () => ({
+  getAttachmentViewUrl: vi.fn(),
 }));
 
 import { CastingDetailModal } from "./casting-detail-modal";
@@ -32,7 +32,7 @@ function makeEntry(
     discount: 10000,
     total: 90000,
     notes: null,
-    billId: null,
+    attachmentId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

@@ -67,7 +67,7 @@ describe("BillsTestPage — auth gate", () => {
 
     await expect(BillsTestPage()).rejects.toThrow("REDIRECT:/auth/login");
     expect(redirect).toHaveBeenCalledWith("/auth/login");
-    expect(prisma.bill.findMany).not.toHaveBeenCalled();
+    expect(prisma.attachment.findMany).not.toHaveBeenCalled();
   });
 
   it("redirects to /dashboard when the user is not ADMIN", async () => {
@@ -78,18 +78,18 @@ describe("BillsTestPage — auth gate", () => {
 
     await expect(BillsTestPage()).rejects.toThrow("REDIRECT:/dashboard");
     expect(redirect).toHaveBeenCalledWith("/dashboard");
-    expect(prisma.bill.findMany).not.toHaveBeenCalled();
+    expect(prisma.attachment.findMany).not.toHaveBeenCalled();
   });
 });
 
 describe("BillsTestPage — rendering", () => {
   it("queries non-deleted bills ordered by uploadedAt desc, capped at 50", async () => {
     vi.mocked(auth).mockResolvedValue(adminSession());
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([]);
 
     await BillsTestPage();
 
-    expect(prisma.bill.findMany).toHaveBeenCalledWith({
+    expect(prisma.attachment.findMany).toHaveBeenCalledWith({
       where: { deletedAt: null },
       orderBy: { uploadedAt: "desc" },
       take: 50,
@@ -98,7 +98,7 @@ describe("BillsTestPage — rendering", () => {
 
   it("renders the page header and passes empty list to the client component", async () => {
     vi.mocked(auth).mockResolvedValue(adminSession());
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([]);
 
     const tree = await BillsTestPage();
     render(tree);
@@ -111,7 +111,7 @@ describe("BillsTestPage — rendering", () => {
   it("serialises bill rows (Date → ISO string) and passes them to the client", async () => {
     vi.mocked(auth).mockResolvedValue(adminSession());
     const uploadedAt = new Date("2026-05-17T12:00:00.000Z");
-    vi.mocked(prisma.bill.findMany).mockResolvedValue([
+    vi.mocked(prisma.attachment.findMany).mockResolvedValue([
       {
         id: "bill-1",
         r2Key: "bills/2026/05/x",

@@ -33,8 +33,8 @@ import {
   PaymentActionModal,
 } from "@/components/action-modals/payment-action-modal";
 import {
-  BillActionModal,
-} from "@/components/action-modals/bill-action-modal";
+  AttachmentActionModal,
+} from "@/components/action-modals/attachment-action-modal";
 import {
   ReturnActionModal,
 } from "@/components/action-modals/return-action-modal";
@@ -362,9 +362,9 @@ export function PurchasesTable({ purchases }: Props) {
 
       {billRowId && (
         // Sales bill flow uses the discriminator-only attachment pattern
-        // (no `billId` FK on the Purchase row), so no onAttach/onDetach
+        // (no `attachmentId` FK on the Purchase row), so no onAttach/onDetach
         // props — the modal short-circuits both calls.
-        <BillActionModal
+        <AttachmentActionModal
           entityType="purchase"
           entityId={billRowId}
           open={billRowId !== null}
@@ -557,7 +557,7 @@ function RowActions({
 }
 
 // Phase 11 mobile card mirror of SaleMobileCard with supplier-direction
-// labelling. Same three action buttons (Pay, Bill, Return).
+// labelling. Same three action buttons (Pay, Attachment, Return).
 function PurchaseMobileCard({
   purchase,
   onCardClick,
@@ -637,7 +637,7 @@ function PurchaseMobileCard({
           className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
         >
           <Paperclip className="size-4" />
-          <span>Bill</span>
+          <span>Attachment</span>
         </button>
         <button
           type="button"

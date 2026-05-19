@@ -248,12 +248,12 @@ describe("prepareUploadInputSchema — attachedToId", () => {
 
 describe("confirmUploadInputSchema", () => {
   it("accepts a non-empty billId", () => {
-    const result = confirmUploadInputSchema.safeParse({ billId: "cuid-1" });
+    const result = confirmUploadInputSchema.safeParse({ attachmentId: "cuid-1" });
     expect(result.success).toBe(true);
   });
 
   it("rejects an empty billId", () => {
-    const result = confirmUploadInputSchema.safeParse({ billId: "" });
+    const result = confirmUploadInputSchema.safeParse({ attachmentId: "" });
     expect(result.success).toBe(false);
   });
 
@@ -265,12 +265,12 @@ describe("confirmUploadInputSchema", () => {
 
 describe("softDeleteBillInputSchema", () => {
   it("accepts a non-empty billId", () => {
-    const result = softDeleteBillInputSchema.safeParse({ billId: "cuid-1" });
+    const result = softDeleteBillInputSchema.safeParse({ attachmentId: "cuid-1" });
     expect(result.success).toBe(true);
   });
 
   it("rejects an empty billId", () => {
-    const result = softDeleteBillInputSchema.safeParse({ billId: "" });
+    const result = softDeleteBillInputSchema.safeParse({ attachmentId: "" });
     expect(result.success).toBe(false);
   });
 });

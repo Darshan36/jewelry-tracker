@@ -35,7 +35,7 @@ function makeEntry(
     discount: 0n,
     total,
     notes: null,
-    billId: null,
+    attachmentId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

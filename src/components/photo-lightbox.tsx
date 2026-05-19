@@ -20,9 +20,9 @@ import {
   ResponsiveDialogContent,
 } from "@/components/responsive-dialog";
 import {
-  getBillViewUrl,
+  getAttachmentViewUrl,
   type PhotoForClient,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 import { formatDate } from "@/lib/format";
 
 type Props = {
@@ -53,7 +53,7 @@ export function PhotoLightbox({ photos, initialIndex, open, onClose }: Props) {
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const res = await getBillViewUrl(current.id);
+      const res = await getAttachmentViewUrl(current.id);
       if (cancelled) return;
       if (res.ok) {
         setUrls((prev) => ({ ...prev, [current.id]: res.url }));

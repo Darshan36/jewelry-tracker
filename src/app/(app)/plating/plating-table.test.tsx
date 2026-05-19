@@ -5,8 +5,8 @@
 //   2. Quick-action button clicks mount the right action modal with
 //      `entityType="plating"` (regression guard for the Phase 10.5 mirror
 //      bug class — Phase 10.6 added two more entity types).
-//   3. Plating tables have TWO action buttons (Pay + Bill), no Return.
-//   4. BillActionModal is mounted with both onAttach + onDetach props
+//   3. Plating tables have TWO action buttons (Pay + Attachment), no Return.
+//   4. AttachmentActionModal is mounted with both onAttach + onDetach props
 //      (the FK-based attachment path that distinguishes plating/plating
 //      from sales/purchases).
 //   5. Row click opens the detail modal.
@@ -21,8 +21,8 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("./actions", () => ({
   softDeletePlatingEntry: vi.fn(),
-  attachBillToPlatingEntry: vi.fn(),
-  detachBillFromPlatingEntry: vi.fn(),
+  attachAttachmentToPlatingEntry: vi.fn(),
+  detachAttachmentFromPlatingEntry: vi.fn(),
 }));
 vi.mock("./payment-actions", () => ({
   createPlatingPayment: vi.fn(),
@@ -48,8 +48,8 @@ vi.mock("@/components/action-modals/payment-action-modal", () => ({
     );
   },
 }));
-vi.mock("@/components/action-modals/bill-action-modal", () => ({
-  BillActionModal: (props: {
+vi.mock("@/components/action-modals/attachment-action-modal", () => ({
+  AttachmentActionModal: (props: {
     entityType: string;
     entityId: string;
     onAttach?: unknown;
@@ -98,7 +98,7 @@ function makeEntry(
     discount: 0,
     total: 100000,
     notes: null,
-    billId: null,
+    attachmentId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

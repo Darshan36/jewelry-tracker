@@ -11,7 +11,7 @@ export default async function CastingPage() {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
       vendor: true,
-      bill: true,
+      attachment: true,
     },
   });
 

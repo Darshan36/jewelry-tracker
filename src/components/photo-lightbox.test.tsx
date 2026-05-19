@@ -13,14 +13,14 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/app/(app)/bills/actions", () => ({
-  getBillViewUrl: vi.fn(),
+vi.mock("@/app/(app)/attachments/actions", () => ({
+  getAttachmentViewUrl: vi.fn(),
 }));
 
 import {
-  getBillViewUrl,
+  getAttachmentViewUrl,
   type PhotoForClient,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 
 import { PhotoLightbox } from "./photo-lightbox";
 
@@ -36,7 +36,7 @@ function makePhotos(n: number): PhotoForClient[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getBillViewUrl).mockImplementation(async (id: string) => ({
+  vi.mocked(getAttachmentViewUrl).mockImplementation(async (id: string) => ({
     ok: true as const,
     url: `https://signed.example/${id}`,
   }));
@@ -155,19 +155,19 @@ describe("PhotoLightbox — navigation", () => {
       />,
     );
     await waitFor(() =>
-      expect(getBillViewUrl).toHaveBeenCalledWith("p-1"),
+      expect(getAttachmentViewUrl).toHaveBeenCalledWith("p-1"),
     );
 
     const user = userEvent.setup();
     await user.keyboard("{ArrowRight}");
     await waitFor(() =>
-      expect(getBillViewUrl).toHaveBeenCalledWith("p-2"),
+      expect(getAttachmentViewUrl).toHaveBeenCalledWith("p-2"),
     );
 
     // Go back to photo 1 — should NOT re-fetch since URL is cached.
-    vi.mocked(getBillViewUrl).mockClear();
+    vi.mocked(getAttachmentViewUrl).mockClear();
     await user.keyboard("{ArrowLeft}");
-    // No new call to getBillViewUrl for p-1 (its URL is still cached).
-    expect(getBillViewUrl).not.toHaveBeenCalledWith("p-1");
+    // No new call to getAttachmentViewUrl for p-1 (its URL is still cached).
+    expect(getAttachmentViewUrl).not.toHaveBeenCalledWith("p-1");
   });
 });

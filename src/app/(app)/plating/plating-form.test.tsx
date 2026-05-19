@@ -1,7 +1,7 @@
 // Smoke tests for PlatingForm — Phase 10.6 mirror of sale-form.test.tsx
 // adapted for plating-specific shape: weight inputs (Decimal, step="0.001"),
 // vendor picker (#plating-party-name), FK-based bill attach via
-// attachBillToPlatingEntry AFTER confirmUpload.
+// attachAttachmentToPlatingEntry AFTER confirmUpload.
 //
 // The form's RHF + useFieldArray internals are covered by the Phase 7
 // plating-form-modal.test.tsx suite (now retired); these tests verify
@@ -21,22 +21,22 @@ vi.mock("next/navigation", () => ({
 vi.mock("./actions", () => ({
   createPlatingEntry: vi.fn(),
   updatePlatingEntry: vi.fn(),
-  attachBillToPlatingEntry: vi.fn(),
+  attachAttachmentToPlatingEntry: vi.fn(),
 }));
 // Phase 10.6: PlatingForm imports prepareUpload/confirmUpload for the
 // inline bill section. Mock the bills action module so the test doesn't
 // pull next-auth's runtime into jsdom.
-vi.mock("@/app/(app)/bills/actions", () => ({
+vi.mock("@/app/(app)/attachments/actions", () => ({
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
 }));
 
 import {
-  attachBillToPlatingEntry,
+  attachAttachmentToPlatingEntry,
   createPlatingEntry,
   updatePlatingEntry,
 } from "./actions";
-import { confirmUpload, prepareUpload } from "@/app/(app)/bills/actions";
+import { confirmUpload, prepareUpload } from "@/app/(app)/attachments/actions";
 
 import { PlatingForm } from "./plating-form";
 
@@ -166,7 +166,7 @@ describe("PlatingForm — edit mode", () => {
     discount: 10000, // ₹100 in paise
     total: 90000, // ₹900 in paise
     notes: "Test note",
-    billId: null,
+    attachmentId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -321,7 +321,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
       callOrder.push("prepareUpload");
       return {
         ok: true as const,
-        billId: "bill-id",
+        attachmentId: "bill-id",
         presignedUrl: "https://signed.example/put",
       };
     });
@@ -333,7 +333,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
         bill: { id: "bill-id", status: "READY" } as any,
       };
     });
-    vi.mocked(attachBillToPlatingEntry).mockImplementation(async () => {
+    vi.mocked(attachAttachmentToPlatingEntry).mockImplementation(async () => {
       callOrder.push("attachBillToPlatingEntry");
       return { ok: true as const };
     });
@@ -356,7 +356,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
     expect(prepArg.attachedToType).toBe("PLATING_ENTRY");
     expect(prepArg.attachedToId).toBe("new-plating-id");
     // FK attach gets the new entry id + the new bill id.
-    expect(attachBillToPlatingEntry).toHaveBeenCalledWith(
+    expect(attachAttachmentToPlatingEntry).toHaveBeenCalledWith(
       "new-plating-id",
       "bill-id",
     );
@@ -379,7 +379,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
     await vi.waitFor(() => expect(createPlatingEntry).toHaveBeenCalledOnce());
     expect(prepareUpload).not.toHaveBeenCalled();
     expect(confirmUpload).not.toHaveBeenCalled();
-    expect(attachBillToPlatingEntry).not.toHaveBeenCalled();
+    expect(attachAttachmentToPlatingEntry).not.toHaveBeenCalled();
   });
 
   it("on upload failure: entry stays saved, error banner appears, NO navigation, NO attach call", async () => {
@@ -402,7 +402,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
     await vi.waitFor(() => expect(prepareUpload).toHaveBeenCalledOnce());
     expect(createPlatingEntry).toHaveBeenCalledOnce();
     expect(confirmUpload).not.toHaveBeenCalled();
-    expect(attachBillToPlatingEntry).not.toHaveBeenCalled();
+    expect(attachAttachmentToPlatingEntry).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
     expect(
       await screen.findByText(/plating entry saved, but bill upload failed/i),
@@ -418,7 +418,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
-      billId: "bill-id",
+      attachmentId: "bill-id",
       presignedUrl: "https://signed.example/put",
     });
     StubXHR.failNext = true;
@@ -434,7 +434,7 @@ describe("PlatingForm — bill-in-form retrofit (Phase 10.6)", () => {
       ).toBeInTheDocument();
     });
     expect(confirmUpload).not.toHaveBeenCalled();
-    expect(attachBillToPlatingEntry).not.toHaveBeenCalled();
+    expect(attachAttachmentToPlatingEntry).not.toHaveBeenCalled();
   });
 });
 

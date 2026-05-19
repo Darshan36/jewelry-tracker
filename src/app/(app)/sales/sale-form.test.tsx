@@ -21,13 +21,13 @@ vi.mock("./actions", () => ({
 // Phase 10.5: SaleForm now imports prepareUpload/confirmUpload for the
 // inline bill section. Mock the bills action module so the test
 // doesn't pull next-auth's runtime into the jsdom environment.
-vi.mock("@/app/(app)/bills/actions", () => ({
+vi.mock("@/app/(app)/attachments/actions", () => ({
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
 }));
 
 import { createSale, updateSale } from "./actions";
-import { confirmUpload, prepareUpload } from "@/app/(app)/bills/actions";
+import { confirmUpload, prepareUpload } from "@/app/(app)/attachments/actions";
 
 import { SaleForm } from "./sale-form";
 
@@ -286,7 +286,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
       callOrder.push("prepareUpload");
       return {
         ok: true as const,
-        billId: "bill-id",
+        attachmentId: "bill-id",
         presignedUrl: "https://signed.example/put",
       };
     });
@@ -370,7 +370,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
-      billId: "bill-id",
+      attachmentId: "bill-id",
       presignedUrl: "https://signed.example/put",
     });
     StubXHR.failNext = true;

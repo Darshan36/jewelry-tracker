@@ -1,9 +1,9 @@
-// Tests for BillActionModal — Phase 10.5 prop-injection refactor.
+// Tests for AttachmentActionModal — Phase 10.5 prop-injection refactor.
 //
-// The chain itself (getBillForEntity → softDeleteBill → prepareUpload
+// The chain itself (getAttachmentForEntity → softDeleteAttachment → prepareUpload
 // → R2 PUT → confirmUpload) is entity-agnostic; what differs across
 // entity types is whether the caller supplies onAttach/onDetach
-// (Casting/Plating have a billId FK on the entity row) or not
+// (Casting/Plating have a attachmentId FK on the entity row) or not
 // (Sales/Purchases use the discriminator-only path). These tests
 // parameterise the modal across both shapes.
 
@@ -15,25 +15,25 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
 
-vi.mock("@/app/(app)/bills/actions", () => ({
-  getBillForEntity: vi.fn(),
+vi.mock("@/app/(app)/attachments/actions", () => ({
+  getAttachmentForEntity: vi.fn(),
   prepareUpload: vi.fn(),
   confirmUpload: vi.fn(),
-  softDeleteBill: vi.fn(),
-  getBillViewUrl: vi.fn(),
+  softDeleteAttachment: vi.fn(),
+  getAttachmentViewUrl: vi.fn(),
 }));
 
 import {
   confirmUpload,
-  getBillForEntity,
+  getAttachmentForEntity,
   prepareUpload,
-  softDeleteBill,
-} from "@/app/(app)/bills/actions";
+  softDeleteAttachment,
+} from "@/app/(app)/attachments/actions";
 
 import {
-  BillActionModal,
+  AttachmentActionModal,
   type BillEntityType,
-} from "./bill-action-modal";
+} from "./attachment-action-modal";
 
 // ---------- XHR + URL stubs ----------
 
@@ -86,7 +86,7 @@ function makeFile(name: string, type: string): File {
 const RESOLVED_NO_BILL = { ok: true as const, bill: null };
 const RESOLVED_PREPARE_OK = {
   ok: true as const,
-  billId: "new-bill-id",
+  attachmentId: "new-bill-id",
   presignedUrl: "https://signed.example/put",
 };
 const RESOLVED_CONFIRM_OK = {
@@ -110,10 +110,10 @@ describe.each(DISCRIMINATOR_MAP)(
   "BillActionModal — entityType=%s fetches with attachedToType=%s",
   (entityType, attachedToType) => {
     it("calls getBillForEntity with the right discriminator on open", async () => {
-      vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+      vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
 
       render(
-        <BillActionModal
+        <AttachmentActionModal
           entityType={entityType}
           entityId={`${entityType}-1`}
           open
@@ -121,8 +121,8 @@ describe.each(DISCRIMINATOR_MAP)(
         />,
       );
 
-      await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
-      expect(getBillForEntity).toHaveBeenCalledWith(
+      await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
+      expect(getAttachmentForEntity).toHaveBeenCalledWith(
         attachedToType,
         `${entityType}-1`,
       );
@@ -132,9 +132,9 @@ describe.each(DISCRIMINATOR_MAP)(
 
 describe("BillActionModal — render states", () => {
   it("renders 'Upload bill' title when no existing bill", async () => {
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="sale"
         entityId="sale-1"
         open
@@ -149,7 +149,7 @@ describe("BillActionModal — render states", () => {
   });
 
   it("renders 'Replace bill' title + filename when existing bill is attached", async () => {
-    vi.mocked(getBillForEntity).mockResolvedValue({
+    vi.mocked(getAttachmentForEntity).mockResolvedValue({
       ok: true as const,
       bill: {
         id: "existing-1",
@@ -159,7 +159,7 @@ describe("BillActionModal — render states", () => {
       },
     });
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="sale"
         entityId="sale-1"
         open
@@ -180,13 +180,13 @@ describe("BillActionModal — render states", () => {
 describe("BillActionModal — first upload, Sales/Purchases (discriminator-only)", () => {
   it("calls prepareUpload then confirmUpload (NO attach call) when onAttach is omitted", async () => {
     const user = userEvent.setup();
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
     vi.mocked(prepareUpload).mockResolvedValue(RESOLVED_PREPARE_OK);
     vi.mocked(confirmUpload).mockResolvedValue(RESOLVED_CONFIRM_OK);
 
     const onClose = vi.fn();
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="sale"
         entityId="sale-1"
         open
@@ -194,7 +194,7 @@ describe("BillActionModal — first upload, Sales/Purchases (discriminator-only)
       />,
     );
 
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     const fileInput = document.querySelector(
       'input[type="file"]',
     ) as HTMLInputElement;
@@ -204,7 +204,7 @@ describe("BillActionModal — first upload, Sales/Purchases (discriminator-only)
     await vi.waitFor(() => {
       expect(prepareUpload).toHaveBeenCalledOnce();
       expect(confirmUpload).toHaveBeenCalledOnce();
-      expect(softDeleteBill).not.toHaveBeenCalled();
+      expect(softDeleteAttachment).not.toHaveBeenCalled();
       expect(onClose).toHaveBeenCalledOnce();
     });
 
@@ -215,12 +215,12 @@ describe("BillActionModal — first upload, Sales/Purchases (discriminator-only)
 
   it("entityType='purchase' sends attachedToType='PURCHASE'", async () => {
     const user = userEvent.setup();
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
     vi.mocked(prepareUpload).mockResolvedValue(RESOLVED_PREPARE_OK);
     vi.mocked(confirmUpload).mockResolvedValue(RESOLVED_CONFIRM_OK);
 
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="purchase"
         entityId="p-1"
         open
@@ -228,7 +228,7 @@ describe("BillActionModal — first upload, Sales/Purchases (discriminator-only)
       />,
     );
 
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       makeFile("x.png", "image/png"),
@@ -253,7 +253,7 @@ describe("BillActionModal — first upload, Casting/Plating (FK via onAttach)", 
     async (entityType, attachedToType) => {
       const user = userEvent.setup();
       const callOrder: string[] = [];
-      vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+      vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
       vi.mocked(prepareUpload).mockImplementation(async () => {
         callOrder.push("prepareUpload");
         return RESOLVED_PREPARE_OK;
@@ -268,7 +268,7 @@ describe("BillActionModal — first upload, Casting/Plating (FK via onAttach)", 
       });
 
       render(
-        <BillActionModal
+        <AttachmentActionModal
           entityType={entityType}
           entityId={`${entityType}-1`}
           open
@@ -277,7 +277,7 @@ describe("BillActionModal — first upload, Casting/Plating (FK via onAttach)", 
         />,
       );
 
-      await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
       await user.upload(
         document.querySelector('input[type="file"]') as HTMLInputElement,
         makeFile("x.png", "image/png"),
@@ -309,11 +309,11 @@ describe("BillActionModal — replace flow", () => {
   it("Sales/Purchases (no onDetach): softDeleteBill → prepareUpload → confirmUpload in order", async () => {
     const user = userEvent.setup();
     const callOrder: string[] = [];
-    vi.mocked(getBillForEntity).mockResolvedValue({
+    vi.mocked(getAttachmentForEntity).mockResolvedValue({
       ok: true as const,
       bill: EXISTING_BILL,
     });
-    vi.mocked(softDeleteBill).mockImplementation(async () => {
+    vi.mocked(softDeleteAttachment).mockImplementation(async () => {
       callOrder.push("softDeleteBill");
       return { ok: true as const };
     });
@@ -327,7 +327,7 @@ describe("BillActionModal — replace flow", () => {
     });
 
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="purchase"
         entityId="p-1"
         open
@@ -335,7 +335,7 @@ describe("BillActionModal — replace flow", () => {
       />,
     );
 
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       makeFile("new.png", "image/png"),
@@ -349,7 +349,7 @@ describe("BillActionModal — replace flow", () => {
         "confirmUpload",
       ]);
     });
-    expect(softDeleteBill).toHaveBeenCalledWith({ billId: "old-bill-id" });
+    expect(softDeleteAttachment).toHaveBeenCalledWith({ attachmentId: "old-bill-id" });
   });
 
   // Phase 10.6: parameterise across both FK-bearing entity types so the
@@ -361,7 +361,7 @@ describe("BillActionModal — replace flow", () => {
     async (entityType) => {
       const user = userEvent.setup();
       const callOrder: string[] = [];
-      vi.mocked(getBillForEntity).mockResolvedValue({
+      vi.mocked(getAttachmentForEntity).mockResolvedValue({
         ok: true as const,
         bill: EXISTING_BILL,
       });
@@ -369,7 +369,7 @@ describe("BillActionModal — replace flow", () => {
         callOrder.push("onDetach");
         return { ok: true as const };
       });
-      vi.mocked(softDeleteBill).mockImplementation(async () => {
+      vi.mocked(softDeleteAttachment).mockImplementation(async () => {
         callOrder.push("softDeleteBill");
         return { ok: true as const };
       });
@@ -387,7 +387,7 @@ describe("BillActionModal — replace flow", () => {
       });
 
       render(
-        <BillActionModal
+        <AttachmentActionModal
           entityType={entityType}
           entityId={`${entityType}-1`}
           open
@@ -397,7 +397,7 @@ describe("BillActionModal — replace flow", () => {
         />,
       );
 
-      await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
       await user.upload(
         document.querySelector('input[type="file"]') as HTMLInputElement,
         makeFile("new.png", "image/png"),
@@ -423,7 +423,7 @@ describe("BillActionModal — replace flow", () => {
 describe("BillActionModal — failure modes halt the chain", () => {
   it("prepareUpload failure: confirmUpload NOT called, modal stays open, error surfaces", async () => {
     const user = userEvent.setup();
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: false as const,
       errors: { mimeType: ["Unsupported file type."] },
@@ -431,14 +431,14 @@ describe("BillActionModal — failure modes halt the chain", () => {
 
     const onClose = vi.fn();
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="sale"
         entityId="sale-1"
         open
         onClose={onClose}
       />,
     );
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       makeFile("x.png", "image/png"),
@@ -454,19 +454,19 @@ describe("BillActionModal — failure modes halt the chain", () => {
 
   it("R2 PUT (XHR) failure halts chain", async () => {
     const user = userEvent.setup();
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
     vi.mocked(prepareUpload).mockResolvedValue(RESOLVED_PREPARE_OK);
     StubXHR.failNext = true;
 
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="sale"
         entityId="sale-1"
         open
         onClose={vi.fn()}
       />,
     );
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       makeFile("x.png", "image/png"),
@@ -482,7 +482,7 @@ describe("BillActionModal — failure modes halt the chain", () => {
   it("onDetach failure (FK chain) halts before softDeleteBill", async () => {
     const user = userEvent.setup();
     const callOrder: string[] = [];
-    vi.mocked(getBillForEntity).mockResolvedValue({
+    vi.mocked(getAttachmentForEntity).mockResolvedValue({
       ok: true as const,
       bill: EXISTING_BILL,
     });
@@ -490,13 +490,13 @@ describe("BillActionModal — failure modes halt the chain", () => {
       callOrder.push("onDetach");
       throw new Error("Detach failed");
     });
-    vi.mocked(softDeleteBill).mockImplementation(async () => {
+    vi.mocked(softDeleteAttachment).mockImplementation(async () => {
       callOrder.push("softDeleteBill");
       return { ok: true as const };
     });
 
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="casting"
         entityId="cast-1"
         open
@@ -505,7 +505,7 @@ describe("BillActionModal — failure modes halt the chain", () => {
         onDetach={onDetach}
       />,
     );
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       makeFile("new.png", "image/png"),
@@ -518,7 +518,7 @@ describe("BillActionModal — failure modes halt the chain", () => {
     });
     // The rest of the chain MUST NOT run when detach fails — otherwise we'd
     // tombstone the old bill while the entity's FK still pointed at it.
-    expect(softDeleteBill).not.toHaveBeenCalled();
+    expect(softDeleteAttachment).not.toHaveBeenCalled();
     expect(prepareUpload).not.toHaveBeenCalled();
     expect(confirmUpload).not.toHaveBeenCalled();
     expect(callOrder).toEqual(["onDetach"]);
@@ -526,16 +526,16 @@ describe("BillActionModal — failure modes halt the chain", () => {
 
   it("confirmUpload failure: onAttach NOT called even when supplied", async () => {
     const user = userEvent.setup();
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
     vi.mocked(prepareUpload).mockResolvedValue(RESOLVED_PREPARE_OK);
     vi.mocked(confirmUpload).mockResolvedValue({
       ok: false as const,
-      errors: { billId: ["Upload verification failed"] },
+      errors: { attachmentId: ["Upload verification failed"] },
     });
     const onAttach = vi.fn(async () => ({ ok: true as const }));
 
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="casting"
         entityId="cast-1"
         open
@@ -543,7 +543,7 @@ describe("BillActionModal — failure modes halt the chain", () => {
         onAttach={onAttach}
       />,
     );
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       makeFile("x.png", "image/png"),
@@ -559,17 +559,17 @@ describe("BillActionModal — failure modes halt the chain", () => {
 
 describe("BillActionModal — client-side file picker validation", () => {
   it("rejects unsupported MIME types client-side (before any server action)", async () => {
-    vi.mocked(getBillForEntity).mockResolvedValue(RESOLVED_NO_BILL);
+    vi.mocked(getAttachmentForEntity).mockResolvedValue(RESOLVED_NO_BILL);
 
     render(
-      <BillActionModal
+      <AttachmentActionModal
         entityType="sale"
         entityId="sale-1"
         open
         onClose={vi.fn()}
       />,
     );
-    await vi.waitFor(() => expect(getBillForEntity).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getAttachmentForEntity).toHaveBeenCalledOnce());
     const fileInput = document.querySelector(
       'input[type="file"]',
     ) as HTMLInputElement;

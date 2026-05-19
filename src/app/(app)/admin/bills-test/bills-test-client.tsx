@@ -8,13 +8,13 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   type AllowedMimeType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 import {
   prepareUpload,
   confirmUpload,
-  softDeleteBill,
-  getBillViewUrl,
-} from "@/app/(app)/bills/actions";
+  softDeleteAttachment,
+  getAttachmentViewUrl,
+} from "@/app/(app)/attachments/actions";
 
 type BillRow = {
   id: string;
@@ -112,7 +112,7 @@ export function BillsTestClient({ bills }: { bills: BillRow[] }) {
 
     // Step 3: confirm
     setState({ kind: "confirming" });
-    const conf = await confirmUpload({ billId: prep.billId });
+    const conf = await confirmUpload({ attachmentId: prep.attachmentId });
     if (!conf.ok) {
       const first = Object.values(conf.errors).flat().find(Boolean);
       setState({ kind: "error", message: first ?? "Confirmation failed." });
@@ -125,8 +125,8 @@ export function BillsTestClient({ bills }: { bills: BillRow[] }) {
     router.refresh();
   };
 
-  const onView = async (billId: string) => {
-    const res = await getBillViewUrl(billId);
+  const onView = async (attachmentId: string) => {
+    const res = await getAttachmentViewUrl(attachmentId);
     if (!res.ok) {
       setState({ kind: "error", message: res.error });
       return;
@@ -134,9 +134,9 @@ export function BillsTestClient({ bills }: { bills: BillRow[] }) {
     window.open(res.url, "_blank", "noopener,noreferrer");
   };
 
-  const onDelete = async (billId: string) => {
+  const onDelete = async (attachmentId: string) => {
     if (!confirm("Delete this bill? This cannot be undone.")) return;
-    const res = await softDeleteBill({ billId });
+    const res = await softDeleteAttachment({ attachmentId });
     if (!res.ok) {
       const first = Object.values(res.errors).flat().find(Boolean);
       setState({ kind: "error", message: first ?? "Delete failed." });

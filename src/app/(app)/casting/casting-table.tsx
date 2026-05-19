@@ -33,8 +33,8 @@ import {
   PaymentActionModal,
 } from "@/components/action-modals/payment-action-modal";
 import {
-  BillActionModal,
-} from "@/components/action-modals/bill-action-modal";
+  AttachmentActionModal,
+} from "@/components/action-modals/attachment-action-modal";
 import {
   ResponsiveTable,
   MobileCard,
@@ -44,8 +44,8 @@ import {
 } from "@/components/responsive-table";
 
 import {
-  attachBillToCastingEntry,
-  detachBillFromCastingEntry,
+  attachAttachmentToCastingEntry,
+  detachAttachmentFromCastingEntry,
   softDeleteCastingEntry,
 } from "./actions";
 import { createCastingPayment } from "./payment-actions";
@@ -68,7 +68,7 @@ export function CastingTable({ entries }: Props) {
     : null;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Phase 10.6: TWO action-modal state slots (Pay, Bill) — Casting has
+  // Phase 10.6: TWO action-modal state slots (Pay, Attachment) — Casting has
   // no Returns workflow so there's no third slot.
   const [paymentRowId, setPaymentRowId] = useState<string | null>(null);
   const [billRowId, setBillRowId] = useState<string | null>(null);
@@ -354,20 +354,20 @@ export function CastingTable({ entries }: Props) {
 
       {billRowId && (
         // Casting bill flow uses the FK-based attachment pattern (the
-        // CastingEntry row carries a `billId @unique` FK), so the modal
+        // CastingEntry row carries a `attachmentId @unique` FK), so the modal
         // gets the onAttach/onDetach callbacks. The modal still runs the
-        // discriminator-side `getBillForEntity` to load the existing
+        // discriminator-side `getAttachmentForEntity` to load the existing
         // bill (via attachedToType="CASTING_ENTRY" + attachedToId), then
         // attaches/detaches the FK on either side of the upload.
-        <BillActionModal
+        <AttachmentActionModal
           entityType="casting"
           entityId={billRowId}
           open={billRowId !== null}
           onClose={() => setBillRowId(null)}
-          onAttach={(entityId, billId) =>
-            attachBillToCastingEntry(entityId, billId)
+          onAttach={(entityId, attachmentId) =>
+            attachAttachmentToCastingEntry(entityId, attachmentId)
           }
-          onDetach={(entityId) => detachBillFromCastingEntry(entityId)}
+          onDetach={(entityId) => detachAttachmentFromCastingEntry(entityId)}
         />
       )}
     </>
@@ -503,7 +503,7 @@ function RowActions({
   );
 }
 
-// Phase 11 mobile card — TWO action buttons (Pay, Bill). Casting has
+// Phase 11 mobile card — TWO action buttons (Pay, Attachment). Casting has
 // no Returns workflow (Phase 9 decision: outsourced services).
 function CastingMobileCard({
   entry,
@@ -583,7 +583,7 @@ function CastingMobileCard({
           className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
         >
           <Paperclip className="size-4" />
-          <span>Bill</span>
+          <span>Attachment</span>
         </button>
       </MobileCardActions>
     </MobileCard>

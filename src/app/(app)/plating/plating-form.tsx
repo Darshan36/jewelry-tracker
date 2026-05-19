@@ -7,8 +7,8 @@
 //   - Live preview math uses Math.round(weight × rate × 100) instead of
 //     qty × rate × 100 because weight can be fractional.
 //   - Vendor picker (VendorOption) instead of customer picker.
-//   - Bill attachment uses FK-based attach AFTER confirmUpload:
-//       prepareUpload → R2 PUT → confirmUpload → attachBillToPlatingEntry
+//   - Attachment attachment uses FK-based attach AFTER confirmUpload:
+//       prepareUpload → R2 PUT → confirmUpload → attachAttachmentToPlatingEntry
 //     Sales uses discriminator-only and skips the attach step.
 //
 // Renders without a Dialog wrapper for use inside dedicated form pages
@@ -28,7 +28,7 @@ import {
   FormTextarea,
 } from "@/components/form-controls";
 import { SaveDropdown, type SaveMode } from "@/components/save-dropdown";
-import { BillPreview } from "@/components/bill-preview";
+import { AttachmentPreview } from "@/components/attachment-preview";
 import {
   dateToIsoIST,
   formatCurrency,
@@ -38,14 +38,14 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   type AllowedMimeType,
-} from "@/app/(app)/bills/schema";
+} from "@/app/(app)/attachments/schema";
 import {
   confirmUpload,
   prepareUpload,
-} from "@/app/(app)/bills/actions";
+} from "@/app/(app)/attachments/actions";
 
 import {
-  attachBillToPlatingEntry,
+  attachAttachmentToPlatingEntry,
   createPlatingEntry,
   updatePlatingEntry,
 } from "./actions";
@@ -74,7 +74,7 @@ function emptyDefaults(): FormInputT {
     partyPhone: "",
     lineItems: [{ materialDescription: "", weightKg: 0, ratePerKg: 0 }],
     discount: 0,
-    billId: null,
+    attachmentId: null,
     notes: "",
   };
 }
@@ -148,7 +148,7 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
           }))
         : [{ materialDescription: "", weightKg: 0, ratePerKg: 0 }],
       discount: entry ? entry.discount / 100 : 0,
-      billId: entry?.billId ?? null,
+      attachmentId: entry?.attachmentId ?? null,
       notes: entry?.notes ?? "",
     });
   }, [entry, reset]);
@@ -175,9 +175,9 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
     setFormError(null);
 
     // Stage 1: save the entry. If a new bill is picked, we exclude
-    // billId from the initial save — the bill row doesn't exist yet.
-    // The FK gets attached after upload via attachBillToPlatingEntry.
-    const dataForSave = pickedBillFile ? { ...data, billId: null } : data;
+    // attachmentId from the initial save — the bill row doesn't exist yet.
+    // The FK gets attached after upload via attachAttachmentToPlatingEntry.
+    const dataForSave = pickedBillFile ? { ...data, attachmentId: null } : data;
 
     const result =
       mode === "edit" && entry
@@ -220,13 +220,13 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
         setBillUploadStatus("uploading");
         await putToR2(prep.presignedUrl, pickedBillFile);
         setBillUploadStatus("confirming");
-        const conf = await confirmUpload({ billId: prep.billId });
+        const conf = await confirmUpload({ attachmentId: prep.attachmentId });
         if (!conf.ok) {
           const first = Object.values(conf.errors).flat().find(Boolean);
           throw new Error(first ?? "Bill confirmation failed");
         }
         setBillUploadStatus("attaching");
-        const attach = await attachBillToPlatingEntry(savedEntryId, prep.billId);
+        const attach = await attachAttachmentToPlatingEntry(savedEntryId, prep.attachmentId);
         if (!attach.ok) throw new Error("Failed to attach bill");
         setBillUploadStatus("idle");
       } catch (err) {
@@ -324,7 +324,7 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
       <input type="hidden" {...register("vendorId")} />
       <input type="hidden" {...register("partyName")} />
       <input type="hidden" {...register("partyPhone")} />
-      <input type="hidden" {...register("billId")} />
+      <input type="hidden" {...register("attachmentId")} />
 
       <PartyPicker
         vendors={vendors}
@@ -526,7 +526,7 @@ export function PlatingForm({ mode, entry, vendors }: Props) {
                   Remove
                 </button>
               </div>
-              <BillPreview file={pickedBillFile} />
+              <AttachmentPreview file={pickedBillFile} />
             </div>
           )}
           <p className="text-[10px] text-on-surface-variant uppercase tracking-wider">

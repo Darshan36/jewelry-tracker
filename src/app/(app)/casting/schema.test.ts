@@ -21,7 +21,7 @@ function validInput() {
     partyPhone: "9876543210",
     lineItems: [validLine()],
     discount: 0,
-    billId: null as string | null,
+    attachmentId: null as string | null,
     notes: "",
   };
 }
@@ -161,19 +161,19 @@ describe("castingEntryInputSchema — top level", () => {
   it("transforms empty billId to null", () => {
     const result = castingEntryInputSchema.safeParse({
       ...validInput(),
-      billId: "",
+      attachmentId: "",
     });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.billId).toBeNull();
+    if (result.success) expect(result.data.attachmentId).toBeNull();
   });
 
   it("preserves a valid billId string", () => {
     const result = castingEntryInputSchema.safeParse({
       ...validInput(),
-      billId: "bill-cuid-123",
+      attachmentId: "bill-cuid-123",
     });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.billId).toBe("bill-cuid-123");
+    if (result.success) expect(result.data.attachmentId).toBe("bill-cuid-123");
   });
 
   it("transforms empty notes to null", () => {

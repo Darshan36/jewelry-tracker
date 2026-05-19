@@ -14,7 +14,7 @@
 import { Decimal } from "decimal.js";
 
 import type {
-  Bill,
+  Attachment,
   PlatingEntry,
   PlatingLineItem,
   PlatingPayment,
@@ -49,7 +49,7 @@ export type PlatingEntryForClient = Omit<PlatingEntry, "discount" | "total"> & {
   status: PlatingStatus;
   payments: PlatingPaymentForClient[];
   vendor: CastingPlatingVendor | null;
-  bill: Bill | null;
+  bill: Attachment | null;
 };
 
 export function serializePlatingPayment(
@@ -87,7 +87,7 @@ export function serializePlatingEntry(
     lineItems?: PlatingLineItem[];
     payments?: PlatingPayment[];
     vendor?: CastingPlatingVendor | null;
-    bill?: Bill | null;
+    bill?: Attachment | null;
   },
 ): PlatingEntryForClient {
   const {
