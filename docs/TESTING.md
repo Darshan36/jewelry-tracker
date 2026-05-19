@@ -1125,6 +1125,45 @@ function mixedEmployees(): EmployeeForClient[] {
 Factories live alongside the test file for now; shared extraction is
 deferred until a generic shape is visible (see `KNOWN_GAPS.md`).
 
+### Role-scoped page tests (Phase 17b)
+
+Pages that gate access by role at the server-component level (`/payables`,
+`/receivables`) need three layers of test coverage:
+
+1. **Unit test the matrix** in `src/lib/role-access.test.ts`. Each role
+   × scope combination should have an explicit boolean assertion. 11 tests
+   for `canViewPayables` + `canViewReceivables` + `effectivePayableScope`.
+
+2. **Skip a full mock of the server component** in unit tests — they
+   compose `auth()` + `redirect()` + DB calls that are awkward to mock
+   meaningfully. Treat the page itself as integration-only.
+
+3. **Walkthrough the role-scoped UX** against prod (Playwright). Log in
+   as each role and verify the page renders the right scope + the
+   sidebar item visibility matches the role's allowed access. Pattern in
+   `scripts/walkthrough-p17b-payables.mjs` steps 9-10.
+
+### Atomic bulk payment testing (Phase 17b)
+
+`<PartyPaymentModal>` triggers `createPartyPayment(allocations)` which
+creates N rows in one `prisma.$transaction`. Test patterns:
+
+1. **Happy path** — mock `createPartyPayment` to resolve `{ ok: true,
+   created: 2 }`, assert the modal closes + `onSaved` fires + the action
+   receives the expected allocation shape.
+
+2. **Per-row server error** — mock the action to resolve `{ ok: false,
+   errors: { allocations: { 0: ["Exceeds remaining balance"] } } }`.
+   Assert the error renders next to the matching row's amount input.
+
+3. **Top-level error** — mock with `errors: { message: "Invalid date" }`.
+   Assert the banner renders at the modal level, not row level.
+
+The atomicity property itself (one allocation throws → all roll back) is
+covered at the action layer in `parties/actions.test.ts` (deferred — the
+mock `prisma.$transaction` impl propagates the throw, walking-style
+assertions cover the rest).
+
 ### Party fixtures and role-flag assertions (Phase 17a)
 
 After Phase 17a's unification, master-data fixtures (formerly
