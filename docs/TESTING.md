@@ -1125,6 +1125,110 @@ function mixedEmployees(): EmployeeForClient[] {
 Factories live alongside the test file for now; shared extraction is
 deferred until a generic shape is visible (see `KNOWN_GAPS.md`).
 
+### Party fixtures and role-flag assertions (Phase 17a)
+
+After Phase 17a's unification, master-data fixtures (formerly
+`makeCustomer` / `makeSupplier` / `makeVendor`) collapsed into a single
+`makeParty` helper per test file. The Party row carries four role flag
+booleans + three nullable audit-FK columns that the fixture defaults to:
+
+```typescript
+function makeParty(
+  overrides: Partial<Party> = {},
+) {
+  return {
+    id: "party-1",
+    name: "Real Party",
+    phone: "9999999999",
+    email: null,
+    address: null,
+    notes: null,
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
+    deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
+    ...overrides, // role flags set per test as needed
+  };
+}
+```
+
+**Setting role flags per test.** Tests that exercise role-aware filtering
+or walk-in auto-promotion pass the appropriate flag(s) via overrides:
+
+```typescript
+// A walk-in customer fixture — only isCustomer set
+const existingCustomer = makeParty({
+  id: "cust-existing",
+  phone: "9876500001",
+  isCustomer: true,
+});
+
+// A multi-role party (customer who also sells to the shop)
+const multiRole = makeParty({
+  phone: "9876500002",
+  isCustomer: true,
+  isSupplier: true,
+});
+```
+
+**Walk-in auto-promotion test expectations.** The transaction action mocks
+need three mock paths covered:
+
+1. **New phone (no existing Party)**: `prisma.party.findFirst` returns
+   `null`; action calls `prisma.party.create` with `isCustomer: true` (or
+   the appropriate flag for the form). Assert the create-data shape
+   explicitly includes the role flag — without it, the test passes
+   vacuously even if the action forgets the flag.
+
+   ```typescript
+   expect(prisma.party.create).toHaveBeenCalledWith({
+     data: {
+       name: "New Walkin",
+       phone: "9876500001",
+       email: null,
+       address: null,
+       notes: null,
+       isCustomer: true,  // ← assert the flag
+     },
+   });
+   ```
+
+2. **Existing phone, flag already set**: `findFirst` returns a Party with
+   `isCustomer: true`; action skips the flag-flip and uses the existing
+   id. No `party.update` call expected — assert it WAS NOT called.
+
+3. **Existing phone, flag missing** (a Supplier becoming a Customer): the
+   action MUST call `prisma.party.update` to flip the flag before
+   creating the sale. Assert the update call AND the flag in its data:
+
+   ```typescript
+   expect(prisma.party.update).toHaveBeenCalledWith({
+     where: { id: existingId },
+     data: { isCustomer: true },
+   });
+   ```
+
+**Role-filtered list queries.** Master-data page tests assert the role
+filter on `prisma.party.findMany`:
+
+```typescript
+expect(prisma.party.findMany).toHaveBeenCalledWith({
+  where: { isCustomer: true, deletedAt: null }, // ← role filter
+  orderBy: { name: "asc" },
+  select: { id: true, name: true, phone: true },
+});
+```
+
+Without the role filter in the expectation, the test passes when the
+action drops it accidentally (which would cross-pollute the picker
+dropdown with suppliers etc.).
+
 ## What NOT to test
 
 Skip:
