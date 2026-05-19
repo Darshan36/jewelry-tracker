@@ -9,13 +9,13 @@ import type { Prisma } from "@/generated/prisma";
 import { purchaseInputSchema, type PurchaseInput } from "./schema";
 import { serializePurchase } from "./purchase-helpers";
 
-// Mirror of sales/actions.ts. Same auto-promotion + line-items pattern,
-// only the target tables flip: Supplier instead of Customer, PurchaseLineItem
-// instead of SaleLineItem.
+// Mirror of sales/actions.ts. Phase 17a unified the FK to Party.partyId;
+// walk-in auto-promotion now sets/adds the isSupplier role flag on the
+// matched-or-created Party row.
 
 type BuiltPurchaseData = {
   date: Date;
-  supplierId: string | null;
+  partyId: string | null;
   partyName: string;
   partyPhone: string | null;
   discount: bigint;
@@ -32,47 +32,64 @@ async function buildPurchaseData(
   tx: Prisma.TransactionClient,
   parsed: PurchaseInput,
 ): Promise<
-  | { ok: true; data: BuiltPurchaseData }
+  | { ok: true; data: BuiltPurchaseData; partyCreatedOrUpdated: boolean }
   | { ok: false; errors: Record<string, string[]> }
 > {
-  let supplierId = parsed.supplierId;
+  let partyId = parsed.partyId;
   let partyName = parsed.partyName;
   let partyPhone = parsed.partyPhone;
+  let partyCreatedOrUpdated = false;
 
-  if (supplierId !== null) {
-    const supplier = await tx.supplier.findUnique({
-      where: { id: supplierId, deletedAt: null },
+  if (partyId !== null) {
+    const party = await tx.party.findUnique({
+      where: { id: partyId, deletedAt: null },
     });
-    if (!supplier) {
+    if (!party) {
       return {
         ok: false,
-        errors: { supplierId: ["Supplier not found"] },
+        errors: { partyId: ["Party not found"] },
       };
     }
-    partyName = supplier.name;
-    partyPhone = supplier.phone;
+    if (!party.isSupplier) {
+      await tx.party.update({
+        where: { id: party.id },
+        data: { isSupplier: true },
+      });
+      partyCreatedOrUpdated = true;
+    }
+    partyName = party.name;
+    partyPhone = party.phone;
   } else if (partyPhone !== null) {
-    const existing = await tx.supplier.findFirst({
+    const existing = await tx.party.findFirst({
       where: { phone: partyPhone, deletedAt: null },
     });
 
     if (existing) {
-      supplierId = existing.id;
+      if (!existing.isSupplier) {
+        await tx.party.update({
+          where: { id: existing.id },
+          data: { isSupplier: true },
+        });
+        partyCreatedOrUpdated = true;
+      }
+      partyId = existing.id;
       partyName = existing.name;
       partyPhone = existing.phone;
     } else {
-      const created = await tx.supplier.create({
+      const created = await tx.party.create({
         data: {
           name: partyName,
           phone: partyPhone,
           email: null,
           address: null,
           notes: null,
+          isSupplier: true,
         },
       });
-      supplierId = created.id;
+      partyId = created.id;
       partyName = created.name;
       partyPhone = created.phone;
+      partyCreatedOrUpdated = true;
     }
   }
 
@@ -98,9 +115,10 @@ async function buildPurchaseData(
 
   return {
     ok: true,
+    partyCreatedOrUpdated,
     data: {
       date: parsed.date,
-      supplierId,
+      partyId,
       partyName,
       partyPhone,
       discount: discountPaise,
@@ -133,7 +151,11 @@ export async function createPurchase(input: PurchaseInput) {
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
-    return { ok: true as const, purchase: created };
+    return {
+      ok: true as const,
+      purchase: created,
+      partyCreatedOrUpdated: built.partyCreatedOrUpdated,
+    };
   });
 
   if (!result.ok) {
@@ -141,7 +163,7 @@ export async function createPurchase(input: PurchaseInput) {
   }
 
   revalidatePath("/purchases");
-  if (result.purchase.supplierId !== null) revalidatePath("/suppliers");
+  if (result.partyCreatedOrUpdated) revalidatePath("/suppliers");
   return { ok: true as const, purchase: serializePurchase(result.purchase) };
 }
 
@@ -169,7 +191,11 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
-    return { ok: true as const, purchase: updated };
+    return {
+      ok: true as const,
+      purchase: updated,
+      partyCreatedOrUpdated: built.partyCreatedOrUpdated,
+    };
   });
 
   if (!result.ok) {
@@ -177,7 +203,7 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
   }
 
   revalidatePath("/purchases");
-  if (result.purchase.supplierId !== null) revalidatePath("/suppliers");
+  if (result.partyCreatedOrUpdated) revalidatePath("/suppliers");
   return { ok: true as const, purchase: serializePurchase(result.purchase) };
 }
 

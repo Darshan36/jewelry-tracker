@@ -99,7 +99,7 @@ export function CastingTable({ entries }: Props) {
       enableSorting: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          {row.original.vendorId !== null && (
+          {row.original.partyId !== null && (
             <LinkIcon
               className="size-3 text-secondary shrink-0"
               aria-label="Linked vendor"
@@ -528,7 +528,7 @@ function CastingMobileCard({
         <MobileCardTitle>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="truncate">{entry.partyName}</span>
-            {!entry.vendor && (
+            {!entry.party && (
               <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 bg-surface-container-high text-on-surface-variant border border-outline-variant">
                 Walk-in
               </span>

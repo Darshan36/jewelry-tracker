@@ -26,7 +26,7 @@ function makeEntry(
   return {
     id: "plating-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    vendorId: null,
+    partyId: null,
     partyName: "Acme Vendor",
     partyPhone: "9876543210",
     discount: 10000,
@@ -50,7 +50,7 @@ function makeEntry(
     payments: [],
     paidAmount: 0,
     status: "pending",
-    vendor: null,
+    party: null,
     bill: null,
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

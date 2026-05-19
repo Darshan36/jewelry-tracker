@@ -103,7 +103,7 @@ export function PurchasesTable({ purchases }: Props) {
       enableSorting: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          {row.original.supplierId !== null && (
+          {row.original.partyId !== null && (
             <LinkIcon
               className="size-3 text-secondary shrink-0"
               aria-label="Linked supplier"
@@ -582,7 +582,7 @@ function PurchaseMobileCard({
       <MobileCardHeader>
         <MobileCardTitle>
           <div className="flex items-center gap-2 flex-wrap">
-            {purchase.supplierId !== null && (
+            {purchase.partyId !== null && (
               <LinkIcon
                 className="size-3 text-secondary shrink-0"
                 aria-label="Linked supplier"

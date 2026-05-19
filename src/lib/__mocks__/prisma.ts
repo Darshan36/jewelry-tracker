@@ -6,7 +6,7 @@
 //
 // `vitest-mock-extended`'s `mockDeep` produces a deeply-mocked PrismaClient
 // where every model and every method is a `vi.fn()`-style mock. Tests use
-// `vi.mocked(prisma.customer.create).mockResolvedValue(...)` to set per-call
+// `vi.mocked(prisma.party.create).mockResolvedValue(...)` to set per-call
 // return values.
 //
 // `mockReset(prisma)` between tests clears both call history AND any

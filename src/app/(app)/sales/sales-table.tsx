@@ -102,7 +102,7 @@ export function SalesTable({ sales }: Props) {
       enableSorting: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          {row.original.customerId !== null && (
+          {row.original.partyId !== null && (
             <LinkIcon
               className="size-3 text-secondary shrink-0"
               aria-label="Linked customer"
@@ -564,7 +564,7 @@ function SaleMobileCard({
       <MobileCardHeader>
         <MobileCardTitle>
           <div className="flex items-center gap-2 flex-wrap">
-            {sale.customerId !== null && (
+            {sale.partyId !== null && (
               <LinkIcon
                 className="size-3 text-secondary shrink-0"
                 aria-label="Linked customer"

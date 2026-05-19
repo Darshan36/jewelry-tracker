@@ -68,7 +68,7 @@ function makeFile(name: string, type: string): File {
   return new File(["bytes"], name, { type });
 }
 
-const suppliers = [
+const parties = [
   { id: "sup-1", name: "Existing Supplier", phone: "9999999999" },
 ];
 
@@ -89,7 +89,7 @@ beforeEach(() => {
 
 describe("PurchaseForm — create mode", () => {
   it("renders with default empty values and one empty line item", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     expect(
       screen.getByRole("group", { name: /^Line 1$/i }),
     ).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe("PurchaseForm — create mode", () => {
   });
 
   it("renders the SaveDropdown split button", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     expect(
       screen.getByRole("button", { name: /save and return/i }),
     ).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe("PurchaseForm — create mode", () => {
   });
 
   it("renders a Cancel button that's not the form submit", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     const cancel = screen.getByRole("button", { name: /^cancel$/i });
     expect(cancel.getAttribute("type")).toBe("button");
   });
@@ -119,10 +119,10 @@ describe("PurchaseForm — create mode", () => {
     vi.mocked(createPurchase).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase", supplierId: null } as any,
+      purchase: { id: "new-purchase", partyId: null } as any,
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     await user.type(
       document.querySelector("#purchases-party-name") as HTMLInputElement,
@@ -152,7 +152,7 @@ describe("PurchaseForm — edit mode", () => {
   const existingPurchase = {
     id: "purchase-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    supplierId: "sup-1",
+    partyId: "sup-1",
     partyName: "Existing Supplier",
     partyPhone: "9999999999",
     discount: 5000, // ₹50 in paise
@@ -184,7 +184,7 @@ describe("PurchaseForm — edit mode", () => {
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         purchase={existingPurchase as any}
-        suppliers={suppliers}
+        parties={parties}
       />,
     );
 
@@ -214,14 +214,14 @@ describe("PurchaseForm — edit mode", () => {
     vi.mocked(updatePurchase).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "purchase-1", supplierId: "sup-1" } as any,
+      purchase: { id: "purchase-1", partyId: "sup-1" } as any,
     });
     render(
       <PurchaseForm
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         purchase={existingPurchase as any}
-        suppliers={suppliers}
+        parties={parties}
       />,
     );
 
@@ -264,14 +264,14 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
   }
 
   it("renders the inline 'Attach bill (optional)' section", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     expect(screen.getByText(/attach bill \(optional\)/i)).toBeInTheDocument();
     expect(getFileInput()).toBeInTheDocument();
   });
 
   it("picking a valid file shows the filename + Remove button", async () => {
     const user = userEvent.setup();
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
 
@@ -282,7 +282,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
   });
 
   it("rejects unsupported MIME types client-side without calling prepareUpload", async () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     fireEvent.change(getFileInput(), {
       target: { files: [makeFile("doc.txt", "text/plain")] },
@@ -300,7 +300,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
       return {
         ok: true as const,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        purchase: { id: "new-purchase-id", supplierId: null } as any,
+        purchase: { id: "new-purchase-id", partyId: null } as any,
       };
     });
     vi.mocked(prepareUpload).mockImplementation(async () => {
@@ -320,7 +320,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
       };
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -345,10 +345,10 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     vi.mocked(createPurchase).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase", supplierId: null } as any,
+      purchase: { id: "new-purchase", partyId: null } as any,
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
@@ -362,14 +362,14 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     vi.mocked(createPurchase).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase-id", supplierId: null } as any,
+      purchase: { id: "new-purchase-id", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: false as const,
       errors: { mimeType: ["Unsupported file type."] },
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -388,7 +388,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     vi.mocked(createPurchase).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "new-purchase-id", supplierId: null } as any,
+      purchase: { id: "new-purchase-id", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
@@ -397,7 +397,7 @@ describe("PurchaseForm — bill-in-form retrofit (Phase 10.6)", () => {
     });
     StubXHR.failNext = true;
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -421,7 +421,7 @@ describe("PurchaseForm — mobile viewport (responsive class regression coverage
   });
 
   it("desktop column-header row carries `hidden md:grid`", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     const descriptionHeader = screen.getAllByText("Description")[0];
     const headerRow = descriptionHeader.parentElement!;
@@ -430,7 +430,7 @@ describe("PurchaseForm — mobile viewport (responsive class regression coverage
   });
 
   it("line item rows use `grid-cols-1 md:grid-cols-[...]`", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     const lineGroup = screen.getByRole("group", { name: /line 1/i });
     expect(lineGroup.className).toContain("grid-cols-1");
@@ -438,7 +438,7 @@ describe("PurchaseForm — mobile viewport (responsive class regression coverage
   });
 
   it("qty/rate/× inner group uses `md:contents`", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     const qtyInput = screen.getByPlaceholderText("Qty");
     const innerGroup = qtyInput.parentElement!.parentElement!;
@@ -448,14 +448,14 @@ describe("PurchaseForm — mobile viewport (responsive class regression coverage
   });
 
   it("qty + rate inputs have mobile placeholders", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     expect(screen.getByPlaceholderText("Qty")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Rate ₹")).toBeInTheDocument();
   });
 
   it("remove button has 44x44 mobile touch target", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
     expect(removeBtn.className).toContain("h-11");
@@ -463,7 +463,7 @@ describe("PurchaseForm — mobile viewport (responsive class regression coverage
   });
 
   it("mobile-only line total row is rendered with `md:hidden`", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     const labels = screen.getAllByText("Line total");
     const mobileLabel = labels.find((el) =>
@@ -473,7 +473,7 @@ describe("PurchaseForm — mobile viewport (responsive class regression coverage
   });
 
   it("form footer is sticky-bottom on mobile", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     const saveButton = screen.getByRole("button", { name: /save and return/i });
     let el: HTMLElement | null = saveButton;
@@ -501,14 +501,14 @@ describe("PurchaseForm — Phase 12a photos", () => {
   }
 
   it("renders a 'Photos (optional)' section in create mode", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     expect(screen.getByText(/photos \(optional\)/i)).toBeInTheDocument();
     // The create-mode picker has a 'multiple' file input.
     expect(getPhotoInput()).toBeInTheDocument();
   });
 
   it("picking photos shows a preview tile per file with a Remove button", async () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     fireEvent.change(getPhotoInput(), {
       target: {
         files: [
@@ -522,7 +522,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
   });
 
   it("rejects non-image MIME types client-side", () => {
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     fireEvent.change(getPhotoInput(), {
       target: { files: [makeFile("doc.pdf", "application/pdf")] },
     });
@@ -532,7 +532,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
 
   it("removing a pending photo drops its preview tile", async () => {
     const user = userEvent.setup();
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
     fireEvent.change(getPhotoInput(), {
       target: { files: [makeFile("a.png", "image/png")] },
     });
@@ -546,7 +546,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
     vi.mocked(createPurchase).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      purchase: { id: "purchase-77", supplierId: null } as any,
+      purchase: { id: "purchase-77", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
@@ -559,7 +559,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
       bill: { id: "bill-x" } as any,
     });
 
-    render(<PurchaseForm mode="create" suppliers={suppliers} />);
+    render(<PurchaseForm mode="create" parties={parties} />);
 
     await user.type(
       document.querySelector("#purchases-party-name") as HTMLInputElement,
@@ -607,7 +607,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
     const purchase = {
       id: "purchase-1",
       date: new Date("2026-05-10T00:00:00Z"),
-      supplierId: null,
+      partyId: null,
       partyName: "Walk-in",
       partyPhone: null,
       discount: 0,
@@ -638,7 +638,7 @@ describe("PurchaseForm — Phase 12a photos", () => {
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         purchase={purchase as any}
-        suppliers={suppliers}
+        parties={parties}
       />,
     );
     await vi.waitFor(() => {

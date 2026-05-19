@@ -70,8 +70,8 @@ async function AdminDashboard({ name }: { name: string }) {
 
   const [customerCount, supplierCount, salesAgg, purchasesAgg, billsReady] =
     await Promise.all([
-      prisma.customer.count({ where: { deletedAt: null } }),
-      prisma.supplier.count({ where: { deletedAt: null } }),
+      prisma.party.count({ where: { isCustomer: true, deletedAt: null } }),
+      prisma.party.count({ where: { isSupplier: true, deletedAt: null } }),
       prisma.sale.aggregate({
         where: { deletedAt: null, date: monthRange },
         _count: { _all: true },
@@ -115,7 +115,7 @@ async function PurchaseDashboard({ name }: { name: string }) {
   const monthRange = currentMonthRange();
 
   const [supplierCount, purchasesAgg, owedToSuppliers] = await Promise.all([
-    prisma.supplier.count({ where: { deletedAt: null } }),
+    prisma.party.count({ where: { isSupplier: true, deletedAt: null } }),
     prisma.purchase.aggregate({
       where: { deletedAt: null, date: monthRange },
       _count: { _all: true },
@@ -187,7 +187,12 @@ async function CastingPlatingDashboard({ name }: { name: string }) {
       _count: { _all: true },
       _sum: { total: true },
     }),
-    prisma.castingPlatingVendor.count({ where: { deletedAt: null } }),
+    prisma.party.count({
+      where: {
+        OR: [{ isCastingVendor: true }, { isPlatingVendor: true }],
+        deletedAt: null,
+      },
+    }),
     sumOwedToCastingPlatingVendors(),
   ]);
 

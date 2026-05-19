@@ -14,7 +14,7 @@ type Props = {
 export default async function EditPurchasePage({ params }: Props) {
   const { id } = await params;
 
-  const [purchaseRow, suppliers] = await Promise.all([
+  const [purchaseRow, parties] = await Promise.all([
     prisma.purchase.findUnique({
       where: { id, deletedAt: null },
       include: {
@@ -23,8 +23,8 @@ export default async function EditPurchasePage({ params }: Props) {
         returns: true,
       },
     }),
-    prisma.supplier.findMany({
-      where: { deletedAt: null },
+    prisma.party.findMany({
+      where: { isSupplier: true, deletedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, phone: true },
     }),
@@ -55,7 +55,7 @@ export default async function EditPurchasePage({ params }: Props) {
         </p>
       </header>
 
-      <PurchaseForm mode="edit" purchase={purchase} suppliers={suppliers} />
+      <PurchaseForm mode="edit" purchase={purchase} parties={parties} />
     </div>
   );
 }

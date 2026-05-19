@@ -62,3 +62,7 @@ scripts/_walkthrough*out/
 # perform bucket/env-management). Naming convention: keep them locally,
 # never commit.
 scripts/_*.mjs
+
+# Local DB dumps — contain bcrypt password hashes and other secrets that
+# must never reach git history. Local safety artifacts only.
+/backups/

@@ -29,7 +29,7 @@ function makeEntry(
   return {
     id: "entry-1",
     date: new Date("2026-05-17T00:00:00Z"),
-    vendorId: null,
+    partyId: null,
     partyName: "Mahesh",
     partyPhone: null,
     discount: 0n,
@@ -77,7 +77,7 @@ describe("createCastingPayment — PAYMENT happy path", () => {
       .mockResolvedValueOnce({
         ...makeEntry(200000n),
         lineItems: [],
-        vendor: null,
+        party: null,
         bill: null,
             } as unknown as Awaited<ReturnType<typeof prisma.castingEntry.findUnique>>);
     vi.mocked(prisma.castingPayment.create).mockResolvedValue({
@@ -113,7 +113,7 @@ describe("createCastingPayment — PAYMENT happy path", () => {
       .mockResolvedValueOnce({
         ...makeEntry(100000n),
         lineItems: [],
-        vendor: null,
+        party: null,
         bill: null,
             } as unknown as Awaited<ReturnType<typeof prisma.castingEntry.findUnique>>);
     vi.mocked(prisma.castingPayment.create).mockResolvedValue({
@@ -143,7 +143,7 @@ describe("createCastingPayment — REFUND handling", () => {
       .mockResolvedValueOnce({
         ...makeEntry(200000n, [{ amount: 150000n, type: "PAYMENT" }]),
         lineItems: [],
-        vendor: null,
+        party: null,
         bill: null,
             } as unknown as Awaited<ReturnType<typeof prisma.castingEntry.findUnique>>);
     vi.mocked(prisma.castingPayment.create).mockResolvedValue({
@@ -222,7 +222,7 @@ describe.each(ROLE_MATRIX)(
           .mockResolvedValueOnce({
         ...makeEntry(200000n),
             lineItems: [],
-            vendor: null,
+            party: null,
             bill: null,
                 } as unknown as Awaited<ReturnType<typeof prisma.castingEntry.findUnique>>);
         vi.mocked(prisma.castingPayment.create).mockResolvedValue({

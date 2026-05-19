@@ -23,7 +23,7 @@ vi.mock("./actions", () => ({
 import { VendorsTable, type VendorForClient } from "./vendors-table";
 import { mockMobileViewport } from "@/test-utils/viewport";
 
-function makeVendor(overrides: Partial<VendorForClient> = {}): VendorForClient {
+function makeParty(overrides: Partial<VendorForClient> = {}): VendorForClient {
   return {
     id: "ven-1",
     name: "Default Vendor",
@@ -42,7 +42,7 @@ function makeVendor(overrides: Partial<VendorForClient> = {}): VendorForClient {
 
 function threeVendors(): VendorForClient[] {
   return [
-    makeVendor({
+    makeParty({
       id: "1",
       name: "Vendor A",
       phone: "1111111111",
@@ -50,7 +50,7 @@ function threeVendors(): VendorForClient[] {
       platingCount: 0,
       owedPaise: 150000,
     }),
-    makeVendor({
+    makeParty({
       id: "2",
       name: "Vendor B",
       phone: "2222222222",
@@ -58,7 +58,7 @@ function threeVendors(): VendorForClient[] {
       platingCount: 5,
       owedPaise: 0,
     }),
-    makeVendor({
+    makeParty({
       id: "3",
       name: "Vendor C",
       phone: "3333333333",
@@ -76,7 +76,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("renders mobile cards instead of the desktop table", () => {
-    render(<VendorsTable vendors={threeVendors()} />);
+    render(<VendorsTable parties={threeVendors()} />);
 
     expect(screen.getByTestId("responsive-table-mobile")).toBeInTheDocument();
     expect(screen.queryByTestId("responsive-table-desktop")).not.toBeInTheDocument();
@@ -84,7 +84,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("renders one mobile card per vendor", () => {
-    render(<VendorsTable vendors={threeVendors()} />);
+    render(<VendorsTable parties={threeVendors()} />);
 
     expect(screen.getByTestId("vendor-mobile-card-1")).toBeInTheDocument();
     expect(screen.getByTestId("vendor-mobile-card-2")).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("shows the vendor's name + phone on each card", () => {
-    render(<VendorsTable vendors={[makeVendor({ id: "x", name: "Mira Casting", phone: "9988776655" })]} />);
+    render(<VendorsTable parties={[makeParty({ id: "x", name: "Mira Casting", phone: "9988776655" })]} />);
 
     const card = screen.getByTestId("vendor-mobile-card-x");
     expect(within(card).getByText("Mira Casting")).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("renders the casting + plating counts on each card", () => {
-    render(<VendorsTable vendors={threeVendors()} />);
+    render(<VendorsTable parties={threeVendors()} />);
 
     const cardA = screen.getByTestId("vendor-mobile-card-1");
     expect(within(cardA).getByText(/3 casting · 0 plating/i)).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("shows owed amount only when owedPaise > 0", () => {
-    render(<VendorsTable vendors={threeVendors()} />);
+    render(<VendorsTable parties={threeVendors()} />);
 
     // Vendor A owes 150000 paise = ₹1,500.00.
     const cardA = screen.getByTestId("vendor-mobile-card-1");
@@ -123,21 +123,21 @@ describe("VendorsTable — mobile viewport", () => {
 
   it("shows 'no jobs yet' annotation when vendor has zero entries", () => {
     const noJobs = [
-      makeVendor({
+      makeParty({
         id: "x",
         name: "Empty Vendor",
         castingCount: 0,
         platingCount: 0,
       }),
     ];
-    render(<VendorsTable vendors={noJobs} />);
+    render(<VendorsTable parties={noJobs} />);
 
     const card = screen.getByTestId("vendor-mobile-card-x");
     expect(within(card).getByText(/no jobs yet/i)).toBeInTheDocument();
   });
 
   it("omits phone line when phone is null", () => {
-    render(<VendorsTable vendors={[makeVendor({ id: "x", name: "Anonymous", phone: null })]} />);
+    render(<VendorsTable parties={[makeParty({ id: "x", name: "Anonymous", phone: null })]} />);
 
     const card = screen.getByTestId("vendor-mobile-card-x");
     expect(within(card).getByText("Anonymous")).toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("does not render inline action buttons on mobile cards", () => {
-    render(<VendorsTable vendors={threeVendors()} />);
+    render(<VendorsTable parties={threeVendors()} />);
 
     expect(screen.queryByRole("button", { name: /edit vendor/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete vendor/i })).not.toBeInTheDocument();
@@ -153,7 +153,7 @@ describe("VendorsTable — mobile viewport", () => {
 
   it("tapping a mobile card opens the detail modal", async () => {
     const user = userEvent.setup();
-    render(<VendorsTable vendors={[makeVendor({ id: "x", name: "Tap target Vendor" })]} />);
+    render(<VendorsTable parties={[makeParty({ id: "x", name: "Tap target Vendor" })]} />);
 
     await user.click(screen.getByTestId("vendor-mobile-card-x"));
 
@@ -163,7 +163,7 @@ describe("VendorsTable — mobile viewport", () => {
   });
 
   it("empty state still renders on mobile", () => {
-    render(<VendorsTable vendors={[]} />);
+    render(<VendorsTable parties={[]} />);
     expect(screen.getByText(/No vendors yet/i)).toBeInTheDocument();
     expect(screen.queryByTestId("responsive-table-mobile")).not.toBeInTheDocument();
   });

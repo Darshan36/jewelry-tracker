@@ -6,8 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { CastingForm } from "../casting-form";
 
 export default async function NewCastingEntryPage() {
-  const vendors = await prisma.castingPlatingVendor.findMany({
-    where: { deletedAt: null },
+  const parties = await prisma.party.findMany({
+    where: { isCastingVendor: true, deletedAt: null },
     orderBy: { name: "asc" },
     select: { id: true, name: true, phone: true },
   });
@@ -30,7 +30,7 @@ export default async function NewCastingEntryPage() {
         </p>
       </header>
 
-      <CastingForm mode="create" vendors={vendors} />
+      <CastingForm mode="create" parties={parties} />
     </div>
   );
 }

@@ -30,7 +30,7 @@ const fakeSession = {
 type RawPurchase = {
   id: string;
   date: Date;
-  supplierId: string | null;
+  partyId: string | null;
   partyName: string;
   partyPhone: string | null;
   itemDescription: string;
@@ -76,7 +76,7 @@ function makePurchaseRow(
   return {
     id: "cuid-purchase-test",
     date: new Date("2026-05-14T00:00:00Z"),
-    supplierId: null,
+    partyId: null,
     partyName: "Test Walkin Vendor",
     partyPhone: null,
     itemDescription: "Test item",

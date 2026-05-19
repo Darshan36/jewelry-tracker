@@ -53,7 +53,7 @@ function makeSale(
   overrides: Partial<{
     id: string;
     date: Date;
-    customerId: string | null;
+    partyId: string | null;
     partyName: string;
     partyPhone: string | null;
     discount: bigint;
@@ -68,7 +68,7 @@ function makeSale(
   return {
     id: "cuid-sale-test",
     date: new Date("2026-05-14T00:00:00Z"),
-    customerId: null,
+    partyId: null,
     partyName: "Test Walkin",
     partyPhone: null,
     discount: 0n,
@@ -82,7 +82,7 @@ function makeSale(
   };
 }
 
-function makeCustomer(
+function makeParty(
   overrides: Partial<{
     id: string;
     name: string;
@@ -105,6 +105,13 @@ function makeCustomer(
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
     deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
     ...overrides,
   };
 }
@@ -113,7 +120,7 @@ function makeCustomer(
 function validInput(
   overrides: Partial<{
     date: Date;
-    customerId: string | null;
+    partyId: string | null;
     partyName: string;
     partyPhone: string | null;
     lineItems: Array<{ itemDescription: string; qty: number; rate: number }>;
@@ -123,7 +130,7 @@ function validInput(
 ) {
   return {
     date: new Date("2026-05-14T00:00:00Z"),
-    customerId: null as string | null,
+    partyId: null as string | null,
     partyName: "Test Walkin",
     partyPhone: null as string | null,
     lineItems: [{ itemDescription: "Gold chain", qty: 10, rate: 250 }],
@@ -179,56 +186,56 @@ describe("createSale", () => {
     const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
     expect(call.data.partyName).toBe("Walkin Bob");
     expect(call.data.partyPhone).toBeNull();
-    expect(call.data.customerId).toBeNull();
+    expect(call.data.partyId).toBeNull();
   });
 
   it("linked-customer happy path — snapshots partyName/partyPhone from Customer row, ignoring form values", async () => {
-    vi.mocked(prisma.customer.findUnique).mockResolvedValue(
-      makeCustomer({ id: "cust-real", name: "Real Customer Name", phone: "8888888888" }),
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(
+      makeParty({ id: "cust-real", name: "Real Customer Name", phone: "8888888888" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
     await createSale(
       validInput({
-        customerId: "cust-real",
+        partyId: "cust-real",
         partyName: "FORM TYPED THIS — should be ignored",
         partyPhone: "0000000000",
       }),
     );
 
-    expect(prisma.customer.findUnique).toHaveBeenCalledWith({
+    expect(prisma.party.findUnique).toHaveBeenCalledWith({
       where: { id: "cust-real", deletedAt: null },
     });
     const call = vi.mocked(prisma.sale.create).mock.calls[0][0];
     expect(call.data.partyName).toBe("Real Customer Name");
     expect(call.data.partyPhone).toBe("8888888888");
-    expect(call.data.customerId).toBe("cust-real");
+    expect(call.data.partyId).toBe("cust-real");
   });
 
-  it("returns customerId error when the customer is not found", async () => {
-    vi.mocked(prisma.customer.findUnique).mockResolvedValue(null);
+  it("returns partyId error when the customer is not found", async () => {
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(null);
 
     const result = await createSale(
-      validInput({ customerId: "nonexistent" }),
+      validInput({ partyId: "nonexistent" }),
     );
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.customerId).toContain("Customer not found");
+      expect(result.errors.partyId).toContain("Party not found");
     }
     expect(prisma.sale.create).not.toHaveBeenCalled();
   });
 
   it("treats a soft-deleted customer as not found (deletedAt:null guard)", async () => {
-    vi.mocked(prisma.customer.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(null);
 
     const result = await createSale(
-      validInput({ customerId: "soft-deleted-id" }),
+      validInput({ partyId: "soft-deleted-id" }),
     );
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.customerId).toContain("Customer not found");
+      expect(result.errors.partyId).toContain("Party not found");
     }
   });
 
@@ -281,7 +288,7 @@ describe("createSale", () => {
       expect(result.errors.partyName).toBeDefined();
     }
     expect(prisma.sale.create).not.toHaveBeenCalled();
-    expect(prisma.customer.findUnique).not.toHaveBeenCalled();
+    expect(prisma.party.findUnique).not.toHaveBeenCalled();
   });
 
   it("returned sale.discount, total are Number (paise); lineItems[].rate is Number paise", async () => {
@@ -377,9 +384,9 @@ describe("updateSale", () => {
     expect(created[0].rate).toBe(25000n);
   });
 
-  it("re-snapshots customer when customerId changes during update", async () => {
-    vi.mocked(prisma.customer.findUnique).mockResolvedValue(
-      makeCustomer({ id: "cust-new", name: "Newly Linked", phone: "7777" }),
+  it("re-snapshots customer when partyId changes during update", async () => {
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(
+      makeParty({ id: "cust-new", name: "Newly Linked", phone: "7777" }),
     );
     vi.mocked(prisma.saleLineItem.deleteMany).mockResolvedValue({ count: 0 });
     vi.mocked(prisma.sale.update).mockResolvedValue(makeSale());
@@ -387,7 +394,7 @@ describe("updateSale", () => {
     await updateSale(
       "sale-abc",
       validInput({
-        customerId: "cust-new",
+        partyId: "cust-new",
         partyName: "form said this",
         partyPhone: "form said this phone",
       }),
@@ -534,12 +541,12 @@ describe.each(SALE_ROLE_MATRIX)("softDeleteSale role access — %s", (role, allo
 
 describe("createSale auto-promotion (Phase 6)", () => {
   it("walk-in + new phone → auto-creates customer and links the sale", async () => {
-    vi.mocked(prisma.customer.findFirst).mockResolvedValue(null);
-    vi.mocked(prisma.customer.create).mockResolvedValue(
-      makeCustomer({ id: "auto-cust-1", name: "New Walkin", phone: "9876500001" }),
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.party.create).mockResolvedValue(
+      makeParty({ id: "auto-cust-1", name: "New Walkin", phone: "9876500001" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(
-      makeSale({ customerId: "auto-cust-1", partyName: "New Walkin", partyPhone: "9876500001" }),
+      makeSale({ partyId: "auto-cust-1", partyName: "New Walkin", partyPhone: "9876500001" }),
     );
 
     const result = await createSale(
@@ -547,27 +554,28 @@ describe("createSale auto-promotion (Phase 6)", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(prisma.customer.findFirst).toHaveBeenCalledWith({
+    expect(prisma.party.findFirst).toHaveBeenCalledWith({
       where: { phone: "9876500001", deletedAt: null },
     });
-    expect(prisma.customer.create).toHaveBeenCalledWith({
+    expect(prisma.party.create).toHaveBeenCalledWith({
       data: {
         name: "New Walkin",
         phone: "9876500001",
         email: null,
         address: null,
         notes: null,
+        isCustomer: true,
       },
     });
     const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
-    expect(saleCall.data.customerId).toBe("auto-cust-1");
+    expect(saleCall.data.partyId).toBe("auto-cust-1");
     expect(saleCall.data.partyName).toBe("New Walkin");
     expect(saleCall.data.partyPhone).toBe("9876500001");
   });
 
   it("walk-in + existing phone → links to existing customer, no new customer created", async () => {
-    vi.mocked(prisma.customer.findFirst).mockResolvedValue(
-      makeCustomer({ id: "existing-cust", name: "Canonical Name", phone: "9876500001" }),
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(
+      makeParty({ id: "existing-cust", name: "Canonical Name", phone: "9876500001" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
@@ -576,23 +584,23 @@ describe("createSale auto-promotion (Phase 6)", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(prisma.customer.findFirst).toHaveBeenCalledOnce();
-    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.party.findFirst).toHaveBeenCalledOnce();
+    expect(prisma.party.create).not.toHaveBeenCalled();
     const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
-    expect(saleCall.data.customerId).toBe("existing-cust");
+    expect(saleCall.data.partyId).toBe("existing-cust");
     expect(saleCall.data.partyName).toBe("Canonical Name");
     expect(saleCall.data.partyPhone).toBe("9876500001");
   });
 
   it("walk-in + existing phone, typed name differs → canonical name wins", async () => {
-    vi.mocked(prisma.customer.findFirst).mockResolvedValue(
-      makeCustomer({ id: "c", name: "Real Customer", phone: "9876500001" }),
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(
+      makeParty({ id: "c", name: "Real Customer", phone: "9876500001" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
     await createSale(
       validInput({
-        customerId: null,
+        partyId: null,
         partyName: "TYPED — should be overridden",
         partyPhone: "9876500001",
       }),
@@ -611,17 +619,17 @@ describe("createSale auto-promotion (Phase 6)", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(prisma.customer.findFirst).not.toHaveBeenCalled();
-    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.party.findFirst).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
     const saleCall = vi.mocked(prisma.sale.create).mock.calls[0][0];
-    expect(saleCall.data.customerId).toBeNull();
+    expect(saleCall.data.partyId).toBeNull();
     expect(saleCall.data.partyName).toBe("No Phone Walkin");
     expect(saleCall.data.partyPhone).toBeNull();
   });
 
   it("normalised phone — dashes/spaces in the input still match a clean stored phone", async () => {
-    vi.mocked(prisma.customer.findFirst).mockResolvedValue(
-      makeCustomer({ id: "c", name: "Existing", phone: "9876500001" }),
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(
+      makeParty({ id: "c", name: "Existing", phone: "9876500001" }),
     );
     vi.mocked(prisma.sale.create).mockResolvedValue(makeSale());
 
@@ -629,14 +637,14 @@ describe("createSale auto-promotion (Phase 6)", () => {
       validInput({ partyName: "Whatever", partyPhone: "9876-500-001" }),
     );
 
-    expect(prisma.customer.findFirst).toHaveBeenCalledWith({
+    expect(prisma.party.findFirst).toHaveBeenCalledWith({
       where: { phone: "9876500001", deletedAt: null },
     });
   });
 
   it("transaction atomicity — if customer.create throws, sale.create is never called", async () => {
-    vi.mocked(prisma.customer.findFirst).mockResolvedValue(null);
-    vi.mocked(prisma.customer.create).mockRejectedValueOnce(
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.party.create).mockRejectedValueOnce(
       new Error("DB constraint violation"),
     );
 

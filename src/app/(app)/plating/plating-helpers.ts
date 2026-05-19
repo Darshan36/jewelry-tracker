@@ -18,7 +18,7 @@ import type {
   PlatingEntry,
   PlatingLineItem,
   PlatingPayment,
-  CastingPlatingVendor,
+  Party,
 } from "@/generated/prisma";
 
 import {
@@ -48,7 +48,7 @@ export type PlatingEntryForClient = Omit<PlatingEntry, "discount" | "total"> & {
   paidAmount: number;
   status: PlatingStatus;
   payments: PlatingPaymentForClient[];
-  vendor: CastingPlatingVendor | null;
+  party: Party | null;
   bill: Attachment | null;
 };
 
@@ -86,15 +86,15 @@ export function serializePlatingEntry(
   input: PlatingEntry & {
     lineItems?: PlatingLineItem[];
     payments?: PlatingPayment[];
-    vendor?: CastingPlatingVendor | null;
-    bill?: Attachment | null;
+    party?: Party | null;
+    attachment?: Attachment | null;
   },
 ): PlatingEntryForClient {
   const {
     lineItems: rawLineItems,
     payments: rawPayments,
-    vendor,
-    bill,
+    party,
+    attachment,
     ...entry
   } = input;
   const lineItems = rawLineItems ?? [];
@@ -114,7 +114,7 @@ export function serializePlatingEntry(
       paidAmount: paidAmountBigInt,
     }),
     payments: activePayments.map(serializePlatingPayment),
-    vendor: vendor ?? null,
-    bill: bill ?? null,
+    party: party ?? null,
+    bill: attachment ?? null,
   };
 }

@@ -22,12 +22,12 @@ vi.mock("./actions", () => ({
   softDeleteSupplier: vi.fn(),
 }));
 
-import type { Supplier } from "@/generated/prisma";
+import type { Party as Supplier } from "@/generated/prisma";
 
 import { SuppliersTable } from "./suppliers-table";
 import { mockMobileViewport } from "@/test-utils/viewport";
 
-function makeSupplier(overrides: Partial<Supplier> = {}): Supplier {
+function makeParty(overrides: Partial<Supplier> = {}): Supplier {
   return {
     id: "sup-1",
     name: "Default Supplier",
@@ -38,15 +38,22 @@ function makeSupplier(overrides: Partial<Supplier> = {}): Supplier {
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
     ...overrides,
   };
 }
 
 function threeSuppliers(): Supplier[] {
   return [
-    makeSupplier({ id: "1", name: "Alpha Metals", phone: "1111111111" }),
-    makeSupplier({ id: "2", name: "Bravo Casting", phone: "2222222222" }),
-    makeSupplier({ id: "3", name: "Charlie Polish", phone: "3333333333" }),
+    makeParty({ id: "1", name: "Alpha Metals", phone: "1111111111" }),
+    makeParty({ id: "2", name: "Bravo Casting", phone: "2222222222" }),
+    makeParty({ id: "3", name: "Charlie Polish", phone: "3333333333" }),
   ];
 }
 
@@ -57,7 +64,7 @@ describe("SuppliersTable — mobile viewport", () => {
   });
 
   it("renders mobile cards instead of the desktop table", () => {
-    render(<SuppliersTable suppliers={threeSuppliers()} />);
+    render(<SuppliersTable parties={threeSuppliers()} />);
 
     expect(screen.getByTestId("responsive-table-mobile")).toBeInTheDocument();
     expect(screen.queryByTestId("responsive-table-desktop")).not.toBeInTheDocument();
@@ -65,7 +72,7 @@ describe("SuppliersTable — mobile viewport", () => {
   });
 
   it("renders one mobile card per supplier", () => {
-    render(<SuppliersTable suppliers={threeSuppliers()} />);
+    render(<SuppliersTable parties={threeSuppliers()} />);
 
     expect(screen.getByTestId("supplier-mobile-card-1")).toBeInTheDocument();
     expect(screen.getByTestId("supplier-mobile-card-2")).toBeInTheDocument();
@@ -73,7 +80,7 @@ describe("SuppliersTable — mobile viewport", () => {
   });
 
   it("each mobile card shows the supplier's name + phone", () => {
-    render(<SuppliersTable suppliers={[makeSupplier({ id: "x", name: "Mira Metals", phone: "9988776655" })]} />);
+    render(<SuppliersTable parties={[makeParty({ id: "x", name: "Mira Metals", phone: "9988776655" })]} />);
 
     const card = screen.getByTestId("supplier-mobile-card-x");
     expect(within(card).getByText("Mira Metals")).toBeInTheDocument();
@@ -81,7 +88,7 @@ describe("SuppliersTable — mobile viewport", () => {
   });
 
   it("omits the phone line when phone is null", () => {
-    render(<SuppliersTable suppliers={[makeSupplier({ id: "x", name: "NoPhone Co", phone: null })]} />);
+    render(<SuppliersTable parties={[makeParty({ id: "x", name: "NoPhone Co", phone: null })]} />);
 
     const card = screen.getByTestId("supplier-mobile-card-x");
     expect(within(card).getByText("NoPhone Co")).toBeInTheDocument();
@@ -89,7 +96,7 @@ describe("SuppliersTable — mobile viewport", () => {
   });
 
   it("does not render inline action buttons on mobile cards", () => {
-    render(<SuppliersTable suppliers={threeSuppliers()} />);
+    render(<SuppliersTable parties={threeSuppliers()} />);
 
     expect(screen.queryByRole("button", { name: /edit supplier/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete supplier/i })).not.toBeInTheDocument();
@@ -97,7 +104,7 @@ describe("SuppliersTable — mobile viewport", () => {
 
   it("tapping a mobile card opens the detail modal", async () => {
     const user = userEvent.setup();
-    render(<SuppliersTable suppliers={[makeSupplier({ id: "x", name: "Tap target Co" })]} />);
+    render(<SuppliersTable parties={[makeParty({ id: "x", name: "Tap target Co" })]} />);
 
     await user.click(screen.getByTestId("supplier-mobile-card-x"));
 
@@ -107,7 +114,7 @@ describe("SuppliersTable — mobile viewport", () => {
   });
 
   it("empty state still renders on mobile", () => {
-    render(<SuppliersTable suppliers={[]} />);
+    render(<SuppliersTable parties={[]} />);
     expect(screen.getByText(/No suppliers yet/i)).toBeInTheDocument();
     expect(screen.queryByTestId("responsive-table-mobile")).not.toBeInTheDocument();
   });

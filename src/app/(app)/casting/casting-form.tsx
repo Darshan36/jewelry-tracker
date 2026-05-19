@@ -49,7 +49,7 @@ import {
   createCastingEntry,
   updateCastingEntry,
 } from "./actions";
-import { PartyPicker, type VendorOption } from "./party-picker";
+import { PartyPicker, type PartyOption } from "@/components/party-picker";
 import { castingEntryInputSchema } from "./schema";
 import type { CastingEntryForClient } from "./casting-helpers";
 
@@ -59,7 +59,7 @@ type FormOutput = z.output<typeof castingEntryInputSchema>;
 type Props = {
   mode: "create" | "edit";
   entry?: CastingEntryForClient;
-  vendors: VendorOption[];
+  parties: PartyOption[];
 };
 
 // Date helpers pin to Asia/Kolkata via shared format helpers — without
@@ -69,7 +69,7 @@ type Props = {
 function emptyDefaults(): FormInputT {
   return {
     date: todayIsoIST() as unknown as Date,
-    vendorId: null,
+    partyId: null,
     partyName: "",
     partyPhone: "",
     lineItems: [{ materialDescription: "", weightKg: 0, ratePerKg: 0 }],
@@ -103,7 +103,7 @@ function putToR2(presignedUrl: string, file: File): Promise<void> {
   });
 }
 
-export function CastingForm({ mode, entry, vendors }: Props) {
+export function CastingForm({ mode, entry, parties }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const saveModeRef = useRef<SaveMode>("return");
@@ -137,7 +137,7 @@ export function CastingForm({ mode, entry, vendors }: Props) {
   useEffect(() => {
     reset({
       date: dateToIsoIST(entry?.date) as unknown as Date,
-      vendorId: entry?.vendorId ?? null,
+      partyId: entry?.partyId ?? null,
       partyName: entry?.partyName ?? "",
       partyPhone: entry?.partyPhone ?? "",
       lineItems: entry
@@ -155,7 +155,7 @@ export function CastingForm({ mode, entry, vendors }: Props) {
 
   const watchedLineItems = watch("lineItems") ?? [];
   const watchedDiscount = watch("discount");
-  const watchedVendorId = watch("vendorId");
+  const watchedPartyId = watch("partyId");
   const watchedPartyName = watch("partyName");
   const watchedPartyPhone = watch("partyPhone");
 
@@ -321,25 +321,27 @@ export function CastingForm({ mode, entry, vendors }: Props) {
         </FormError>
       </div>
 
-      <input type="hidden" {...register("vendorId")} />
+      <input type="hidden" {...register("partyId")} />
       <input type="hidden" {...register("partyName")} />
       <input type="hidden" {...register("partyPhone")} />
       <input type="hidden" {...register("attachmentId")} />
 
       <PartyPicker
-        vendors={vendors}
+        role="CASTING_VENDOR"
+        inputIdPrefix="casting"
+        parties={parties}
         value={{
-          vendorId: (watchedVendorId as string | null) ?? null,
+          partyId: (watchedPartyId as string | null) ?? null,
           partyName: (watchedPartyName as string | undefined) ?? "",
           partyPhone:
             (watchedPartyPhone as string | null | undefined) ?? null,
         }}
         onChange={(v) => {
-          setValue("vendorId", v.vendorId);
+          setValue("partyId", v.partyId);
           setValue("partyName", v.partyName, { shouldValidate: true });
           setValue("partyPhone", v.partyPhone);
         }}
-        error={errors.partyName?.message ?? errors.vendorId?.message}
+        error={errors.partyName?.message ?? errors.partyId?.message}
       />
 
       <div>
@@ -624,7 +626,7 @@ export function CastingForm({ mode, entry, vendors }: Props) {
 
 const FORM_FIELDS = [
   "date",
-  "vendorId",
+  "partyId",
   "partyName",
   "partyPhone",
   "lineItems",

@@ -14,7 +14,7 @@ type Props = {
 export default async function EditSalePage({ params }: Props) {
   const { id } = await params;
 
-  const [saleRow, customers] = await Promise.all([
+  const [saleRow, parties] = await Promise.all([
     prisma.sale.findUnique({
       where: { id, deletedAt: null },
       include: {
@@ -23,8 +23,8 @@ export default async function EditSalePage({ params }: Props) {
         returns: true,
       },
     }),
-    prisma.customer.findMany({
-      where: { deletedAt: null },
+    prisma.party.findMany({
+      where: { isCustomer: true, deletedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, phone: true },
     }),
@@ -55,7 +55,7 @@ export default async function EditSalePage({ params }: Props) {
         </p>
       </header>
 
-      <SaleForm mode="edit" sale={sale} customers={customers} />
+      <SaleForm mode="edit" sale={sale} parties={parties} />
     </div>
   );
 }

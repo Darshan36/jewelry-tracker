@@ -16,7 +16,7 @@ function validLine() {
 function validInput() {
   return {
     date: new Date("2026-05-17T00:00:00Z"),
-    vendorId: null as string | null,
+    partyId: null as string | null,
     partyName: "Mahesh Casting Works",
     partyPhone: "9876543210",
     lineItems: [validLine()],

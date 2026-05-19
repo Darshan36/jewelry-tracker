@@ -96,7 +96,7 @@ function makePurchase(
   return {
     id: "purchase-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    supplierId: null,
+    partyId: null,
     partyName: "Acme Supplier",
     partyPhone: "9876543210",
     discount: 0,

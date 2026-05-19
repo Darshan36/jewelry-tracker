@@ -11,7 +11,7 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
-import type { Supplier } from "@/generated/prisma";
+import type { Party as Supplier } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
 
 import { softDeleteSupplier } from "./actions";

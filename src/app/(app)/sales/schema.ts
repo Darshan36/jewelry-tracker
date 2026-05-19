@@ -37,7 +37,7 @@ export const saleLineItemSchema = z.object({
 export const saleInputSchema = z.object({
   date: z.coerce.date({ message: "Date is required" }),
 
-  customerId: z.string().min(1).nullable(),
+  partyId: z.string().min(1).nullable(),
 
   partyName: z
     .string()

@@ -51,9 +51,9 @@ export type VendorForClient = {
   owedPaise: number;
 };
 
-type Props = { vendors: VendorForClient[] };
+type Props = { parties: VendorForClient[] };
 
-export function VendorsTable({ vendors }: Props) {
+export function VendorsTable({ parties: vendors }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 

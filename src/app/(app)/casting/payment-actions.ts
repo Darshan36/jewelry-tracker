@@ -106,7 +106,7 @@ export async function createCastingPayment(input: CastingPaymentInput) {
     include: {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
-      vendor: true,
+      party: true,
       attachment: true,
     },
   });

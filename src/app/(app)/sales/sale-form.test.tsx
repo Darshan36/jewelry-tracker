@@ -56,7 +56,7 @@ class StubXHR {
   }
 }
 
-const customers = [
+const parties = [
   { id: "cust-1", name: "Existing Customer", phone: "9999999999" },
 ];
 
@@ -81,13 +81,13 @@ function makeFile(name: string, type: string): File {
 
 describe("SaleForm — create mode", () => {
   it("renders with default empty values and one empty line item", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     expect(screen.getByRole("group", { name: /^Line 1$/i })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /^Line 2$/i })).not.toBeInTheDocument();
   });
 
   it("renders the SaveDropdown split button", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     expect(
       screen.getByRole("button", { name: /save and return/i }),
     ).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe("SaleForm — create mode", () => {
   });
 
   it("renders a Cancel button that's not the form submit", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     const cancel = screen.getByRole("button", { name: /^cancel$/i });
     expect(cancel.getAttribute("type")).toBe("button");
   });
@@ -107,10 +107,10 @@ describe("SaleForm — create mode", () => {
     vi.mocked(createSale).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sale: { id: "new-sale", customerId: null } as any,
+      sale: { id: "new-sale", partyId: null } as any,
     });
 
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     // Fill the minimum required fields.
     await user.type(document.querySelector("#sales-party-name") as HTMLInputElement, "Walk-in");
@@ -130,7 +130,7 @@ describe("SaleForm — edit mode", () => {
   const existingSale = {
     id: "sale-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    customerId: "cust-1",
+    partyId: "cust-1",
     partyName: "Existing Customer",
     partyPhone: "9999999999",
     discount: 5000, // ₹50 in paise
@@ -158,7 +158,7 @@ describe("SaleForm — edit mode", () => {
 
   it("prefills line-item values from the sale prop (rates converted paise → rupees)", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    render(<SaleForm mode="edit" sale={existingSale as any} customers={customers} />);
+    render(<SaleForm mode="edit" sale={existingSale as any} parties={parties} />);
 
     // SaleForm seeds defaults inside a useEffect after first render,
     // so wait for the rate input to receive the prefilled rupee value.
@@ -185,10 +185,10 @@ describe("SaleForm — edit mode", () => {
     vi.mocked(updateSale).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sale: { id: "sale-1", customerId: "cust-1" } as any,
+      sale: { id: "sale-1", partyId: "cust-1" } as any,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    render(<SaleForm mode="edit" sale={existingSale as any} customers={customers} />);
+    render(<SaleForm mode="edit" sale={existingSale as any} parties={parties} />);
 
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
@@ -230,14 +230,14 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
   }
 
   it("renders the inline 'Attach bill (optional)' section", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     expect(screen.getByText(/attach bill \(optional\)/i)).toBeInTheDocument();
     expect(getFileInput()).toBeInTheDocument();
   });
 
   it("picking a valid file shows the filename + Remove button", async () => {
     const user = userEvent.setup();
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
 
@@ -249,7 +249,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
 
   it("clicking Remove clears the picked file", async () => {
     const user = userEvent.setup();
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     expect(screen.getByText(/receipt\.png/)).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
   });
 
   it("rejects unsupported MIME types client-side without calling prepareUpload", async () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     // userEvent.upload respects accept= and would silently drop the file;
     // bypass via fireEvent.change to simulate a stale-MIME-bypass attempt.
@@ -279,7 +279,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
       return {
         ok: true as const,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sale: { id: "new-sale-id", customerId: null } as any,
+        sale: { id: "new-sale-id", partyId: null } as any,
       };
     });
     vi.mocked(prepareUpload).mockImplementation(async () => {
@@ -299,7 +299,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
       };
     });
 
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -320,10 +320,10 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
     vi.mocked(createSale).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sale: { id: "new-sale", customerId: null } as any,
+      sale: { id: "new-sale", partyId: null } as any,
     });
 
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
@@ -337,14 +337,14 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
     vi.mocked(createSale).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sale: { id: "new-sale-id", customerId: null } as any,
+      sale: { id: "new-sale-id", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: false as const,
       errors: { mimeType: ["Unsupported file type."] },
     });
 
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -366,7 +366,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
     vi.mocked(createSale).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sale: { id: "new-sale-id", customerId: null } as any,
+      sale: { id: "new-sale-id", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
@@ -375,7 +375,7 @@ describe("SaleForm — bill-in-form retrofit (Phase 10.5)", () => {
     });
     StubXHR.failNext = true;
 
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -407,7 +407,7 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
   });
 
   it("desktop column-header row carries `hidden md:grid` (mobile hides it)", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     // The header row's Description label is unique enough to scope.
     const descriptionHeader = screen.getAllByText("Description")[0];
@@ -418,7 +418,7 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
   });
 
   it("line item rows use `grid-cols-1 md:grid-cols-[...]` so they stack on mobile", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     const lineGroup = screen.getByRole("group", { name: /line 1/i });
     expect(lineGroup.className).toContain("grid-cols-1");
@@ -426,7 +426,7 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
   });
 
   it("qty/rate/× inner group uses `md:contents` to flatten into the desktop grid", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     // Qty input → its parent <div> → its parent (the inner sub-grid).
     const qtyInput = screen.getByPlaceholderText("Qty");
@@ -438,14 +438,14 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
   });
 
   it("qty + rate inputs have mobile placeholders (Qty, Rate ₹)", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     expect(screen.getByPlaceholderText("Qty")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Rate ₹")).toBeInTheDocument();
   });
 
   it("remove button has 44x44 mobile touch target (h-11 w-11)", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
     expect(removeBtn.className).toContain("h-11");
@@ -453,7 +453,7 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
   });
 
   it("mobile-only line total row is rendered with `md:hidden`", () => {
-    render(<SaleForm mode="create" customers={customers} />);
+    render(<SaleForm mode="create" parties={parties} />);
 
     // The "Line total" label appears in two places: the desktop header row
     // (hidden on mobile via `hidden md:grid`) and the mobile-only line
@@ -468,7 +468,7 @@ describe("SaleForm — mobile viewport (responsive class regression coverage)", 
   });
 
   it("form footer is sticky-bottom on mobile (regression check)", () => {
-    const { container } = render(<SaleForm mode="create" customers={customers} />);
+    const { container } = render(<SaleForm mode="create" parties={parties} />);
 
     // Footer is identified by its border-t pt-4 wrapper containing the SaveDropdown.
     const saveButton = screen.getByRole("button", { name: /save and return/i });

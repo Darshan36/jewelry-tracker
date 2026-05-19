@@ -18,7 +18,7 @@ import type {
   CastingEntry,
   CastingLineItem,
   CastingPayment,
-  CastingPlatingVendor,
+  Party,
 } from "@/generated/prisma";
 
 import {
@@ -48,7 +48,7 @@ export type CastingEntryForClient = Omit<CastingEntry, "discount" | "total"> & {
   paidAmount: number;
   status: CastingStatus;
   payments: CastingPaymentForClient[];
-  vendor: CastingPlatingVendor | null;
+  party: Party | null;
   bill: Attachment | null;
 };
 
@@ -86,15 +86,15 @@ export function serializeCastingEntry(
   input: CastingEntry & {
     lineItems?: CastingLineItem[];
     payments?: CastingPayment[];
-    vendor?: CastingPlatingVendor | null;
-    bill?: Attachment | null;
+    party?: Party | null;
+    attachment?: Attachment | null;
   },
 ): CastingEntryForClient {
   const {
     lineItems: rawLineItems,
     payments: rawPayments,
-    vendor,
-    bill,
+    party,
+    attachment,
     ...entry
   } = input;
   const lineItems = rawLineItems ?? [];
@@ -114,7 +114,7 @@ export function serializeCastingEntry(
       paidAmount: paidAmountBigInt,
     }),
     payments: activePayments.map(serializeCastingPayment),
-    vendor: vendor ?? null,
-    bill: bill ?? null,
+    party: party ?? null,
+    bill: attachment ?? null,
   };
 }

@@ -13,11 +13,11 @@ vi.mock("next/navigation", () => ({
 // Stub the form component — the page test cares about page-level
 // concerns (server fetch, header, layout), not the form internals.
 vi.mock("../sale-form", () => ({
-  SaleForm: (props: { mode: string; customers: unknown[] }) => (
+  SaleForm: (props: { mode: string; parties: unknown[] }) => (
     <div
       data-testid="sale-form"
       data-mode={props.mode}
-      data-customer-count={props.customers.length}
+      data-customer-count={props.parties.length}
     />
   ),
 }));
@@ -32,17 +32,17 @@ beforeEach(() => {
 
 describe("NewSalePage (server)", () => {
   it("queries non-deleted customers ordered by name (drop-down population)", async () => {
-    vi.mocked(prisma.customer.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
     await NewSalePage();
-    expect(prisma.customer.findMany).toHaveBeenCalledWith({
-      where: { deletedAt: null },
+    expect(prisma.party.findMany).toHaveBeenCalledWith({
+      where: { isCustomer: true, deletedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, phone: true },
     });
   });
 
   it("renders the page header + back link + SaleForm in create mode", async () => {
-    vi.mocked(prisma.customer.findMany).mockResolvedValue([
+    vi.mocked(prisma.party.findMany).mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { id: "c1", name: "Alice", phone: "1" } as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -32,11 +32,12 @@ function sessionFor(role: Role) {
   };
 }
 
-function makeVendor(
+function makeParty(
   overrides: Partial<{
     id: string;
     name: string;
     phone: string | null;
+    email: string | null;
     address: string | null;
     notes: string | null;
     createdAt: Date;
@@ -48,11 +49,19 @@ function makeVendor(
     id: "vendor-1",
     name: "Mahesh Casting Works",
     phone: "9876543210",
+    email: null,
     address: null,
     notes: null,
     createdAt: new Date("2026-05-01T00:00:00Z"),
     updatedAt: new Date("2026-05-01T00:00:00Z"),
     deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
     ...overrides,
   };
 }
@@ -60,7 +69,7 @@ function makeVendor(
 function makeEntry(
   overrides: Partial<{
     id: string;
-    vendorId: string | null;
+    partyId: string | null;
     partyName: string;
     partyPhone: string | null;
     total: bigint;
@@ -72,7 +81,7 @@ function makeEntry(
   return {
     id: "entry-1",
     date: new Date("2026-05-17T00:00:00Z"),
-    vendorId: "vendor-1",
+    partyId: "vendor-1",
     partyName: "Mahesh Casting Works",
     partyPhone: "9876543210",
     discount: 10000n, // ₹100
@@ -84,7 +93,7 @@ function makeEntry(
     deletedAt: null,
     lineItems: [],
     payments: [],
-    vendor: null,
+    party: null,
     bill: null,
     ...overrides,
   };
@@ -93,7 +102,7 @@ function makeEntry(
 function validInput(overrides: Record<string, unknown> = {}) {
   return {
     date: new Date("2026-05-17T00:00:00Z"),
-    vendorId: "vendor-1",
+    partyId: "vendor-1",
     partyName: "Mahesh Casting Works",
     partyPhone: "9876543210",
     lineItems: [
@@ -118,8 +127,8 @@ beforeEach(() => {
 
 describe("createCastingEntry — happy path with vendor link", () => {
   it("creates an entry with the linked vendor's canonical name/phone (override typed input)", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(
-      makeVendor({ id: "vendor-1", name: "Canonical Vendor Name", phone: "9000000001" }),
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(
+      makeParty({ id: "vendor-1", name: "Canonical Vendor Name", phone: "9000000001" }),
     );
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(
       makeEntry({ id: "new-entry" }),
@@ -143,7 +152,7 @@ describe("createCastingEntry — happy path with vendor link", () => {
   });
 
   it("stores discount and total in BigInt paise (₹100 discount → 10000n)", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(makeEntry());
 
     await createCastingEntry(validInput({ discount: 100 }));
@@ -155,7 +164,7 @@ describe("createCastingEntry — happy path with vendor link", () => {
   });
 
   it("CRITICAL: computes line totals via computeLineTotal — 1.875 × ₹350 = 65625 paise", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(makeEntry());
 
     await createCastingEntry(
@@ -180,7 +189,7 @@ describe("createCastingEntry — happy path with vendor link", () => {
   });
 
   it("sums line totals across multi-line entries before applying discount", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(makeEntry());
 
     await createCastingEntry(
@@ -200,7 +209,7 @@ describe("createCastingEntry — happy path with vendor link", () => {
   });
 
   it("rejects when discount exceeds subtotal", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
 
     const result = await createCastingEntry(
       validInput({ discount: 5000 }), // line subtotal is ₹1,000
@@ -214,85 +223,85 @@ describe("createCastingEntry — happy path with vendor link", () => {
 
 describe("createCastingEntry — vendor auto-promotion (Phase 6 pattern)", () => {
   it("walk-in WITH phone matching an existing vendor → links to that vendor", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findFirst).mockResolvedValue(
-      makeVendor({ id: "vendor-existing", name: "Canonical", phone: "9876511002" }),
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(
+      makeParty({ id: "vendor-existing", name: "Canonical", phone: "9876511002" }),
     );
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(
-      makeEntry({ vendorId: "vendor-existing" }),
+      makeEntry({ partyId: "vendor-existing" }),
     );
 
     await createCastingEntry(
       validInput({
-        vendorId: null,
+        partyId: null,
         partyName: "Typed name — overridden",
         partyPhone: "9876511002",
       }),
     );
 
-    expect(prisma.castingPlatingVendor.create).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
     const call = vi.mocked(prisma.castingEntry.create).mock.calls[0][0];
-    expect(call.data.vendorId).toBe("vendor-existing");
+    expect(call.data.partyId).toBe("vendor-existing");
     expect(call.data.partyName).toBe("Canonical");
     expect(call.data.partyName).not.toBe("Typed name — overridden");
   });
 
   it("walk-in WITH phone not matching any vendor → auto-creates a new vendor", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findFirst).mockResolvedValue(null);
-    vi.mocked(prisma.castingPlatingVendor.create).mockResolvedValue(
-      makeVendor({ id: "vendor-new", name: "Fresh Walk-in", phone: "9876511003" }),
+    vi.mocked(prisma.party.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.party.create).mockResolvedValue(
+      makeParty({ id: "vendor-new", name: "Fresh Walk-in", phone: "9876511003" }),
     );
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(
-      makeEntry({ vendorId: "vendor-new" }),
+      makeEntry({ partyId: "vendor-new" }),
     );
 
     await createCastingEntry(
       validInput({
-        vendorId: null,
+        partyId: null,
         partyName: "Fresh Walk-in",
         partyPhone: "9876511003",
       }),
     );
 
-    expect(prisma.castingPlatingVendor.create).toHaveBeenCalledOnce();
-    const vendorCreateCall = vi.mocked(prisma.castingPlatingVendor.create).mock.calls[0][0];
+    expect(prisma.party.create).toHaveBeenCalledOnce();
+    const vendorCreateCall = vi.mocked(prisma.party.create).mock.calls[0][0];
     expect(vendorCreateCall.data.name).toBe("Fresh Walk-in");
     expect(vendorCreateCall.data.phone).toBe("9876511003");
   });
 
   it("walk-in WITHOUT phone → stays snapshot-only (no vendor lookup/create)", async () => {
     vi.mocked(prisma.castingEntry.create).mockResolvedValue(
-      makeEntry({ vendorId: null }),
+      makeEntry({ partyId: null }),
     );
 
     await createCastingEntry(
       validInput({
-        vendorId: null,
+        partyId: null,
         partyName: "One-time walk-in",
         partyPhone: "",
       }),
     );
 
-    expect(prisma.castingPlatingVendor.findFirst).not.toHaveBeenCalled();
-    expect(prisma.castingPlatingVendor.create).not.toHaveBeenCalled();
+    expect(prisma.party.findFirst).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
     const call = vi.mocked(prisma.castingEntry.create).mock.calls[0][0];
-    expect(call.data.vendorId).toBeNull();
+    expect(call.data.partyId).toBeNull();
     expect(call.data.partyName).toBe("One-time walk-in");
   });
 
   it("vendor-id supplied but row is missing/soft-deleted → returns ok=false", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(null);
 
     const result = await createCastingEntry(validInput());
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.vendorId).toBeDefined();
+    if (!result.ok) expect(result.errors.partyId).toBeDefined();
     expect(prisma.castingEntry.create).not.toHaveBeenCalled();
   });
 });
 
 describe("createCastingEntry — billId validation", () => {
   it("rejects when billId references a non-existent / non-READY / soft-deleted bill", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.attachment.findUnique).mockResolvedValue(null);
 
     const result = await createCastingEntry(validInput({ attachmentId: "missing-bill" }));
@@ -303,7 +312,7 @@ describe("createCastingEntry — billId validation", () => {
   });
 
   it("rejects a billId pointing at a FAILED bill", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.attachment.findUnique).mockResolvedValue({
       id: "bill-1",
       r2Key: "bills/2026/05/x",
@@ -326,7 +335,7 @@ describe("createCastingEntry — billId validation", () => {
   });
 
   it("accepts a billId pointing at a READY non-deleted bill", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.attachment.findUnique).mockResolvedValue({
       id: "bill-1",
       r2Key: "bills/2026/05/x",
@@ -357,7 +366,7 @@ describe("createCastingEntry — billId validation", () => {
 
 describe("updateCastingEntry", () => {
   it("happy path — deleteMany line items then recreate, then update entry", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.castingLineItem.deleteMany).mockResolvedValue({ count: 2 });
     vi.mocked(prisma.castingEntry.update).mockResolvedValue(makeEntry({ id: "abc" }));
 
@@ -376,7 +385,7 @@ describe("updateCastingEntry", () => {
   });
 
   it("recomputes total after line items change", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
     vi.mocked(prisma.castingLineItem.deleteMany).mockResolvedValue({ count: 1 });
     vi.mocked(prisma.castingEntry.update).mockResolvedValue(makeEntry({ id: "abc" }));
 
@@ -394,7 +403,7 @@ describe("updateCastingEntry", () => {
   });
 
   it("rejects when discount exceeds subtotal", async () => {
-    vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
 
     const result = await updateCastingEntry(
       "abc",
@@ -471,7 +480,7 @@ describe.each(ROLE_MATRIX)("createCastingEntry role access — %s", (role, allow
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+      vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
       vi.mocked(prisma.castingEntry.create).mockResolvedValue(makeEntry());
       const r = await createCastingEntry(validInput());
       expect(r.ok).toBe(true);
@@ -487,7 +496,7 @@ describe.each(ROLE_MATRIX)("updateCastingEntry role access — %s", (role, allow
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.castingPlatingVendor.findUnique).mockResolvedValue(makeVendor());
+      vi.mocked(prisma.party.findUnique).mockResolvedValue(makeParty());
       vi.mocked(prisma.castingLineItem.deleteMany).mockResolvedValue({ count: 0 });
       vi.mocked(prisma.castingEntry.update).mockResolvedValue(makeEntry());
       const r = await updateCastingEntry("abc", validInput());

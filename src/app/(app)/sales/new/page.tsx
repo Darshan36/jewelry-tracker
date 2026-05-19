@@ -6,8 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { SaleForm } from "../sale-form";
 
 export default async function NewSalePage() {
-  const customers = await prisma.customer.findMany({
-    where: { deletedAt: null },
+  const parties = await prisma.party.findMany({
+    where: { isCustomer: true, deletedAt: null },
     orderBy: { name: "asc" },
     select: { id: true, name: true, phone: true },
   });
@@ -28,7 +28,7 @@ export default async function NewSalePage() {
         </p>
       </header>
 
-      <SaleForm mode="create" customers={customers} />
+      <SaleForm mode="create" parties={parties} />
     </div>
   );
 }

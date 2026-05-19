@@ -106,7 +106,7 @@ export async function createPlatingPayment(input: PlatingPaymentInput) {
     include: {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
-      vendor: true,
+      party: true,
       attachment: true,
     },
   });

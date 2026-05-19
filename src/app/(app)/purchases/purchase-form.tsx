@@ -42,7 +42,7 @@ import {
 } from "@/app/(app)/attachments/actions";
 
 import { createPurchase, updatePurchase } from "./actions";
-import { PartyPicker, type SupplierOption } from "./party-picker";
+import { PartyPicker, type PartyOption } from "@/components/party-picker";
 import { purchaseInputSchema } from "./schema";
 import type { PurchaseForClient } from "./purchase-helpers";
 
@@ -52,7 +52,7 @@ type FormOutput = z.output<typeof purchaseInputSchema>;
 type Props = {
   mode: "create" | "edit";
   purchase?: PurchaseForClient;
-  suppliers: SupplierOption[];
+  parties: PartyOption[];
 };
 
 // Date helpers pin to Asia/Kolkata via shared format helpers — without
@@ -62,7 +62,7 @@ type Props = {
 function emptyDefaults(): FormInputT {
   return {
     date: todayIsoIST() as unknown as Date,
-    supplierId: null,
+    partyId: null,
     partyName: "",
     partyPhone: "",
     lineItems: [{ itemDescription: "", qty: 1, rate: 0 }],
@@ -99,7 +99,7 @@ function isPhotoMime(t: string): t is PhotoMimeType {
   return (PHOTO_MIME_TYPES as readonly string[]).includes(t);
 }
 
-export function PurchaseForm({ mode, purchase, suppliers }: Props) {
+export function PurchaseForm({ mode, purchase, parties }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const saveModeRef = useRef<SaveMode>("return");
@@ -144,7 +144,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
   useEffect(() => {
     reset({
       date: dateToIsoIST(purchase?.date) as unknown as Date,
-      supplierId: purchase?.supplierId ?? null,
+      partyId: purchase?.partyId ?? null,
       partyName: purchase?.partyName ?? "",
       partyPhone: purchase?.partyPhone ?? "",
       lineItems: purchase
@@ -161,7 +161,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
 
   const watchedLineItems = watch("lineItems") ?? [];
   const watchedDiscount = watch("discount");
-  const watchedSupplierId = watch("supplierId");
+  const watchedPartyId = watch("partyId");
   const watchedPartyName = watch("partyName");
   const watchedPartyPhone = watch("partyPhone");
 
@@ -398,24 +398,26 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
         </FormError>
       </div>
 
-      <input type="hidden" {...register("supplierId")} />
+      <input type="hidden" {...register("partyId")} />
       <input type="hidden" {...register("partyName")} />
       <input type="hidden" {...register("partyPhone")} />
 
       <PartyPicker
-        suppliers={suppliers}
+        role="SUPPLIER"
+        inputIdPrefix="purchases"
+        parties={parties}
         value={{
-          supplierId: (watchedSupplierId as string | null) ?? null,
+          partyId: (watchedPartyId as string | null) ?? null,
           partyName: (watchedPartyName as string | undefined) ?? "",
           partyPhone:
             (watchedPartyPhone as string | null | undefined) ?? null,
         }}
         onChange={(v) => {
-          setValue("supplierId", v.supplierId);
+          setValue("partyId", v.partyId);
           setValue("partyName", v.partyName, { shouldValidate: true });
           setValue("partyPhone", v.partyPhone);
         }}
-        error={errors.partyName?.message ?? errors.supplierId?.message}
+        error={errors.partyName?.message ?? errors.partyId?.message}
       />
 
       <div>
@@ -733,7 +735,7 @@ export function PurchaseForm({ mode, purchase, suppliers }: Props) {
 
 const FORM_FIELDS = [
   "date",
-  "supplierId",
+  "partyId",
   "partyName",
   "partyPhone",
   "lineItems",

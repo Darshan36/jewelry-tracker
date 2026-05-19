@@ -11,11 +11,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
 vi.mock("../purchase-form", () => ({
-  PurchaseForm: (props: { mode: string; suppliers: unknown[] }) => (
+  PurchaseForm: (props: { mode: string; parties: unknown[] }) => (
     <div
       data-testid="purchase-form"
       data-mode={props.mode}
-      data-supplier-count={props.suppliers.length}
+      data-supplier-count={props.parties.length}
     />
   ),
 }));
@@ -30,17 +30,17 @@ beforeEach(() => {
 
 describe("NewPurchasePage (server)", () => {
   it("queries non-deleted suppliers ordered by name (drop-down population)", async () => {
-    vi.mocked(prisma.supplier.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
     await NewPurchasePage();
-    expect(prisma.supplier.findMany).toHaveBeenCalledWith({
-      where: { deletedAt: null },
+    expect(prisma.party.findMany).toHaveBeenCalledWith({
+      where: { isSupplier: true, deletedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, phone: true },
     });
   });
 
   it("renders the page header + back link + PurchaseForm in create mode", async () => {
-    vi.mocked(prisma.supplier.findMany).mockResolvedValue([
+    vi.mocked(prisma.party.findMany).mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { id: "s1", name: "Alpha Castings", phone: "1" } as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

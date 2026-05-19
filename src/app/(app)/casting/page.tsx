@@ -10,7 +10,7 @@ export default async function CastingPage() {
     include: {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
-      vendor: true,
+      party: true,
       attachment: true,
     },
   });

@@ -22,7 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import type { Customer } from "@/generated/prisma";
+import type { Party as Customer } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
 import {
   ResponsiveTable,
@@ -35,9 +35,9 @@ import { softDeleteCustomer } from "./actions";
 import { CustomerDetailModal } from "./customer-detail-modal";
 import { CustomerFormModal } from "./customer-form-modal";
 
-type Props = { customers: Customer[] };
+type Props = { parties: Customer[] };
 
-export function CustomersTable({ customers }: Props) {
+export function CustomersTable({ parties: customers }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 

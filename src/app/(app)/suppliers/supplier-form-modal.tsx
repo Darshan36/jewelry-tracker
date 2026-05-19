@@ -20,7 +20,7 @@ import {
   FormLabel,
   FormTextarea,
 } from "@/components/form-controls";
-import type { Supplier } from "@/generated/prisma";
+import type { Party as Supplier } from "@/generated/prisma";
 
 import { createSupplier, updateSupplier } from "./actions";
 import { supplierInputSchema } from "./schema";

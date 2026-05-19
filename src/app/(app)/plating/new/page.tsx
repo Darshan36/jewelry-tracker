@@ -6,8 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { PlatingForm } from "../plating-form";
 
 export default async function NewPlatingEntryPage() {
-  const vendors = await prisma.castingPlatingVendor.findMany({
-    where: { deletedAt: null },
+  const parties = await prisma.party.findMany({
+    where: { isPlatingVendor: true, deletedAt: null },
     orderBy: { name: "asc" },
     select: { id: true, name: true, phone: true },
   });
@@ -30,7 +30,7 @@ export default async function NewPlatingEntryPage() {
         </p>
       </header>
 
-      <PlatingForm mode="create" vendors={vendors} />
+      <PlatingForm mode="create" parties={parties} />
     </div>
   );
 }

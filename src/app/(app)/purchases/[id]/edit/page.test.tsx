@@ -37,7 +37,7 @@ function makePurchaseRow(
   return {
     id: "purchase-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    supplierId: null,
+    partyId: null,
     partyName: "Test Walk-in Supplier",
     partyPhone: null,
     discount: 0n,
@@ -60,7 +60,7 @@ beforeEach(() => {
 describe("EditPurchasePage (server)", () => {
   it("calls notFound() when the purchase id doesn't exist", async () => {
     vi.mocked(prisma.purchase.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.supplier.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     await expect(
       EditPurchasePage({ params: Promise.resolve({ id: "missing" }) }),
@@ -70,7 +70,7 @@ describe("EditPurchasePage (server)", () => {
 
   it("queries the purchase with deletedAt:null guard (soft-deleted rows treated as missing)", async () => {
     vi.mocked(prisma.purchase.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.supplier.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     try {
       await EditPurchasePage({ params: Promise.resolve({ id: "abc" }) });
@@ -90,7 +90,7 @@ describe("EditPurchasePage (server)", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makePurchaseRow() as any,
     );
-    vi.mocked(prisma.supplier.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     const tree = await EditPurchasePage({
       params: Promise.resolve({ id: "purchase-1" }),
@@ -110,7 +110,7 @@ describe("EditPurchasePage (server)", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makePurchaseRow() as any,
     );
-    vi.mocked(prisma.supplier.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     await EditPurchasePage({ params: Promise.resolve({ id: "purchase-1" }) });
 

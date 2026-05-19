@@ -47,7 +47,7 @@ import {
 } from "@/app/(app)/attachments/actions";
 
 import { createSale, updateSale } from "./actions";
-import { PartyPicker, type CustomerOption } from "./party-picker";
+import { PartyPicker, type PartyOption } from "@/components/party-picker";
 import { saleInputSchema } from "./schema";
 import type { SaleForClient } from "./sale-helpers";
 
@@ -57,7 +57,7 @@ type FormOutput = z.output<typeof saleInputSchema>;
 type Props = {
   mode: "create" | "edit";
   sale?: SaleForClient;
-  customers: CustomerOption[];
+  parties: PartyOption[];
 };
 
 // Date helpers pin to Asia/Kolkata via shared format helpers — without
@@ -67,7 +67,7 @@ type Props = {
 function emptyDefaults(): FormInputT {
   return {
     date: todayIsoIST() as unknown as Date,
-    customerId: null,
+    partyId: null,
     partyName: "",
     partyPhone: "",
     lineItems: [{ itemDescription: "", qty: 1, rate: 0 }],
@@ -100,7 +100,7 @@ function putToR2(presignedUrl: string, file: File): Promise<void> {
   });
 }
 
-export function SaleForm({ mode, sale, customers }: Props) {
+export function SaleForm({ mode, sale, parties }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   // saveMode read inside onSubmit via a ref because setSaveMode + the
@@ -143,7 +143,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
   useEffect(() => {
     reset({
       date: dateToIsoIST(sale?.date) as unknown as Date,
-      customerId: sale?.customerId ?? null,
+      partyId: sale?.partyId ?? null,
       partyName: sale?.partyName ?? "",
       partyPhone: sale?.partyPhone ?? "",
       lineItems: sale
@@ -160,7 +160,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
 
   const watchedLineItems = watch("lineItems") ?? [];
   const watchedDiscount = watch("discount");
-  const watchedCustomerId = watch("customerId");
+  const watchedPartyId = watch("partyId");
   const watchedPartyName = watch("partyName");
   const watchedPartyPhone = watch("partyPhone");
 
@@ -321,24 +321,26 @@ export function SaleForm({ mode, sale, customers }: Props) {
         </FormError>
       </div>
 
-      <input type="hidden" {...register("customerId")} />
+      <input type="hidden" {...register("partyId")} />
       <input type="hidden" {...register("partyName")} />
       <input type="hidden" {...register("partyPhone")} />
 
       <PartyPicker
-        customers={customers}
+        role="CUSTOMER"
+        inputIdPrefix="sales"
+        parties={parties}
         value={{
-          customerId: (watchedCustomerId as string | null) ?? null,
+          partyId: (watchedPartyId as string | null) ?? null,
           partyName: (watchedPartyName as string | undefined) ?? "",
           partyPhone:
             (watchedPartyPhone as string | null | undefined) ?? null,
         }}
         onChange={(v) => {
-          setValue("customerId", v.customerId);
+          setValue("partyId", v.partyId);
           setValue("partyName", v.partyName, { shouldValidate: true });
           setValue("partyPhone", v.partyPhone);
         }}
-        error={errors.partyName?.message ?? errors.customerId?.message}
+        error={errors.partyName?.message ?? errors.partyId?.message}
       />
 
       <div>
@@ -642,7 +644,7 @@ export function SaleForm({ mode, sale, customers }: Props) {
 
 const FORM_FIELDS = [
   "date",
-  "customerId",
+  "partyId",
   "partyName",
   "partyPhone",
   "lineItems",

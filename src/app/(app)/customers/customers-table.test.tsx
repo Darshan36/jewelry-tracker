@@ -15,11 +15,11 @@ vi.mock("./actions", () => ({
   softDeleteCustomer: vi.fn(),
 }));
 
-import type { Customer } from "@/generated/prisma";
+import type { Party as Customer } from "@/generated/prisma";
 
 import { CustomersTable } from "./customers-table";
 
-function makeCustomer(overrides: Partial<Customer> = {}): Customer {
+function makeParty(overrides: Partial<Customer> = {}): Customer {
   return {
     id: "cust-1",
     name: "Default Customer",
@@ -30,6 +30,13 @@ function makeCustomer(overrides: Partial<Customer> = {}): Customer {
     createdAt: new Date("2026-05-10T12:00:00Z"),
     updatedAt: new Date("2026-05-10T12:00:00Z"),
     deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
     ...overrides,
   };
 }
@@ -37,21 +44,21 @@ function makeCustomer(overrides: Partial<Customer> = {}): Customer {
 // Three customers with distinct names + dates for sort tests.
 function threeCustomers(): Customer[] {
   return [
-    makeCustomer({
+    makeParty({
       id: "1",
       name: "Alice",
       phone: "1111111111",
       email: "alice@example.com",
       createdAt: new Date("2026-01-01T00:00:00Z"),
     }),
-    makeCustomer({
+    makeParty({
       id: "2",
       name: "Bob",
       phone: "2222222222",
       email: "bob@example.com",
       createdAt: new Date("2026-02-01T00:00:00Z"),
     }),
-    makeCustomer({
+    makeParty({
       id: "3",
       name: "Cara",
       phone: "3333333333",
@@ -79,7 +86,7 @@ describe("CustomersTable", () => {
 
   describe("empty states", () => {
     it("shows 'No customers yet' when customers prop is empty", () => {
-      render(<CustomersTable customers={[]} />);
+      render(<CustomersTable parties={[]} />);
       expect(
         screen.getByText(
           /No customers yet\. Add your first customer to get started\./i,
@@ -89,7 +96,7 @@ describe("CustomersTable", () => {
 
     it("shows 'No customers match your search' when search filters all rows out", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={[makeCustomer({ name: "Alice" })]} />);
+      render(<CustomersTable parties={[makeParty({ name: "Alice" })]} />);
 
       await user.type(
         screen.getByPlaceholderText(/Search customers/i),
@@ -104,14 +111,14 @@ describe("CustomersTable", () => {
 
   describe("rendering", () => {
     it("renders one row per customer", () => {
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
       expect(screen.getByText("Alice")).toBeInTheDocument();
       expect(screen.getByText("Bob")).toBeInTheDocument();
       expect(screen.getByText("Cara")).toBeInTheDocument();
     });
 
     it("renders Name, Phone, and Created column headers", () => {
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
       expect(
         screen.getByRole("columnheader", { name: /name/i }),
       ).toBeInTheDocument();
@@ -126,7 +133,7 @@ describe("CustomersTable", () => {
     it("displays — for null phone", () => {
       render(
         <CustomersTable
-          customers={[makeCustomer({ name: "NoPhone", phone: null })]}
+          parties={[makeParty({ name: "NoPhone", phone: null })]}
         />,
       );
       const row = screen.getByText("NoPhone").closest("tr")!;
@@ -137,7 +144,7 @@ describe("CustomersTable", () => {
   describe("search", () => {
     it("filters rows by partial name match", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
 
       await user.type(screen.getByPlaceholderText(/Search customers/i), "ali");
 
@@ -148,7 +155,7 @@ describe("CustomersTable", () => {
 
     it("filters case-insensitively", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
 
       await user.type(screen.getByPlaceholderText(/Search customers/i), "ALICE");
 
@@ -158,7 +165,7 @@ describe("CustomersTable", () => {
 
     it("filters by phone number", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
 
       await user.type(
         screen.getByPlaceholderText(/Search customers/i),
@@ -172,7 +179,7 @@ describe("CustomersTable", () => {
 
     it("restores all rows when search is cleared", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
 
       const input = screen.getByPlaceholderText(/Search customers/i);
       await user.type(input, "ali");
@@ -187,14 +194,14 @@ describe("CustomersTable", () => {
 
   describe("sort", () => {
     it("defaults to createdAt desc (newest first)", () => {
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
       // Cara (Mar) > Bob (Feb) > Alice (Jan)
       expect(rowOrder()).toEqual(["Cara", "Bob", "Alice"]);
     });
 
     it("clicking Name header sorts ascending alphabetically", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
 
       await user.click(screen.getByRole("button", { name: /^name/i }));
 
@@ -203,7 +210,7 @@ describe("CustomersTable", () => {
 
     it("clicking Name header twice sorts descending alphabetically", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={threeCustomers()} />);
+      render(<CustomersTable parties={threeCustomers()} />);
 
       const nameHeader = screen.getByRole("button", { name: /^name/i });
       await user.click(nameHeader); // asc
@@ -215,7 +222,7 @@ describe("CustomersTable", () => {
 
   describe("row interactions", () => {
     it("renders Edit and Delete action buttons for each row (queryable in DOM)", () => {
-      render(<CustomersTable customers={[makeCustomer({ name: "Test" })]} />);
+      render(<CustomersTable parties={[makeParty({ name: "Test" })]} />);
 
       expect(
         screen.getByRole("button", { name: /edit customer/i }),
@@ -227,7 +234,7 @@ describe("CustomersTable", () => {
 
     it("clicking the Edit icon does NOT fire the row click (stopPropagation works)", async () => {
       const user = userEvent.setup();
-      render(<CustomersTable customers={[makeCustomer({ name: "Test" })]} />);
+      render(<CustomersTable parties={[makeParty({ name: "Test" })]} />);
 
       await user.click(
         screen.getByRole("button", { name: /edit customer/i }),
@@ -263,7 +270,7 @@ describe("CustomersTable — mobile viewport", () => {
   });
 
   it("renders mobile cards instead of the desktop table", () => {
-    render(<CustomersTable customers={threeCustomers()} />);
+    render(<CustomersTable parties={threeCustomers()} />);
 
     expect(screen.getByTestId("responsive-table-mobile")).toBeInTheDocument();
     expect(screen.queryByTestId("responsive-table-desktop")).not.toBeInTheDocument();
@@ -272,7 +279,7 @@ describe("CustomersTable — mobile viewport", () => {
   });
 
   it("renders one mobile card per customer", () => {
-    render(<CustomersTable customers={threeCustomers()} />);
+    render(<CustomersTable parties={threeCustomers()} />);
 
     expect(screen.getByTestId("customer-mobile-card-1")).toBeInTheDocument();
     expect(screen.getByTestId("customer-mobile-card-2")).toBeInTheDocument();
@@ -280,7 +287,7 @@ describe("CustomersTable — mobile viewport", () => {
   });
 
   it("each mobile card shows the customer's name + phone", () => {
-    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "Mira", phone: "9988776655" })]} />);
+    render(<CustomersTable parties={[makeParty({ id: "x", name: "Mira", phone: "9988776655" })]} />);
 
     const card = screen.getByTestId("customer-mobile-card-x");
     expect(within(card).getByText("Mira")).toBeInTheDocument();
@@ -288,7 +295,7 @@ describe("CustomersTable — mobile viewport", () => {
   });
 
   it("omits the phone line when phone is null", () => {
-    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "NoPhone", phone: null })]} />);
+    render(<CustomersTable parties={[makeParty({ id: "x", name: "NoPhone", phone: null })]} />);
 
     const card = screen.getByTestId("customer-mobile-card-x");
     expect(within(card).getByText("NoPhone")).toBeInTheDocument();
@@ -296,7 +303,7 @@ describe("CustomersTable — mobile viewport", () => {
   });
 
   it("does not render inline action buttons on mobile cards (mutations go through detail modal Edit)", () => {
-    render(<CustomersTable customers={threeCustomers()} />);
+    render(<CustomersTable parties={threeCustomers()} />);
 
     // No per-card edit/delete icon buttons — that surface is desktop-only
     // for master data. The cards themselves are tap targets opening the
@@ -307,7 +314,7 @@ describe("CustomersTable — mobile viewport", () => {
 
   it("tapping a mobile card opens the customer detail modal", async () => {
     const user = userEvent.setup();
-    render(<CustomersTable customers={[makeCustomer({ id: "x", name: "Tap target" })]} />);
+    render(<CustomersTable parties={[makeParty({ id: "x", name: "Tap target" })]} />);
 
     await user.click(screen.getByTestId("customer-mobile-card-x"));
 
@@ -319,7 +326,7 @@ describe("CustomersTable — mobile viewport", () => {
   });
 
   it("empty state still renders on mobile (no cards block when zero customers)", () => {
-    render(<CustomersTable customers={[]} />);
+    render(<CustomersTable parties={[]} />);
     expect(
       screen.getByText(/No customers yet/i),
     ).toBeInTheDocument();

@@ -14,18 +14,18 @@ type Props = {
 export default async function EditPlatingEntryPage({ params }: Props) {
   const { id } = await params;
 
-  const [entryRow, vendors] = await Promise.all([
+  const [entryRow, parties] = await Promise.all([
     prisma.platingEntry.findUnique({
       where: { id, deletedAt: null },
       include: {
         lineItems: { orderBy: { createdAt: "asc" } },
         payments: true,
-        vendor: true,
+        party: true,
         attachment: true,
       },
     }),
-    prisma.castingPlatingVendor.findMany({
-      where: { deletedAt: null },
+    prisma.party.findMany({
+      where: { isPlatingVendor: true, deletedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, phone: true },
     }),
@@ -56,7 +56,7 @@ export default async function EditPlatingEntryPage({ params }: Props) {
         </p>
       </header>
 
-      <PlatingForm mode="edit" entry={entry} vendors={vendors} />
+      <PlatingForm mode="edit" entry={entry} parties={parties} />
     </div>
   );
 }

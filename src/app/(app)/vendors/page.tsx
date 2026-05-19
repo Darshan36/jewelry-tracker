@@ -2,13 +2,17 @@ import { prisma } from "@/lib/prisma";
 
 import { VendorsTable, type VendorForClient } from "./vendors-table";
 
-// Vendors list. Each row carries the casting + plating entry counts and
-// the total amount currently owed to that vendor across both entity
-// kinds. Computed server-side in one query per kind via `groupBy`.
+// Vendors list. Phase 17a: queries the unified Party table filtered to
+// rows with either isCastingVendor or isPlatingVendor set. Each row
+// carries the casting + plating entry counts and the total amount
+// currently owed to that vendor across both entity kinds.
 
 export default async function VendorsPage() {
-  const vendors = await prisma.castingPlatingVendor.findMany({
-    where: { deletedAt: null },
+  const vendors = await prisma.party.findMany({
+    where: {
+      OR: [{ isCastingVendor: true }, { isPlatingVendor: true }],
+      deletedAt: null,
+    },
     orderBy: { createdAt: "desc" },
     include: {
       castingEntries: {
@@ -30,7 +34,8 @@ export default async function VendorsPage() {
     for (const e of v.castingEntries) {
       castingCount += 1;
       const netPaid = e.payments.reduce(
-        (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
+        (sum: bigint, p) =>
+          p.type === "PAYMENT" ? sum + p.amount : sum - p.amount,
         0n,
       );
       const remaining = e.total - netPaid;
@@ -39,7 +44,8 @@ export default async function VendorsPage() {
     for (const e of v.platingEntries) {
       platingCount += 1;
       const netPaid = e.payments.reduce(
-        (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
+        (sum: bigint, p) =>
+          p.type === "PAYMENT" ? sum + p.amount : sum - p.amount,
         0n,
       );
       const remaining = e.total - netPaid;
@@ -72,7 +78,7 @@ export default async function VendorsPage() {
         </p>
       </header>
 
-      <VendorsTable vendors={serialized} />
+      <VendorsTable parties={serialized} />
     </div>
   );
 }

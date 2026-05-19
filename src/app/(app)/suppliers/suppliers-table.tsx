@@ -22,7 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import type { Supplier } from "@/generated/prisma";
+import type { Party as Supplier } from "@/generated/prisma";
 import { formatDate } from "@/lib/format";
 import {
   ResponsiveTable,
@@ -35,9 +35,9 @@ import { softDeleteSupplier } from "./actions";
 import { SupplierDetailModal } from "./supplier-detail-modal";
 import { SupplierFormModal } from "./supplier-form-modal";
 
-type Props = { suppliers: Supplier[] };
+type Props = { parties: Supplier[] };
 
-export function SuppliersTable({ suppliers }: Props) {
+export function SuppliersTable({ parties: suppliers }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 

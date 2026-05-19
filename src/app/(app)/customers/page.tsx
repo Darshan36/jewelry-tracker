@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { CustomersTable } from "./customers-table";
 
 export default async function CustomersPage() {
-  const customers = await prisma.customer.findMany({
-    where: { deletedAt: null },
+  const customers = await prisma.party.findMany({
+    where: { isCustomer: true, deletedAt: null },
     orderBy: { createdAt: "desc" },
   });
 
@@ -19,7 +19,7 @@ export default async function CustomersPage() {
         </p>
       </header>
 
-      <CustomersTable customers={customers} />
+      <CustomersTable parties={customers} />
     </div>
   );
 }

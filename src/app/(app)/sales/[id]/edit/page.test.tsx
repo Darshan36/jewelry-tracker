@@ -34,7 +34,7 @@ function makeSaleRow(overrides: Partial<{ id: string; deletedAt: Date | null }> 
   return {
     id: "sale-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    customerId: null,
+    partyId: null,
     partyName: "Test Walk-in",
     partyPhone: null,
     discount: 0n,
@@ -57,7 +57,7 @@ beforeEach(() => {
 describe("EditSalePage (server)", () => {
   it("calls notFound() when the sale id doesn't exist", async () => {
     vi.mocked(prisma.sale.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.customer.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     await expect(
       EditSalePage({ params: Promise.resolve({ id: "missing" }) }),
@@ -67,7 +67,7 @@ describe("EditSalePage (server)", () => {
 
   it("queries the sale with deletedAt:null guard (soft-deleted rows treated as missing)", async () => {
     vi.mocked(prisma.sale.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.customer.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     try {
       await EditSalePage({ params: Promise.resolve({ id: "abc" }) });
@@ -85,7 +85,7 @@ describe("EditSalePage (server)", () => {
   it("renders SaleForm in edit mode with the serialised sale", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(prisma.sale.findUnique).mockResolvedValue(makeSaleRow() as any);
-    vi.mocked(prisma.customer.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     const tree = await EditSalePage({ params: Promise.resolve({ id: "sale-1" }) });
     render(tree);
@@ -102,7 +102,7 @@ describe("EditSalePage (server)", () => {
   it("includes lineItems + payments + returns in the findUnique include shape", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(prisma.sale.findUnique).mockResolvedValue(makeSaleRow() as any);
-    vi.mocked(prisma.customer.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValue([]);
 
     await EditSalePage({ params: Promise.resolve({ id: "sale-1" }) });
 

@@ -30,7 +30,7 @@ const fakeSession = {
   expires: "2099-12-31T00:00:00.000Z",
 };
 
-function makeCustomer(
+function makeParty(
   overrides: Partial<{
     id: string;
     name: string;
@@ -53,6 +53,13 @@ function makeCustomer(
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
     deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
     ...overrides,
   };
 }
@@ -67,8 +74,8 @@ beforeEach(() => {
 
 describe("createCustomer", () => {
   it("happy path — returns ok=true and writes through Prisma", async () => {
-    vi.mocked(prisma.customer.create).mockResolvedValue(
-      makeCustomer({ id: "new-cuid", name: "New Customer" }),
+    vi.mocked(prisma.party.create).mockResolvedValue(
+      makeParty({ id: "new-cuid", name: "New Customer" }),
     );
 
     const result = await createCustomer({
@@ -81,7 +88,7 @@ describe("createCustomer", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.customer.id).toBe("new-cuid");
-    expect(prisma.customer.create).toHaveBeenCalledOnce();
+    expect(prisma.party.create).toHaveBeenCalledOnce();
     expect(revalidatePath).toHaveBeenCalledWith("/customers");
   });
 
@@ -96,7 +103,7 @@ describe("createCustomer", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.name).toBeDefined();
-    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
@@ -111,7 +118,7 @@ describe("createCustomer", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.email).toBeDefined();
-    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
   });
 
   it("propagates auth failure — throw bubbles up, DB not touched", async () => {
@@ -127,15 +134,15 @@ describe("createCustomer", () => {
       }),
     ).rejects.toThrow("Unauthorized");
 
-    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
 
 describe("updateCustomer", () => {
   it("happy path — Prisma update called with where.deletedAt=null guard", async () => {
-    vi.mocked(prisma.customer.update).mockResolvedValue(
-      makeCustomer({ id: "abc", name: "Updated" }),
+    vi.mocked(prisma.party.update).mockResolvedValue(
+      makeParty({ id: "abc", name: "Updated" }),
     );
 
     const result = await updateCustomer("abc", {
@@ -147,7 +154,7 @@ describe("updateCustomer", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(prisma.customer.update).toHaveBeenCalledWith(
+    expect(prisma.party.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "abc", deletedAt: null },
       }),
@@ -165,11 +172,11 @@ describe("updateCustomer", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(prisma.customer.update).not.toHaveBeenCalled();
+    expect(prisma.party.update).not.toHaveBeenCalled();
   });
 
   it("clearing phone passes null (not undefined) to Prisma — Phase 2.1 regression check", async () => {
-    vi.mocked(prisma.customer.update).mockResolvedValue(makeCustomer());
+    vi.mocked(prisma.party.update).mockResolvedValue(makeParty());
 
     await updateCustomer("abc", {
       name: "Test",
@@ -179,14 +186,14 @@ describe("updateCustomer", () => {
       notes: null,
     });
 
-    expect(prisma.customer.update).toHaveBeenCalledWith(
+    expect(prisma.party.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "abc", deletedAt: null },
         data: expect.objectContaining({ phone: null }), // critical: null, not undefined
       }),
     );
     // Belt-and-suspenders: directly inspect the call args.
-    const call = vi.mocked(prisma.customer.update).mock.calls[0][0];
+    const call = vi.mocked(prisma.party.update).mock.calls[0][0];
     expect(call.data.phone).toBeNull();
     expect(call.data.phone).not.toBeUndefined();
   });
@@ -204,20 +211,20 @@ describe("updateCustomer", () => {
       }),
     ).rejects.toThrow("Unauthorized");
 
-    expect(prisma.customer.update).not.toHaveBeenCalled();
+    expect(prisma.party.update).not.toHaveBeenCalled();
   });
 });
 
 describe("softDeleteCustomer", () => {
   it("happy path — Prisma update called with where.deletedAt=null + data.deletedAt=<Date>", async () => {
-    vi.mocked(prisma.customer.update).mockResolvedValue(
-      makeCustomer({ deletedAt: new Date() }),
+    vi.mocked(prisma.party.update).mockResolvedValue(
+      makeParty({ deletedAt: new Date() }),
     );
 
     const result = await softDeleteCustomer("abc");
 
     expect(result.ok).toBe(true);
-    expect(prisma.customer.update).toHaveBeenCalledWith(
+    expect(prisma.party.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "abc", deletedAt: null },
       }),
@@ -226,11 +233,11 @@ describe("softDeleteCustomer", () => {
   });
 
   it("deletedAt is a Date instance, not a string or number", async () => {
-    vi.mocked(prisma.customer.update).mockResolvedValue(makeCustomer());
+    vi.mocked(prisma.party.update).mockResolvedValue(makeParty());
 
     await softDeleteCustomer("abc");
 
-    const call = vi.mocked(prisma.customer.update).mock.calls[0][0];
+    const call = vi.mocked(prisma.party.update).mock.calls[0][0];
     expect(call.data.deletedAt).toBeInstanceOf(Date);
   });
 
@@ -239,7 +246,7 @@ describe("softDeleteCustomer", () => {
 
     await expect(softDeleteCustomer("abc")).rejects.toThrow("Unauthorized");
 
-    expect(prisma.customer.update).not.toHaveBeenCalled();
+    expect(prisma.party.update).not.toHaveBeenCalled();
   });
 });
 
@@ -276,14 +283,14 @@ describe.each(ROLE_MATRIX)("createCustomer role access — %s", (role, allowed) 
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.customer.create).mockResolvedValue(makeCustomer());
+      vi.mocked(prisma.party.create).mockResolvedValue(makeParty());
       const r = await createCustomer(validInput);
       expect(r.ok).toBe(true);
-      expect(prisma.customer.create).toHaveBeenCalledOnce();
+      expect(prisma.party.create).toHaveBeenCalledOnce();
     } else {
       vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
       await expect(createCustomer(validInput)).rejects.toThrow("Forbidden");
-      expect(prisma.customer.create).not.toHaveBeenCalled();
+      expect(prisma.party.create).not.toHaveBeenCalled();
     }
   });
 });
@@ -292,14 +299,14 @@ describe.each(ROLE_MATRIX)("updateCustomer role access — %s", (role, allowed) 
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.customer.update).mockResolvedValue(makeCustomer());
+      vi.mocked(prisma.party.update).mockResolvedValue(makeParty());
       const r = await updateCustomer("abc", validInput);
       expect(r.ok).toBe(true);
-      expect(prisma.customer.update).toHaveBeenCalledOnce();
+      expect(prisma.party.update).toHaveBeenCalledOnce();
     } else {
       vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
       await expect(updateCustomer("abc", validInput)).rejects.toThrow("Forbidden");
-      expect(prisma.customer.update).not.toHaveBeenCalled();
+      expect(prisma.party.update).not.toHaveBeenCalled();
     }
   });
 });
@@ -308,14 +315,14 @@ describe.each(ROLE_MATRIX)("softDeleteCustomer role access — %s", (role, allow
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.customer.update).mockResolvedValue(makeCustomer({ deletedAt: new Date() }));
+      vi.mocked(prisma.party.update).mockResolvedValue(makeParty({ deletedAt: new Date() }));
       const r = await softDeleteCustomer("abc");
       expect(r.ok).toBe(true);
-      expect(prisma.customer.update).toHaveBeenCalledOnce();
+      expect(prisma.party.update).toHaveBeenCalledOnce();
     } else {
       vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
       await expect(softDeleteCustomer("abc")).rejects.toThrow("Forbidden");
-      expect(prisma.customer.update).not.toHaveBeenCalled();
+      expect(prisma.party.update).not.toHaveBeenCalled();
     }
   });
 });

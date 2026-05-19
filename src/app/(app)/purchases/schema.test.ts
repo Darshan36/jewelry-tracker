@@ -13,7 +13,7 @@ function validLineItem() {
 function validWalkInInput() {
   return {
     date: "2026-05-14",
-    supplierId: null,
+    partyId: null,
     partyName: "Test Walkin Vendor",
     partyPhone: "9876543210",
     lineItems: [validLineItem()],
@@ -25,7 +25,7 @@ function validWalkInInput() {
 function validLinkedInput() {
   return {
     date: "2026-05-14",
-    supplierId: "cuid_supplier_123",
+    partyId: "cuid_supplier_123",
     partyName: "Acme Metals",
     partyPhone: "9876543210",
     lineItems: [validLineItem()],
@@ -36,12 +36,12 @@ function validLinkedInput() {
 
 describe("purchaseInputSchema", () => {
   describe("happy path", () => {
-    it("accepts a valid walk-in input (supplierId null)", () => {
+    it("accepts a valid walk-in input (partyId null)", () => {
       const result = purchaseInputSchema.safeParse(validWalkInInput());
       expect(result.success).toBe(true);
     });
 
-    it("accepts a valid linked-supplier input (supplierId provided)", () => {
+    it("accepts a valid linked-supplier input (partyId provided)", () => {
       const result = purchaseInputSchema.safeParse(validLinkedInput());
       expect(result.success).toBe(true);
     });
@@ -49,7 +49,7 @@ describe("purchaseInputSchema", () => {
     it("accepts the minimal input (discount/notes omitted) and applies defaults", () => {
       const result = purchaseInputSchema.safeParse({
         date: "2026-05-14",
-        supplierId: null,
+        partyId: null,
         partyName: "Test",
         lineItems: [{ itemDescription: "x", qty: 1, rate: 100 }],
       });
@@ -108,11 +108,11 @@ describe("purchaseInputSchema", () => {
     });
   });
 
-  describe("supplierId", () => {
+  describe("partyId", () => {
     it("accepts null (walk-in mode)", () => {
       const result = purchaseInputSchema.safeParse({
         ...validWalkInInput(),
-        supplierId: null,
+        partyId: null,
       });
       expect(result.success).toBe(true);
     });
@@ -120,7 +120,7 @@ describe("purchaseInputSchema", () => {
     it("accepts a non-empty string id (linked mode)", () => {
       const result = purchaseInputSchema.safeParse({
         ...validLinkedInput(),
-        supplierId: "cuid_abc123",
+        partyId: "cuid_abc123",
       });
       expect(result.success).toBe(true);
     });
@@ -128,7 +128,7 @@ describe("purchaseInputSchema", () => {
     it("rejects an empty string id", () => {
       const result = purchaseInputSchema.safeParse({
         ...validLinkedInput(),
-        supplierId: "",
+        partyId: "",
       });
       expect(result.success).toBe(false);
     });

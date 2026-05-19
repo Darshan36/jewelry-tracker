@@ -13,7 +13,7 @@ function validLineItem() {
 function validWalkInInput() {
   return {
     date: "2026-05-14",
-    customerId: null,
+    partyId: null,
     partyName: "Test Walkin",
     partyPhone: "9876543210",
     lineItems: [validLineItem()],
@@ -25,7 +25,7 @@ function validWalkInInput() {
 function validLinkedInput() {
   return {
     date: "2026-05-14",
-    customerId: "cuid_customer_123",
+    partyId: "cuid_customer_123",
     partyName: "Priya Shah",
     partyPhone: "9876543210",
     lineItems: [validLineItem()],
@@ -36,12 +36,12 @@ function validLinkedInput() {
 
 describe("saleInputSchema", () => {
   describe("happy path", () => {
-    it("accepts a valid walk-in input (customerId null)", () => {
+    it("accepts a valid walk-in input (partyId null)", () => {
       const result = saleInputSchema.safeParse(validWalkInInput());
       expect(result.success).toBe(true);
     });
 
-    it("accepts a valid linked-customer input (customerId provided)", () => {
+    it("accepts a valid linked-customer input (partyId provided)", () => {
       const result = saleInputSchema.safeParse(validLinkedInput());
       expect(result.success).toBe(true);
     });
@@ -49,7 +49,7 @@ describe("saleInputSchema", () => {
     it("accepts the minimal input (discount/notes omitted) and applies defaults", () => {
       const result = saleInputSchema.safeParse({
         date: "2026-05-14",
-        customerId: null,
+        partyId: null,
         partyName: "Test",
         lineItems: [{ itemDescription: "x", qty: 1, rate: 100 }],
       });
@@ -112,11 +112,11 @@ describe("saleInputSchema", () => {
     });
   });
 
-  describe("customerId", () => {
+  describe("partyId", () => {
     it("accepts null (walk-in mode)", () => {
       const result = saleInputSchema.safeParse({
         ...validWalkInInput(),
-        customerId: null,
+        partyId: null,
       });
       expect(result.success).toBe(true);
     });
@@ -124,7 +124,7 @@ describe("saleInputSchema", () => {
     it("accepts a non-empty string id (linked mode)", () => {
       const result = saleInputSchema.safeParse({
         ...validLinkedInput(),
-        customerId: "cuid_abc123",
+        partyId: "cuid_abc123",
       });
       expect(result.success).toBe(true);
     });
@@ -132,7 +132,7 @@ describe("saleInputSchema", () => {
     it("rejects an empty string id (refinement: must be non-empty when present)", () => {
       const result = saleInputSchema.safeParse({
         ...validLinkedInput(),
-        customerId: "",
+        partyId: "",
       });
       expect(result.success).toBe(false);
     });

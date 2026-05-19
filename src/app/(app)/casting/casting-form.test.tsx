@@ -65,7 +65,7 @@ class StubXHR {
   }
 }
 
-const vendors = [
+const parties = [
   { id: "vendor-1", name: "Existing Vendor", phone: "9999999999" },
 ];
 
@@ -90,13 +90,13 @@ function makeFile(name: string, type: string): File {
 
 describe("CastingForm — create mode", () => {
   it("renders with default empty values and one empty line item", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     expect(screen.getByRole("group", { name: /^Line 1$/i })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /^Line 2$/i })).not.toBeInTheDocument();
   });
 
   it("renders weight input with step='0.001' for gram precision", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     const weightInput = document.querySelector(
       "#casting-line-0-weight",
     ) as HTMLInputElement;
@@ -105,7 +105,7 @@ describe("CastingForm — create mode", () => {
   });
 
   it("renders the SaveDropdown split button", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     expect(
       screen.getByRole("button", { name: /save and return/i }),
     ).toBeInTheDocument();
@@ -115,7 +115,7 @@ describe("CastingForm — create mode", () => {
   });
 
   it("renders a Cancel button that's not the form submit", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     const cancel = screen.getByRole("button", { name: /^cancel$/i });
     expect(cancel.getAttribute("type")).toBe("button");
   });
@@ -125,10 +125,10 @@ describe("CastingForm — create mode", () => {
     vi.mocked(createCastingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      entry: { id: "new-casting", vendorId: null } as any,
+      entry: { id: "new-casting", partyId: null } as any,
     });
 
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     await user.type(
       document.querySelector("#casting-party-name") as HTMLInputElement,
@@ -160,7 +160,7 @@ describe("CastingForm — edit mode", () => {
   const existingEntry = {
     id: "casting-1",
     date: new Date("2026-05-10T00:00:00Z"),
-    vendorId: "vendor-1",
+    partyId: "vendor-1",
     partyName: "Existing Vendor",
     partyPhone: "9999999999",
     discount: 10000, // ₹100 in paise
@@ -184,7 +184,7 @@ describe("CastingForm — edit mode", () => {
     paidAmount: 0,
     status: "pending" as const,
     payments: [],
-    vendor: null,
+    party: null,
     bill: null,
   };
 
@@ -194,7 +194,7 @@ describe("CastingForm — edit mode", () => {
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         entry={existingEntry as any}
-        vendors={vendors}
+        parties={parties}
       />,
     );
 
@@ -226,14 +226,14 @@ describe("CastingForm — edit mode", () => {
     vi.mocked(updateCastingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      entry: { id: "casting-1", vendorId: "vendor-1" } as any,
+      entry: { id: "casting-1", partyId: "vendor-1" } as any,
     });
     render(
       <CastingForm
         mode="edit"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         entry={existingEntry as any}
-        vendors={vendors}
+        parties={parties}
       />,
     );
 
@@ -278,14 +278,14 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
   }
 
   it("renders the inline 'Attach bill (optional)' section", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     expect(screen.getByText(/attach bill \(optional\)/i)).toBeInTheDocument();
     expect(getFileInput()).toBeInTheDocument();
   });
 
   it("picking a valid file shows the filename + Remove button", async () => {
     const user = userEvent.setup();
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
 
@@ -296,7 +296,7 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
   });
 
   it("rejects unsupported MIME types client-side without calling prepareUpload", async () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     fireEvent.change(getFileInput(), {
       target: { files: [makeFile("doc.txt", "text/plain")] },
@@ -314,7 +314,7 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
       return {
         ok: true as const,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        entry: { id: "new-casting-id", vendorId: null } as any,
+        entry: { id: "new-casting-id", partyId: null } as any,
       };
     });
     vi.mocked(prepareUpload).mockImplementation(async () => {
@@ -338,7 +338,7 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
       return { ok: true as const };
     });
 
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -369,10 +369,10 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
     vi.mocked(createCastingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      entry: { id: "new-casting", vendorId: null } as any,
+      entry: { id: "new-casting", partyId: null } as any,
     });
 
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save and return/i }));
 
@@ -387,14 +387,14 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
     vi.mocked(createCastingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      entry: { id: "new-casting-id", vendorId: null } as any,
+      entry: { id: "new-casting-id", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: false as const,
       errors: { mimeType: ["Unsupported file type."] },
     });
 
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -414,7 +414,7 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
     vi.mocked(createCastingEntry).mockResolvedValue({
       ok: true as const,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      entry: { id: "new-casting-id", vendorId: null } as any,
+      entry: { id: "new-casting-id", partyId: null } as any,
     });
     vi.mocked(prepareUpload).mockResolvedValue({
       ok: true as const,
@@ -423,7 +423,7 @@ describe("CastingForm — bill-in-form retrofit (Phase 10.6)", () => {
     });
     StubXHR.failNext = true;
 
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
     await fillRequiredFields(user);
     await user.upload(getFileInput(), makeFile("receipt.png", "image/png"));
     await user.click(screen.getByRole("button", { name: /save and return/i }));
@@ -448,7 +448,7 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("desktop column-header row carries `hidden md:grid`", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const materialHeader = screen.getAllByText("Material")[0];
     const headerRow = materialHeader.parentElement!;
@@ -457,7 +457,7 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("line item rows use `grid-cols-1 md:grid-cols-[1fr_110px_130px_130px_40px]`", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const lineGroup = screen.getByRole("group", { name: /line 1/i });
     expect(lineGroup.className).toContain("grid-cols-1");
@@ -465,7 +465,7 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("weight/rate/× inner group uses `md:contents`", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const weightInput = screen.getByPlaceholderText("Weight kg");
     const innerGroup = weightInput.parentElement!.parentElement!;
@@ -475,14 +475,14 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("weight + rate inputs have mobile placeholders", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     expect(screen.getByPlaceholderText("Weight kg")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("₹/kg")).toBeInTheDocument();
   });
 
   it("weight input preserves step=0.001 for gram-precision entry", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const weightInput = screen.getByPlaceholderText("Weight kg");
     expect(weightInput.getAttribute("step")).toBe("0.001");
@@ -490,7 +490,7 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("remove button has 44x44 mobile touch target", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const removeBtn = screen.getByRole("button", { name: /remove line 1/i });
     expect(removeBtn.className).toContain("h-11");
@@ -498,7 +498,7 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("mobile-only line total row is rendered with `md:hidden`", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const labels = screen.getAllByText("Line total");
     const mobileLabel = labels.find((el) =>
@@ -508,7 +508,7 @@ describe("CastingForm — mobile viewport (responsive class regression coverage)
   });
 
   it("form footer is sticky-bottom on mobile", () => {
-    render(<CastingForm mode="create" vendors={vendors} />);
+    render(<CastingForm mode="create" parties={parties} />);
 
     const saveButton = screen.getByRole("button", { name: /save and return/i });
     let el: HTMLElement | null = saveButton;

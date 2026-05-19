@@ -26,11 +26,12 @@ function sessionFor(role: Role) {
   };
 }
 
-function makeVendor(
+function makeParty(
   overrides: Partial<{
     id: string;
     name: string;
     phone: string | null;
+    email: string | null;
     address: string | null;
     notes: string | null;
     createdAt: Date;
@@ -42,11 +43,19 @@ function makeVendor(
     id: "vendor-1",
     name: "Test Vendor",
     phone: null,
+    email: null,
     address: null,
     notes: null,
     createdAt: new Date("2026-05-17T00:00:00Z"),
     updatedAt: new Date("2026-05-17T00:00:00Z"),
     deletedAt: null,
+    isCustomer: false,
+    isSupplier: false,
+    isCastingVendor: false,
+    isPlatingVendor: false,
+    createdById: null,
+    updatedById: null,
+    deletedById: null,
     ...overrides,
   };
 }
@@ -66,24 +75,24 @@ beforeEach(() => {
 
 describe("createVendor", () => {
   it("happy path — returns ok=true and writes through Prisma", async () => {
-    vi.mocked(prisma.castingPlatingVendor.create).mockResolvedValue(
-      makeVendor({ id: "new-cuid", name: "Mahesh Casting Works", phone: "9876543210" }),
+    vi.mocked(prisma.party.create).mockResolvedValue(
+      makeParty({ id: "new-cuid", name: "Mahesh Casting Works", phone: "9876543210" }),
     );
 
     const result = await createVendor(validInput);
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.vendor.id).toBe("new-cuid");
-    expect(prisma.castingPlatingVendor.create).toHaveBeenCalledOnce();
+    expect(prisma.party.create).toHaveBeenCalledOnce();
     expect(revalidatePath).toHaveBeenCalledWith("/vendors");
   });
 
   it("normalises the phone before saving (auto-promotion identity prep)", async () => {
-    vi.mocked(prisma.castingPlatingVendor.create).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.create).mockResolvedValue(makeParty());
 
     await createVendor({ ...validInput, phone: "(987) 654-3210" });
 
-    const call = vi.mocked(prisma.castingPlatingVendor.create).mock.calls[0][0];
+    const call = vi.mocked(prisma.party.create).mock.calls[0][0];
     expect(call.data.phone).toBe("9876543210");
   });
 
@@ -92,20 +101,20 @@ describe("createVendor", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.name).toBeDefined();
-    expect(prisma.castingPlatingVendor.create).not.toHaveBeenCalled();
+    expect(prisma.party.create).not.toHaveBeenCalled();
   });
 });
 
 describe("updateVendor", () => {
   it("happy path — Prisma update called with where.deletedAt=null guard", async () => {
-    vi.mocked(prisma.castingPlatingVendor.update).mockResolvedValue(
-      makeVendor({ id: "abc", name: "Updated" }),
+    vi.mocked(prisma.party.update).mockResolvedValue(
+      makeParty({ id: "abc", name: "Updated" }),
     );
 
     const result = await updateVendor("abc", { ...validInput, name: "Updated" });
 
     expect(result.ok).toBe(true);
-    expect(prisma.castingPlatingVendor.update).toHaveBeenCalledWith(
+    expect(prisma.party.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "abc", deletedAt: null },
       }),
@@ -114,11 +123,11 @@ describe("updateVendor", () => {
   });
 
   it("clearing phone passes null (not undefined) to Prisma", async () => {
-    vi.mocked(prisma.castingPlatingVendor.update).mockResolvedValue(makeVendor());
+    vi.mocked(prisma.party.update).mockResolvedValue(makeParty());
 
     await updateVendor("abc", { ...validInput, phone: "" });
 
-    const call = vi.mocked(prisma.castingPlatingVendor.update).mock.calls[0][0];
+    const call = vi.mocked(prisma.party.update).mock.calls[0][0];
     expect(call.data.phone).toBeNull();
     expect(call.data.phone).not.toBeUndefined();
   });
@@ -126,14 +135,14 @@ describe("updateVendor", () => {
 
 describe("softDeleteVendor", () => {
   it("happy path — sets deletedAt and revalidates", async () => {
-    vi.mocked(prisma.castingPlatingVendor.update).mockResolvedValue(
-      makeVendor({ deletedAt: new Date() }),
+    vi.mocked(prisma.party.update).mockResolvedValue(
+      makeParty({ deletedAt: new Date() }),
     );
 
     const result = await softDeleteVendor("abc");
 
     expect(result.ok).toBe(true);
-    const call = vi.mocked(prisma.castingPlatingVendor.update).mock.calls[0][0];
+    const call = vi.mocked(prisma.party.update).mock.calls[0][0];
     expect(call.data.deletedAt).toBeInstanceOf(Date);
     expect(revalidatePath).toHaveBeenCalledWith("/vendors");
   });
@@ -151,14 +160,14 @@ describe.each(ROLE_MATRIX)("createVendor role access — %s", (role, allowed) =>
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.castingPlatingVendor.create).mockResolvedValue(makeVendor());
+      vi.mocked(prisma.party.create).mockResolvedValue(makeParty());
       const r = await createVendor(validInput);
       expect(r.ok).toBe(true);
-      expect(prisma.castingPlatingVendor.create).toHaveBeenCalledOnce();
+      expect(prisma.party.create).toHaveBeenCalledOnce();
     } else {
       vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
       await expect(createVendor(validInput)).rejects.toThrow("Forbidden");
-      expect(prisma.castingPlatingVendor.create).not.toHaveBeenCalled();
+      expect(prisma.party.create).not.toHaveBeenCalled();
     }
   });
 });
@@ -167,14 +176,14 @@ describe.each(ROLE_MATRIX)("updateVendor role access — %s", (role, allowed) =>
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.castingPlatingVendor.update).mockResolvedValue(makeVendor());
+      vi.mocked(prisma.party.update).mockResolvedValue(makeParty());
       const r = await updateVendor("abc", validInput);
       expect(r.ok).toBe(true);
-      expect(prisma.castingPlatingVendor.update).toHaveBeenCalledOnce();
+      expect(prisma.party.update).toHaveBeenCalledOnce();
     } else {
       vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
       await expect(updateVendor("abc", validInput)).rejects.toThrow("Forbidden");
-      expect(prisma.castingPlatingVendor.update).not.toHaveBeenCalled();
+      expect(prisma.party.update).not.toHaveBeenCalled();
     }
   });
 });
@@ -183,15 +192,15 @@ describe.each(ROLE_MATRIX)("softDeleteVendor role access — %s", (role, allowed
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
-      vi.mocked(prisma.castingPlatingVendor.update).mockResolvedValue(
-        makeVendor({ deletedAt: new Date() }),
+      vi.mocked(prisma.party.update).mockResolvedValue(
+        makeParty({ deletedAt: new Date() }),
       );
       const r = await softDeleteVendor("abc");
       expect(r.ok).toBe(true);
     } else {
       vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
       await expect(softDeleteVendor("abc")).rejects.toThrow("Forbidden");
-      expect(prisma.castingPlatingVendor.update).not.toHaveBeenCalled();
+      expect(prisma.party.update).not.toHaveBeenCalled();
     }
   });
 });

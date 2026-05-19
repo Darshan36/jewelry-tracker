@@ -7,6 +7,13 @@ import { prisma } from "@/lib/prisma";
 
 import { customerInputSchema, type CustomerInput } from "./schema";
 
+// Phase 17a: Customer data is now stored in the unified `Party` table with
+// `isCustomer = true`. These actions are thin wrappers that filter Party
+// queries by the role flag — same UX, unified data layer. Role-flag
+// preservation: soft-deleting a customer does NOT clear `isCustomer` on
+// the Party row; the deletedAt tombstone hides it from /customers but
+// historical sales still reference the snapshot via partyName/partyPhone.
+
 export async function createCustomer(input: CustomerInput) {
   await requireRole(["ADMIN"]);
 
@@ -18,7 +25,33 @@ export async function createCustomer(input: CustomerInput) {
     };
   }
 
-  const customer = await prisma.customer.create({ data: parsed.data });
+  // Phone collision: if a Party already exists at this phone (e.g. it was
+  // first created as a supplier), flip the isCustomer flag rather than
+  // duplicating. Phone is globally UNIQUE on parties.
+  if (parsed.data.phone) {
+    const existing = await prisma.party.findUnique({
+      where: { phone: parsed.data.phone },
+    });
+    if (existing && existing.deletedAt === null) {
+      const customer = await prisma.party.update({
+        where: { id: existing.id },
+        data: {
+          isCustomer: true,
+          // Only overwrite name/email/etc when caller provides them.
+          name: parsed.data.name,
+          email: parsed.data.email ?? existing.email,
+          address: parsed.data.address ?? existing.address,
+          notes: parsed.data.notes ?? existing.notes,
+        },
+      });
+      revalidatePath("/customers");
+      return { ok: true as const, customer };
+    }
+  }
+
+  const customer = await prisma.party.create({
+    data: { ...parsed.data, isCustomer: true },
+  });
   revalidatePath("/customers");
   return { ok: true as const, customer };
 }
@@ -34,11 +67,7 @@ export async function updateCustomer(id: string, input: CustomerInput) {
     };
   }
 
-  // The schema's `.nullish().transform(... ? null : v)` guarantees parsed
-  // values for cleared fields are `null` (not `undefined`), so Prisma
-  // actually sets the column to NULL rather than skipping it. See the
-  // schema comment above for the rationale.
-  const customer = await prisma.customer.update({
+  const customer = await prisma.party.update({
     where: { id, deletedAt: null },
     data: parsed.data,
   });
@@ -49,7 +78,7 @@ export async function updateCustomer(id: string, input: CustomerInput) {
 export async function softDeleteCustomer(id: string) {
   await requireRole(["ADMIN"]);
 
-  await prisma.customer.update({
+  await prisma.party.update({
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });

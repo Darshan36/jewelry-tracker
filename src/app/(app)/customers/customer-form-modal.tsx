@@ -20,7 +20,7 @@ import {
   FormLabel,
   FormTextarea,
 } from "@/components/form-controls";
-import type { Customer } from "@/generated/prisma";
+import type { Party as Customer } from "@/generated/prisma";
 
 import { createCustomer, updateCustomer } from "./actions";
 import { customerInputSchema } from "./schema";

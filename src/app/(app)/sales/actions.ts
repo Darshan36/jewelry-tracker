@@ -18,14 +18,16 @@ import { serializeSale } from "./sale-helpers";
 // discipline preserved). Discount-exceeds-subtotal is rejected at the action
 // layer because the validation needs the parsed numbers in scope.
 //
-// Auto-promotion (Phase 6) still runs here: when `customerId` is null but
-// `partyPhone` is non-null, the action either links to or auto-creates the
-// Customer. The whole flow (party lookup/create + Sale create + line item
+// Phase 17a: walk-in auto-promotion now operates on the unified `Party`
+// model. When `partyId` is null but `partyPhone` is non-null, the action
+// either links to an existing Party (matched by phone) and sets the
+// `isCustomer` flag if missing, or creates a new Party with `isCustomer =
+// true`. The whole flow (party lookup/upsert + Sale create + line item
 // creates) runs inside `prisma.$transaction`.
 
 type BuiltSaleData = {
   date: Date;
-  customerId: string | null;
+  partyId: string | null;
   partyName: string;
   partyPhone: string | null;
   discount: bigint;
@@ -42,47 +44,67 @@ async function buildSaleData(
   tx: Prisma.TransactionClient,
   parsed: SaleInput,
 ): Promise<
-  | { ok: true; data: BuiltSaleData }
+  | { ok: true; data: BuiltSaleData; partyCreatedOrUpdated: boolean }
   | { ok: false; errors: Record<string, string[]> }
 > {
-  let customerId = parsed.customerId;
+  let partyId = parsed.partyId;
   let partyName = parsed.partyName;
   let partyPhone = parsed.partyPhone;
+  let partyCreatedOrUpdated = false;
 
-  if (customerId !== null) {
-    const customer = await tx.customer.findUnique({
-      where: { id: customerId, deletedAt: null },
+  if (partyId !== null) {
+    const party = await tx.party.findUnique({
+      where: { id: partyId, deletedAt: null },
     });
-    if (!customer) {
+    if (!party) {
       return {
         ok: false,
-        errors: { customerId: ["Customer not found"] },
+        errors: { partyId: ["Party not found"] },
       };
     }
-    partyName = customer.name;
-    partyPhone = customer.phone;
+    // If the user picked a party that doesn't yet have the customer
+    // flag (e.g. a supplier-only party), flip the flag — they now
+    // transact as a customer too.
+    if (!party.isCustomer) {
+      await tx.party.update({
+        where: { id: party.id },
+        data: { isCustomer: true },
+      });
+      partyCreatedOrUpdated = true;
+    }
+    partyName = party.name;
+    partyPhone = party.phone;
   } else if (partyPhone !== null) {
-    const existing = await tx.customer.findFirst({
+    const existing = await tx.party.findFirst({
       where: { phone: partyPhone, deletedAt: null },
     });
 
     if (existing) {
-      customerId = existing.id;
+      if (!existing.isCustomer) {
+        await tx.party.update({
+          where: { id: existing.id },
+          data: { isCustomer: true },
+        });
+        partyCreatedOrUpdated = true;
+      }
+      partyId = existing.id;
       partyName = existing.name;
       partyPhone = existing.phone;
     } else {
-      const created = await tx.customer.create({
+      const created = await tx.party.create({
         data: {
           name: partyName,
           phone: partyPhone,
           email: null,
           address: null,
           notes: null,
+          isCustomer: true,
         },
       });
-      customerId = created.id;
+      partyId = created.id;
       partyName = created.name;
       partyPhone = created.phone;
+      partyCreatedOrUpdated = true;
     }
   }
 
@@ -109,9 +131,10 @@ async function buildSaleData(
 
   return {
     ok: true,
+    partyCreatedOrUpdated,
     data: {
       date: parsed.date,
-      customerId,
+      partyId,
       partyName,
       partyPhone,
       discount: discountPaise,
@@ -144,7 +167,11 @@ export async function createSale(input: SaleInput) {
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
-    return { ok: true as const, sale: created };
+    return {
+      ok: true as const,
+      sale: created,
+      partyCreatedOrUpdated: built.partyCreatedOrUpdated,
+    };
   });
 
   if (!result.ok) {
@@ -152,7 +179,7 @@ export async function createSale(input: SaleInput) {
   }
 
   revalidatePath("/sales");
-  if (result.sale.customerId !== null) revalidatePath("/customers");
+  if (result.partyCreatedOrUpdated) revalidatePath("/customers");
   return { ok: true as const, sale: serializeSale(result.sale) };
 }
 
@@ -183,7 +210,11 @@ export async function updateSale(id: string, input: SaleInput) {
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
-    return { ok: true as const, sale: updated };
+    return {
+      ok: true as const,
+      sale: updated,
+      partyCreatedOrUpdated: built.partyCreatedOrUpdated,
+    };
   });
 
   if (!result.ok) {
@@ -191,7 +222,7 @@ export async function updateSale(id: string, input: SaleInput) {
   }
 
   revalidatePath("/sales");
-  if (result.sale.customerId !== null) revalidatePath("/customers");
+  if (result.partyCreatedOrUpdated) revalidatePath("/customers");
   return { ok: true as const, sale: serializeSale(result.sale) };
 }
 

@@ -27,6 +27,9 @@ model User {
   updatedAt    DateTime @updatedAt
 
   uploadedAttachments Attachment[]
+  partiesCreated      Party[]      @relation("PartyCreatedBy")
+  partiesUpdated      Party[]      @relation("PartyUpdatedBy")
+  partiesDeleted      Party[]      @relation("PartyDeletedBy")
 
   @@map("users")
 }
@@ -68,40 +71,45 @@ model Attachment {
   @@map("attachments")
 }
 
-model Customer {
-  id        String    @id @default(cuid())
-  name      String
-  phone     String?
-  email     String?
-  address   String?
-  notes     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+// Unified party model — replaces Customer / Supplier / CastingPlatingVendor
+// (Phase 17a). Role flags determine which UI surfaces show the party. A
+// single party can have multiple roles set (e.g. a regular who both sells
+// to and buys from the shop). Phone is globally unique across all roles.
+// Walk-in auto-promotion implicitly sets the role flag from form context.
+model Party {
+  id              String    @id @default(cuid())
+  name            String
+  phone           String?   @unique
+  email           String?
+  address         String?
+  notes           String?
+  isCustomer      Boolean   @default(false)
+  isSupplier      Boolean   @default(false)
+  isCastingVendor Boolean   @default(false)
+  isPlatingVendor Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  createdById     String?
+  updatedById     String?
+  deletedById     String?
 
-  sales Sale[]
+  createdBy User? @relation("PartyCreatedBy", fields: [createdById], references: [id])
+  updatedBy User? @relation("PartyUpdatedBy", fields: [updatedById], references: [id])
+  deletedBy User? @relation("PartyDeletedBy", fields: [deletedById], references: [id])
 
-  @@index([deletedAt])
+  sales          Sale[]
+  purchases      Purchase[]
+  castingEntries CastingEntry[]
+  platingEntries PlatingEntry[]
+
+  @@index([phone])
   @@index([name])
-  @@map("customers")
-}
-
-model Supplier {
-  id        String    @id @default(cuid())
-  name      String
-  phone     String?
-  email     String?
-  address   String?
-  notes     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  purchases Purchase[]
-
-  @@index([deletedAt])
-  @@index([name])
-  @@map("suppliers")
+  @@index([isCustomer, deletedAt])
+  @@index([isSupplier, deletedAt])
+  @@index([isCastingVendor, deletedAt])
+  @@index([isPlatingVendor, deletedAt])
+  @@map("parties")
 }
 
 enum EmployeeType {
@@ -130,8 +138,8 @@ model Employee {
 model Sale {
   id         String    @id @default(cuid())
   date       DateTime
-  customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  partyId    String?
+  party      Party?    @relation(fields: [partyId], references: [id], onDelete: SetNull)
   partyName  String
   partyPhone String?
   discount   BigInt    @default(0)
@@ -147,7 +155,7 @@ model Sale {
 
   @@index([deletedAt])
   @@index([date])
-  @@index([customerId])
+  @@index([partyId])
   @@map("sales")
 }
 
@@ -207,8 +215,8 @@ model SaleReturn {
 model Purchase {
   id         String    @id @default(cuid())
   date       DateTime
-  supplierId String?
-  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  partyId    String?
+  party      Party?    @relation(fields: [partyId], references: [id], onDelete: SetNull)
   partyName  String
   partyPhone String?
   discount   BigInt    @default(0)
@@ -224,7 +232,7 @@ model Purchase {
 
   @@index([deletedAt])
   @@index([date])
-  @@index([supplierId])
+  @@index([partyId])
   @@map("purchases")
 }
 
@@ -276,45 +284,26 @@ model PurchaseReturn {
   @@map("purchase_returns")
 }
 
-model CastingPlatingVendor {
-  id        String    @id @default(cuid())
-  name      String
-  phone     String?
-  address   String?
-  notes     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  castingEntries CastingEntry[]
-  platingEntries PlatingEntry[]
-
-  @@index([phone])
-  @@index([deletedAt])
-  @@index([name])
-  @@map("casting_plating_vendors")
-}
-
 model CastingEntry {
-  id         String                @id @default(cuid())
-  date       DateTime
-  vendorId   String?
-  vendor     CastingPlatingVendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  partyName  String
-  partyPhone String?
-  discount   BigInt                @default(0)
-  total      BigInt
-  notes      String?
-  attachmentId String?              @unique
-  attachment   Attachment?           @relation(fields: [attachmentId], references: [id])
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
-  deletedAt  DateTime?
+  id           String      @id @default(cuid())
+  date         DateTime
+  partyId      String?
+  party        Party?      @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  partyName    String
+  partyPhone   String?
+  discount     BigInt      @default(0)
+  total        BigInt
+  notes        String?
+  attachmentId String?     @unique
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
 
   lineItems CastingLineItem[]
   payments  CastingPayment[]
 
-  @@index([vendorId])
+  @@index([partyId])
   @@index([deletedAt])
   @@index([date])
   @@map("casting_entries")
@@ -353,25 +342,25 @@ model CastingPayment {
 }
 
 model PlatingEntry {
-  id         String                @id @default(cuid())
-  date       DateTime
-  vendorId   String?
-  vendor     CastingPlatingVendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  partyName  String
-  partyPhone String?
-  discount   BigInt                @default(0)
-  total      BigInt
-  notes      String?
-  attachmentId String?              @unique
-  attachment   Attachment?           @relation(fields: [attachmentId], references: [id])
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
-  deletedAt  DateTime?
+  id           String      @id @default(cuid())
+  date         DateTime
+  partyId      String?
+  party        Party?      @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  partyName    String
+  partyPhone   String?
+  discount     BigInt      @default(0)
+  total        BigInt
+  notes        String?
+  attachmentId String?     @unique
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
 
   lineItems PlatingLineItem[]
   payments  PlatingPayment[]
 
-  @@index([vendorId])
+  @@index([partyId])
   @@index([deletedAt])
   @@index([date])
   @@map("plating_entries")

@@ -1,18 +1,25 @@
 "use client";
 
-// Dual-path party input — the heart of Phase 3.1's design.
+// Unified party picker (Phase 17a) — replaces the four per-entity
+// pickers (sales/customer, purchases/supplier, casting/vendor,
+// plating/vendor) with a single component parameterised by `role`.
+//
+// Each entity passes a `parties` list pre-filtered to the matching role
+// (customer for /sales/new, supplier for /purchases/new, etc.). The
+// component exposes a {partyId, partyName, partyPhone} triple via
+// `value`/`onChange`. Walk-in auto-promotion happens server-side in the
+// transaction action — the picker just emits the form values.
 //
 // State model:
-//   - When `value.customerId` is non-null, the picker shows a "linked
-//     customer" chip and a clear (×) button. The party-name input is
-//     not rendered (the chip is the indicator).
-//   - When `value.customerId` is null (walk-in mode), the picker shows
-//     an editable text input. Typing opens a dropdown that lists up to
-//     6 matching existing customers + a "Use as walk-in" footer.
+//   - When `value.partyId` is non-null, the picker shows a "linked party"
+//     chip and a clear (×) button. The party-name input is not rendered.
+//   - When `value.partyId` is null (walk-in mode), the picker shows an
+//     editable text input. Typing opens a dropdown that lists up to
+//     6 matching existing parties + a "Use as walk-in" footer.
 //
-// Caller integration: parents register hidden RHF fields for `customerId`,
-// `partyName`, `partyPhone` and feed/receive a `{ customerId, partyName,
-// partyPhone }` triple via this component's `value` / `onChange`.
+// DOM IDs use the `inputIdPrefix` prop to avoid cross-page collisions in
+// shared modal portals — pattern from the KNOWN_GAPS party-picker DOM ID
+// onboarding note.
 
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
@@ -24,51 +31,83 @@ import {
 } from "@/components/form-controls";
 import { normalizePhone } from "@/lib/phone";
 
-export type CustomerOption = {
+export type PartyRole = "CUSTOMER" | "SUPPLIER" | "CASTING_VENDOR" | "PLATING_VENDOR";
+
+export type PartyOption = {
   id: string;
   name: string;
   phone: string | null;
 };
 
 export type PartyValue = {
-  customerId: string | null;
+  partyId: string | null;
   partyName: string;
   partyPhone: string | null;
 };
 
 type Props = {
-  customers: CustomerOption[];
+  role: PartyRole;
+  parties: PartyOption[];
   value: PartyValue;
   onChange: (value: PartyValue) => void;
   error?: string;
+  inputIdPrefix: string;
 };
 
 const MAX_MATCHES = 6;
 
-export function PartyPicker({ customers, value, onChange, error }: Props) {
+const ROLE_LABELS: Record<PartyRole, { single: string; placeholder: string; clearAria: string }> = {
+  CUSTOMER: {
+    single: "customer",
+    placeholder: "Customer name or walk-in",
+    clearAria: "Clear linked customer",
+  },
+  SUPPLIER: {
+    single: "supplier",
+    placeholder: "Supplier name or walk-in",
+    clearAria: "Clear linked supplier",
+  },
+  CASTING_VENDOR: {
+    single: "vendor",
+    placeholder: "Vendor name or walk-in",
+    clearAria: "Clear linked vendor",
+  },
+  PLATING_VENDOR: {
+    single: "vendor",
+    placeholder: "Vendor name or walk-in",
+    clearAria: "Clear linked vendor",
+  },
+};
+
+export function PartyPicker({
+  role,
+  parties,
+  value,
+  onChange,
+  error,
+  inputIdPrefix,
+}: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const labels = ROLE_LABELS[role];
+  const nameId = `${inputIdPrefix}-party-name`;
+  const phoneId = `${inputIdPrefix}-party-phone`;
 
   const matches = useMemo(() => {
-    if (value.customerId !== null) return [];
+    if (value.partyId !== null) return [];
     const q = value.partyName.trim();
     if (!q) return [];
     const qLower = q.toLowerCase();
-    // Phone-prefix match (Phase 6) only fires when the query contains at
-    // least one digit — pure-alphabetic queries skip phone matching to
-    // avoid spurious hits when a stored phone happens to contain letters.
-    // The query and the candidate phone are both normalized so that
-    // "9876-543-210" stored matches "9876" typed.
     const qPhone = /\d/.test(q) ? normalizePhone(q) : null;
-    return customers
-      .filter((c) => {
-        if (c.name.toLowerCase().includes(qLower)) return true;
-        if (qPhone === null || c.phone === null) return false;
-        return (normalizePhone(c.phone) ?? "").startsWith(qPhone);
+    return parties
+      .filter((p) => {
+        if (p.name.toLowerCase().includes(qLower)) return true;
+        if (qPhone === null || p.phone === null) return false;
+        return (normalizePhone(p.phone) ?? "").startsWith(qPhone);
       })
       .slice(0, MAX_MATCHES);
-  }, [customers, value.partyName, value.customerId]);
+  }, [parties, value.partyName, value.partyId]);
 
-  if (value.customerId !== null) {
+  if (value.partyId !== null) {
     return (
       <div>
         <FormLabel>
@@ -80,13 +119,9 @@ export function PartyPicker({ customers, value, onChange, error }: Props) {
             <button
               type="button"
               onClick={() =>
-                onChange({
-                  customerId: null,
-                  partyName: "",
-                  partyPhone: null,
-                })
+                onChange({ partyId: null, partyName: "", partyPhone: null })
               }
-              aria-label="Clear linked customer"
+              aria-label={labels.clearAria}
               className="hover:opacity-70 transition-opacity"
             >
               <X className="size-3.5" />
@@ -105,50 +140,49 @@ export function PartyPicker({ customers, value, onChange, error }: Props) {
 
   return (
     <div>
-      <FormLabel htmlFor="sales-party-name">
+      <FormLabel htmlFor={nameId}>
         Party <span className="text-error ml-1" aria-hidden>*</span>
       </FormLabel>
       <div className="relative">
         <FormInput
-          id="sales-party-name"
+          id={nameId}
           type="text"
           autoComplete="off"
           value={value.partyName}
-          placeholder="Customer name or walk-in"
+          placeholder={labels.placeholder}
           onChange={(e) => {
             onChange({
-              customerId: null,
+              partyId: null,
               partyName: e.target.value,
               partyPhone: value.partyPhone,
             });
             setDropdownOpen(true);
           }}
           onFocus={() => setDropdownOpen(true)}
-          // Delay closing so a click on a dropdown item registers before blur.
           onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
           aria-invalid={!!error}
         />
         {dropdownOpen && value.partyName.trim() && (
           <div className="absolute left-0 right-0 top-full mt-1 bg-surface-container-high border border-outline-variant z-50 max-h-64 overflow-y-auto">
-            {matches.map((c) => (
+            {matches.map((p) => (
               <button
-                key={c.id}
+                key={p.id}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onChange({
-                    customerId: c.id,
-                    partyName: c.name,
-                    partyPhone: c.phone,
+                    partyId: p.id,
+                    partyName: p.name,
+                    partyPhone: p.phone,
                   });
                   setDropdownOpen(false);
                 }}
                 className="block w-full text-left px-3 py-2 hover:bg-surface-container-highest transition-colors border-b border-outline-variant/30 last:border-b-0"
               >
-                <div className="text-sm text-on-surface">{c.name}</div>
-                {c.phone && (
+                <div className="text-sm text-on-surface">{p.name}</div>
+                {p.phone && (
                   <div className="text-xs text-on-surface-variant tabular-nums">
-                    {c.phone}
+                    {p.phone}
                   </div>
                 )}
               </button>
@@ -170,15 +204,15 @@ export function PartyPicker({ customers, value, onChange, error }: Props) {
       <FormError>{error}</FormError>
 
       <div className="mt-3">
-        <FormLabel htmlFor="sales-party-phone">Phone (optional)</FormLabel>
+        <FormLabel htmlFor={phoneId}>Phone (optional)</FormLabel>
         <FormInput
-          id="sales-party-phone"
+          id={phoneId}
           type="tel"
           autoComplete="off"
           value={value.partyPhone ?? ""}
           onChange={(e) =>
             onChange({
-              customerId: null,
+              partyId: null,
               partyName: value.partyName,
               partyPhone: e.target.value === "" ? null : e.target.value,
             })

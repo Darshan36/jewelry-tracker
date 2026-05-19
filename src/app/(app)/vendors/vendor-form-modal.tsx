@@ -20,7 +20,7 @@ import {
   FormLabel,
   FormTextarea,
 } from "@/components/form-controls";
-import type { CastingPlatingVendor } from "@/generated/prisma";
+import type { Party as CastingPlatingVendor } from "@/generated/prisma";
 
 import { createVendor, updateVendor } from "./actions";
 import { vendorInputSchema } from "./schema";

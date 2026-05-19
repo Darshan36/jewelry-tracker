@@ -54,7 +54,7 @@ export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="flex items-center gap-2">
-              {purchase.supplierId !== null && (
+              {purchase.partyId !== null && (
                 <LinkIcon
                   className="size-4 text-secondary"
                   aria-label="Linked supplier"

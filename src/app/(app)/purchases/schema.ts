@@ -1,8 +1,8 @@
 // Zod schema for the Purchase add/edit form.
 //
-// Structural mirror of sales/schema.ts. Only meaningful difference is the
-// FK direction: supplierId instead of customerId. Same line-items array
-// shape, same wire-format rules.
+// Structural mirror of sales/schema.ts. Phase 17a unified the FK field
+// to partyId across all transactional entities.
+// Same line-items array shape, same wire-format rules.
 
 import { z } from "zod";
 
@@ -24,7 +24,7 @@ export const purchaseLineItemSchema = z.object({
 export const purchaseInputSchema = z.object({
   date: z.coerce.date({ message: "Date is required" }),
 
-  supplierId: z.string().min(1).nullable(),
+  partyId: z.string().min(1).nullable(),
 
   partyName: z
     .string()

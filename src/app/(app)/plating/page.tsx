@@ -10,7 +10,7 @@ export default async function PlatingPage() {
     include: {
       lineItems: { orderBy: { createdAt: "asc" } },
       payments: true,
-      vendor: true,
+      party: true,
       attachment: true,
     },
   });

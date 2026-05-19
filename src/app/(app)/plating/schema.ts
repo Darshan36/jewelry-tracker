@@ -36,7 +36,7 @@ export const platingLineItemSchema = z.object({
 export const platingEntryInputSchema = z.object({
   date: z.coerce.date({ message: "Date is required" }),
 
-  vendorId: z.string().min(1).nullable(),
+  partyId: z.string().min(1).nullable(),
 
   partyName: z
     .string()

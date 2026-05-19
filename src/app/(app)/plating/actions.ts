@@ -16,15 +16,10 @@ import { serializePlatingEntry } from "./plating-helpers";
 
 const PLATING_ROLES = ["ADMIN", "CASTING_PLATING_MGMT"] as const;
 
-// Build the prisma `data` payload for a PlatingEntry from a parsed input.
-//
-// Same shape as Sales/Purchases buildEntryData with two differences:
-//   - line item math is weight × rate (Decimal × BigInt) instead of qty
-//     × rate, via the canonical `computeLineTotal` helper in
-//     src/lib/weight-helpers.ts.
-//   - Vendor auto-promotion uses CastingPlatingVendor by normalized phone.
-//     The same vendor table serves plating and plating, so a walk-in
-//     vendor created here is reusable by both flows.
+// Mirror of casting/actions.ts. Phase 17a: vendor lookup is now via the
+// unified Party model with the isPlatingVendor role flag. Walk-in auto-
+// promotion sets/adds the isPlatingVendor flag on the matched-or-created
+// Party row.
 
 type BuiltLine = {
   materialDescription: string;
@@ -35,7 +30,7 @@ type BuiltLine = {
 
 type BuiltPlatingData = {
   date: Date;
-  vendorId: string | null;
+  partyId: string | null;
   partyName: string;
   partyPhone: string | null;
   discount: bigint;
@@ -49,42 +44,60 @@ async function buildPlatingData(
   tx: Prisma.TransactionClient,
   parsed: PlatingEntryInput,
 ): Promise<
-  | { ok: true; data: BuiltPlatingData }
+  | { ok: true; data: BuiltPlatingData; partyCreatedOrUpdated: boolean }
   | { ok: false; errors: Record<string, string[]> }
 > {
-  let vendorId = parsed.vendorId;
+  let partyId = parsed.partyId;
   let partyName = parsed.partyName;
   let partyPhone = parsed.partyPhone;
+  let partyCreatedOrUpdated = false;
 
-  if (vendorId !== null) {
-    const vendor = await tx.castingPlatingVendor.findUnique({
-      where: { id: vendorId, deletedAt: null },
+  if (partyId !== null) {
+    const party = await tx.party.findUnique({
+      where: { id: partyId, deletedAt: null },
     });
-    if (!vendor) {
-      return { ok: false, errors: { vendorId: ["Vendor not found"] } };
+    if (!party) {
+      return { ok: false, errors: { partyId: ["Party not found"] } };
     }
-    partyName = vendor.name;
-    partyPhone = vendor.phone;
+    if (!party.isPlatingVendor) {
+      await tx.party.update({
+        where: { id: party.id },
+        data: { isPlatingVendor: true },
+      });
+      partyCreatedOrUpdated = true;
+    }
+    partyName = party.name;
+    partyPhone = party.phone;
   } else if (partyPhone !== null) {
-    const existing = await tx.castingPlatingVendor.findFirst({
+    const existing = await tx.party.findFirst({
       where: { phone: partyPhone, deletedAt: null },
     });
     if (existing) {
-      vendorId = existing.id;
+      if (!existing.isPlatingVendor) {
+        await tx.party.update({
+          where: { id: existing.id },
+          data: { isPlatingVendor: true },
+        });
+        partyCreatedOrUpdated = true;
+      }
+      partyId = existing.id;
       partyName = existing.name;
       partyPhone = existing.phone;
     } else {
-      const created = await tx.castingPlatingVendor.create({
+      const created = await tx.party.create({
         data: {
           name: partyName,
           phone: partyPhone,
+          email: null,
           address: null,
           notes: null,
+          isPlatingVendor: true,
         },
       });
-      vendorId = created.id;
+      partyId = created.id;
       partyName = created.name;
       partyPhone = created.phone;
+      partyCreatedOrUpdated = true;
     }
   }
 
@@ -109,9 +122,6 @@ async function buildPlatingData(
     };
   }
 
-  // Validate attachmentId if provided — must exist, be READY, not be already
-  // attached to a different entry (the @unique constraint enforces this
-  // at the DB level too, but a clean error here is better UX).
   let attachmentId: string | null = parsed.attachmentId;
   if (attachmentId !== null) {
     const attachment = await tx.attachment.findUnique({ where: { id: attachmentId } });
@@ -122,9 +132,10 @@ async function buildPlatingData(
 
   return {
     ok: true,
+    partyCreatedOrUpdated,
     data: {
       date: parsed.date,
-      vendorId,
+      partyId,
       partyName,
       partyPhone,
       discount: discountPaise,
@@ -154,7 +165,6 @@ export async function createPlatingEntry(input: PlatingEntryInput) {
         lineItems: {
           create: lineItemCreates.map((l) => ({
             materialDescription: l.materialDescription,
-            // Prisma accepts string for Decimal inputs.
             weightKg: l.weightKg.toFixed(3),
             ratePerKg: l.ratePerKg,
             lineTotal: l.lineTotal,
@@ -163,17 +173,21 @@ export async function createPlatingEntry(input: PlatingEntryInput) {
       },
       include: {
         lineItems: { orderBy: { createdAt: "asc" } },
-        vendor: true,
+        party: true,
         attachment: true,
       },
     });
-    return { ok: true as const, entry: created };
+    return {
+      ok: true as const,
+      entry: created,
+      partyCreatedOrUpdated: built.partyCreatedOrUpdated,
+    };
   });
 
   if (!result.ok) return { ok: false as const, errors: result.errors };
 
   revalidatePath("/plating");
-  if (result.entry.vendorId !== null) revalidatePath("/vendors");
+  if (result.partyCreatedOrUpdated) revalidatePath("/vendors");
   return { ok: true as const, entry: serializePlatingEntry(result.entry) };
 }
 
@@ -189,7 +203,6 @@ export async function updatePlatingEntry(id: string, input: PlatingEntryInput) {
     const built = await buildPlatingData(tx, parsed.data);
     if (!built.ok) return built;
     const { lineItemCreates, ...entryData } = built.data;
-    // Replace-all line items (Phase 7 pattern). Hard-delete then recreate.
     await tx.platingLineItem.deleteMany({ where: { platingEntryId: id } });
     const updated = await tx.platingEntry.update({
       where: { id, deletedAt: null },
@@ -206,17 +219,21 @@ export async function updatePlatingEntry(id: string, input: PlatingEntryInput) {
       },
       include: {
         lineItems: { orderBy: { createdAt: "asc" } },
-        vendor: true,
+        party: true,
         attachment: true,
       },
     });
-    return { ok: true as const, entry: updated };
+    return {
+      ok: true as const,
+      entry: updated,
+      partyCreatedOrUpdated: built.partyCreatedOrUpdated,
+    };
   });
 
   if (!result.ok) return { ok: false as const, errors: result.errors };
 
   revalidatePath("/plating");
-  if (result.entry.vendorId !== null) revalidatePath("/vendors");
+  if (result.partyCreatedOrUpdated) revalidatePath("/vendors");
   return { ok: true as const, entry: serializePlatingEntry(result.entry) };
 }
 
@@ -231,11 +248,6 @@ export async function softDeletePlatingEntry(id: string) {
   return { ok: true as const };
 }
 
-// Attaches an existing Attachment row to a plating entry. Called from the
-// form-modal AFTER the entry has been created and the bill has been
-// uploaded + confirmed (with attachedToType: 'PLATING_ENTRY',
-// attachedToId: entry.id). Used by both the create flow and the edit-
-// replace-bill flow.
 export async function attachAttachmentToPlatingEntry(entryId: string, attachmentId: string) {
   await requireRole([...PLATING_ROLES]);
 
