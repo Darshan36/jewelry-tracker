@@ -35,7 +35,6 @@ function makeEmployee(
     phone: string | null;
     type: "FIXED" | "LABOUR";
     monthlySalary: bigint | null;
-    ratePerPiece: bigint | null;
     address: string | null;
     notes: string | null;
     createdAt: Date;
@@ -49,7 +48,6 @@ function makeEmployee(
     phone: null,
     type: "LABOUR" as const,
     monthlySalary: null,
-    ratePerPiece: null,
     address: null,
     notes: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -76,7 +74,6 @@ describe("createEmployee", () => {
       phone: null,
       type: "FIXED",
       monthlySalary: 18000, // rupees
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -99,7 +96,6 @@ describe("createEmployee", () => {
       phone: null,
       type: "LABOUR",
       monthlySalary: null,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -114,7 +110,6 @@ describe("createEmployee", () => {
       phone: null,
       type: "LABOUR",
       monthlySalary: null,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -130,7 +125,6 @@ describe("createEmployee", () => {
       phone: null,
       type: "LABOUR",
       monthlySalary: 18000,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -154,7 +148,6 @@ describe("createEmployee", () => {
       phone: null,
       type: "FIXED",
       monthlySalary: 18000,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -175,8 +168,7 @@ describe("createEmployee", () => {
         phone: null,
         type: "LABOUR",
         monthlySalary: null,
-        ratePerPiece: null,
-        address: null,
+          address: null,
         notes: null,
       }),
     ).rejects.toThrow("Unauthorized");
@@ -196,7 +188,6 @@ describe("updateEmployee", () => {
       phone: null,
       type: "FIXED",
       monthlySalary: 25000,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -217,7 +208,6 @@ describe("updateEmployee", () => {
       phone: null,
       type: "LABOUR",
       monthlySalary: null,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -232,7 +222,6 @@ describe("updateEmployee", () => {
       phone: null,
       type: "LABOUR",
       monthlySalary: 18000,
-      ratePerPiece: null,
       address: null,
       notes: null,
     });
@@ -250,8 +239,7 @@ describe("updateEmployee", () => {
         phone: null,
         type: "LABOUR",
         monthlySalary: null,
-        ratePerPiece: null,
-        address: null,
+          address: null,
         notes: null,
       }),
     ).rejects.toThrow("Unauthorized");
@@ -312,7 +300,6 @@ const validEmployeeInput = {
   phone: null,
   type: "LABOUR" as const,
   monthlySalary: null,
-  ratePerPiece: null,
   address: null,
   notes: null,
 };

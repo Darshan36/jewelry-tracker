@@ -64,6 +64,79 @@ describe("bulkPieceEntryInputSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // Phase 18.1 — per-row note.
+  it("accepts a per-row note and passes it through", () => {
+    const result = bulkPieceEntryInputSchema.safeParse({
+      date: "2026-05-19",
+      entries: [
+        {
+          employeeId: "e1",
+          count: 5,
+          ratePerPiece: 50,
+          note: "polishing — rush order",
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.entries[0].note).toBe("polishing — rush order");
+    }
+  });
+
+  it("transforms an empty-string note to null", () => {
+    const result = bulkPieceEntryInputSchema.safeParse({
+      date: "2026-05-19",
+      entries: [
+        { employeeId: "e1", count: 5, ratePerPiece: 50, note: "" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.entries[0].note).toBeNull();
+    }
+  });
+
+  it("treats a missing note as null", () => {
+    const result = bulkPieceEntryInputSchema.safeParse({
+      date: "2026-05-19",
+      entries: [{ employeeId: "e1", count: 5, ratePerPiece: 50 }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.entries[0].note).toBeNull();
+    }
+  });
+
+  it("rejects a note >500 chars", () => {
+    const result = bulkPieceEntryInputSchema.safeParse({
+      date: "2026-05-19",
+      entries: [
+        {
+          employeeId: "e1",
+          count: 5,
+          ratePerPiece: 50,
+          note: "x".repeat(501),
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("supports per-row distinct rates (rate is dynamic, not a worker attribute)", () => {
+    const result = bulkPieceEntryInputSchema.safeParse({
+      date: "2026-05-19",
+      entries: [
+        { employeeId: "e1", count: 10, ratePerPiece: 40, note: "polishing" },
+        { employeeId: "e1", count: 5, ratePerPiece: 80, note: "setting" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.entries[0].ratePerPiece).toBe(40);
+      expect(result.data.entries[1].ratePerPiece).toBe(80);
+    }
+  });
 });
 
 describe("pieceEntryInputSchema (single)", () => {

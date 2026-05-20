@@ -18,11 +18,21 @@ const pieceEntryItemSchema = z.object({
     .int("Count must be a whole number")
     .positive("Count must be greater than zero"),
   // Rate in rupees per piece on the wire; action converts to BigInt
-  // paise at the Prisma boundary. Same currency-wire convention as
-  // Sale / Purchase line items.
+  // paise at the Prisma boundary. Phase 18.1: entered per row (rate
+  // is dynamic — varies by job, not by worker).
   ratePerPiece: z
     .number()
     .nonnegative("Rate must be zero or greater"),
+  // Phase 18.1: optional per-entry note recording what the piece
+  // work was for ("polishing", "setting", etc.). Empty string → null.
+  note: z
+    .string()
+    .trim()
+    .max(500)
+    .nullish()
+    .transform((v) =>
+      v === undefined || v === null || v === "" ? null : v,
+    ),
 });
 
 export const bulkPieceEntryInputSchema = z.object({

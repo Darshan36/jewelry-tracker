@@ -4,8 +4,12 @@
 //   1. NO email field
 //   2. Required `type` enum (FIXED | LABOUR)
 //   3. Conditional `monthlySalary`:
-//      - Form input is a rupees number; schema transforms to bigint paise
+//      - Form input is a rupees number; action transforms to bigint paise
 //      - LABOUR employees must have monthlySalary = null; superRefine enforces
+//
+// Note: piece rate is NOT a worker attribute — it's dynamic (varies by
+// job) and entered per piece-entry on the bulk-piece-entry form
+// (Phase 18.1). The Employee model does not hold a default rate.
 //
 // Same empty-string-to-null transform for phone/address/notes as the other
 // entities — cleared form fields must become NULL in the DB, not undefined.
@@ -54,15 +58,6 @@ export const employeeInputSchema = z
       .positive("Salary must be greater than zero")
       .nullish()
       .transform((v) => (v === undefined || v === null ? null : v)),
-    // Phase 18: default per-piece rate for LABOUR employees (rupees per
-    // piece on the wire; action converts to BigInt paise at the Prisma
-    // boundary). FIXED employees must have null — enforced by
-    // superRefine below. Same wire-format reasoning as monthlySalary.
-    ratePerPiece: z
-      .number()
-      .nonnegative("Rate must be zero or greater")
-      .nullish()
-      .transform((v) => (v === undefined || v === null ? null : v)),
     address: z
       .string()
       .trim()
@@ -86,13 +81,6 @@ export const employeeInputSchema = z
         code: z.ZodIssueCode.custom,
         path: ["monthlySalary"],
         message: "Monthly salary applies only to fixed-salary employees.",
-      });
-    }
-    if (data.type === "FIXED" && data.ratePerPiece !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["ratePerPiece"],
-        message: "Piece rate applies only to labour employees.",
       });
     }
   });

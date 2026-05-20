@@ -36,7 +36,6 @@ function makeEmployee(
     phone: "9876543210",
     type: "LABOUR",
     monthlySalary: null,
-    ratePerPiece: null,
     address: null,
     notes: null,
     createdAt: new Date("2026-05-10T12:00:00Z"),

@@ -92,6 +92,7 @@ export async function createBulkPieceEntries(input: BulkPieceEntryInput) {
           count: e.count,
           ratePerPiece,
           totalAmount,
+          note: e.note,
         },
       });
     }

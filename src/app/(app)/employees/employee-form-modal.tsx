@@ -61,16 +61,11 @@ export function EmployeeFormModal({ open, onOpenChange, employee }: Props) {
         employee?.monthlySalary === null || employee?.monthlySalary === undefined
           ? null
           : employee.monthlySalary / 100;
-      const rateRupees =
-        employee?.ratePerPiece === null || employee?.ratePerPiece === undefined
-          ? null
-          : employee.ratePerPiece / 100;
       reset({
         name: employee?.name ?? "",
         phone: employee?.phone ?? "",
         type: employee?.type ?? "LABOUR",
         monthlySalary: salaryRupees,
-        ratePerPiece: rateRupees,
         address: employee?.address ?? "",
         notes: employee?.notes ?? "",
       });
@@ -78,13 +73,11 @@ export function EmployeeFormModal({ open, onOpenChange, employee }: Props) {
     }
   }, [open, employee, reset]);
 
-  // When type flips, clear the opposite-side rate field so a stale
-  // value can't sneak through and trigger superRefine errors.
+  // When type flips to LABOUR, clear monthlySalary so a stale value
+  // can't sneak through and trigger the superRefine error.
   useEffect(() => {
     if (watchedType === "LABOUR") {
       setValue("monthlySalary", null);
-    } else if (watchedType === "FIXED") {
-      setValue("ratePerPiece", null);
     }
   }, [watchedType, setValue]);
 
@@ -228,34 +221,6 @@ export function EmployeeFormModal({ open, onOpenChange, employee }: Props) {
             </div>
           )}
 
-          {/* Phase 18: per-piece rate — only shown for LABOUR. */}
-          {watchedType === "LABOUR" && (
-            <div>
-              <FormLabel htmlFor="employee-rate">
-                Rate per piece (₹)
-              </FormLabel>
-              <FormInput
-                id="employee-rate"
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                autoComplete="off"
-                aria-invalid={!!errors.ratePerPiece}
-                {...register("ratePerPiece", {
-                  setValueAs: (v) =>
-                    v === "" || v === null || v === undefined
-                      ? null
-                      : Number(v),
-                })}
-              />
-              <FormError>{errors.ratePerPiece?.message}</FormError>
-              <p className="mt-1 text-xs text-on-surface-variant">
-                Used as the default rate on the daily piece-entry form.
-              </p>
-            </div>
-          )}
-
           <div>
             <FormLabel htmlFor="employee-address">Address</FormLabel>
             <FormTextarea
@@ -314,7 +279,6 @@ function emptyDefaults(): FormInputT {
     phone: "",
     type: "LABOUR",
     monthlySalary: null,
-    ratePerPiece: null,
     address: "",
     notes: "",
   };
@@ -325,7 +289,6 @@ const FORM_FIELDS = [
   "phone",
   "type",
   "monthlySalary",
-  "ratePerPiece",
   "address",
   "notes",
 ] as const;

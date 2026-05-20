@@ -146,6 +146,77 @@ describe("createBulkPieceEntries", () => {
     expect(typeof data.totalAmount).toBe("bigint");
   });
 
+  // Phase 18.1 — per-row note passes through to PieceEntry.note.
+  it("persists per-row note on each PieceEntry", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "lab1" } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "lab2" } as any,
+    ]);
+    const createMock = vi.fn().mockResolvedValue({});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx = { pieceEntry: { create: createMock } } as any;
+      await fn(tx);
+      return tx;
+    });
+
+    await createBulkPieceEntries({
+      date: new Date("2026-05-19T00:00:00Z"),
+      entries: [
+        {
+          employeeId: "lab1",
+          count: 5,
+          ratePerPiece: 40,
+          note: "polishing — rush order",
+        },
+        {
+          employeeId: "lab2",
+          count: 3,
+          ratePerPiece: 80,
+          note: "setting",
+        },
+      ],
+    });
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock.mock.calls[0][0].data.note).toBe(
+      "polishing — rush order",
+    );
+    expect(createMock.mock.calls[1][0].data.note).toBe("setting");
+  });
+
+  // Phase 18.1 — different rates for the same worker on the same day
+  // are persisted as written; rate is dynamic per entry.
+  it("persists distinct rates per entry (dynamic, not derived from employee)", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "lab1" } as any,
+    ]);
+    const createMock = vi.fn().mockResolvedValue({});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx = { pieceEntry: { create: createMock } } as any;
+      await fn(tx);
+      return tx;
+    });
+
+    await createBulkPieceEntries({
+      date: new Date("2026-05-19T00:00:00Z"),
+      entries: [
+        { employeeId: "lab1", count: 10, ratePerPiece: 40 },
+        { employeeId: "lab1", count: 5, ratePerPiece: 80 },
+      ],
+    });
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock.mock.calls[0][0].data.ratePerPiece).toBe(4000n);
+    expect(createMock.mock.calls[1][0].data.ratePerPiece).toBe(8000n);
+  });
+
   it("propagates auth failure", async () => {
     vi.mocked(requireRole).mockRejectedValueOnce(new Error("Forbidden"));
     await expect(

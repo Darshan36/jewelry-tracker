@@ -123,17 +123,6 @@ export function EmployeeDetailModal({
               value={formatCurrency(employee.monthlySalary)}
             />
           )}
-          {/* Phase 18: per-piece rate only shown for LABOUR. */}
-          {employee.type === "LABOUR" && (
-            <LabeledField
-              label="Rate per piece"
-              value={
-                employee.ratePerPiece === null
-                  ? "—"
-                  : formatCurrency(employee.ratePerPiece)
-              }
-            />
-          )}
           <LabeledField label="Address" value={employee.address} multiline />
           <LabeledField label="Notes" value={employee.notes} multiline />
           <LabeledField label="Created" value={formatDate(employee.createdAt)} />
@@ -158,19 +147,29 @@ export function EmployeeDetailModal({
                 {pieces.map((p, idx) => (
                   <div
                     key={p.id}
-                    className={`grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-xs items-center ${
+                    className={`px-3 py-1.5 text-xs ${
                       idx % 2 === 0
                         ? "bg-surface-container"
                         : "bg-surface-container-low"
                     }`}
                   >
-                    <span className="text-on-surface">{formatDate(p.date)}</span>
-                    <span className="tabular-nums text-on-surface-variant">
-                      {p.count} × {formatCurrency(p.ratePerPiece)}
-                    </span>
-                    <span className="tabular-nums font-mono text-on-surface">
-                      {formatCurrency(p.totalAmount)}
-                    </span>
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-center">
+                      <span className="text-on-surface">{formatDate(p.date)}</span>
+                      <span className="tabular-nums text-on-surface-variant">
+                        {p.count} × {formatCurrency(p.ratePerPiece)}
+                      </span>
+                      <span className="tabular-nums font-mono text-on-surface">
+                        {formatCurrency(p.totalAmount)}
+                      </span>
+                    </div>
+                    {p.note && (
+                      <div
+                        className="mt-0.5 text-on-surface-variant italic truncate"
+                        data-testid={`piece-history-note-${p.id}`}
+                      >
+                        {p.note}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

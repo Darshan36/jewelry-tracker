@@ -49,7 +49,6 @@ describe("employeeInputSchema", () => {
           phone: null,
           type: "LABOUR",
           monthlySalary: null,
-          ratePerPiece: null,
           address: null,
           notes: null,
         });

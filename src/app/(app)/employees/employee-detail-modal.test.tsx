@@ -27,7 +27,6 @@ function makeEmployee(
     phone: null,
     type: "LABOUR",
     monthlySalary: null,
-    ratePerPiece: 5000,
     address: null,
     notes: null,
     createdAt: new Date("2026-05-01T00:00:00Z"),
@@ -68,7 +67,6 @@ describe("EmployeeDetailModal — Pieces history (LABOUR only)", () => {
         employee={makeEmployee({
           type: "FIXED",
           monthlySalary: 1500000,
-          ratePerPiece: null,
         })}
         onEdit={() => {}}
       />,
@@ -105,6 +103,64 @@ describe("EmployeeDetailModal — Pieces history (LABOUR only)", () => {
     });
   });
 
+  // Phase 18.1 — per-entry note surfaces in pieces history.
+  it("renders the per-entry note when present", async () => {
+    vi.mocked(getEmployeeHistory).mockResolvedValue({
+      pieceEntries: [
+        {
+          id: "p1",
+          date: "2026-05-15T00:00:00.000Z",
+          count: 10,
+          ratePerPiece: 4000,
+          totalAmount: 40000,
+          note: "polishing — rush order",
+        },
+      ],
+      payments: [],
+    });
+    render(
+      <EmployeeDetailModal
+        open
+        onOpenChange={() => {}}
+        employee={makeEmployee({ type: "LABOUR" })}
+        onEdit={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("piece-history-note-p1"),
+      ).toHaveTextContent("polishing — rush order");
+    });
+  });
+
+  it("omits the note element when entry note is null", async () => {
+    vi.mocked(getEmployeeHistory).mockResolvedValue({
+      pieceEntries: [
+        {
+          id: "p2",
+          date: "2026-05-15T00:00:00.000Z",
+          count: 10,
+          ratePerPiece: 4000,
+          totalAmount: 40000,
+          note: null,
+        },
+      ],
+      payments: [],
+    });
+    render(
+      <EmployeeDetailModal
+        open
+        onOpenChange={() => {}}
+        employee={makeEmployee({ type: "LABOUR" })}
+        onEdit={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/10 ×/)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("piece-history-note-p2")).toBeNull();
+  });
+
   it("shows 'No piece entries yet' empty state when none loaded", async () => {
     render(
       <EmployeeDetailModal
@@ -126,7 +182,7 @@ describe("EmployeeDetailModal — Payment history (both types)", () => {
       <EmployeeDetailModal
         open
         onOpenChange={() => {}}
-        employee={makeEmployee({ type: "FIXED", monthlySalary: 1500000, ratePerPiece: null })}
+        employee={makeEmployee({ type: "FIXED", monthlySalary: 1500000 })}
         onEdit={() => {}}
       />,
     );
@@ -157,7 +213,6 @@ describe("EmployeeDetailModal — Payment history (both types)", () => {
         employee={makeEmployee({
           type: "FIXED",
           monthlySalary: 1500000,
-          ratePerPiece: null,
         })}
         onEdit={() => {}}
       />,

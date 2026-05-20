@@ -48,7 +48,6 @@ export default async function LabourPage() {
     (e) => ({
       ...e,
       monthlySalary: e.monthlySalary === null ? null : Number(e.monthlySalary),
-      ratePerPiece: e.ratePerPiece === null ? null : Number(e.ratePerPiece),
     }),
   );
 

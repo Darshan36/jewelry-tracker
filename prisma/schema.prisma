@@ -130,11 +130,6 @@ model Employee {
   phone         String?
   type          EmployeeType @default(LABOUR)
   monthlySalary BigInt?
-  // Phase 18: default per-piece rate for LABOUR employees (paise).
-  // FIXED employees keep this NULL; superRefine enforces. Used as the
-  // bulk-piece-entry form's per-row prefill so the user doesn't retype
-  // the rate every day.
-  ratePerPiece  BigInt?
   address       String?
   notes         String?
   createdAt     DateTime     @default(now())
@@ -163,7 +158,7 @@ model PieceEntry {
   // queries work for monthly aggregates.
   date         DateTime
   count        Int
-  ratePerPiece BigInt // paise per piece, snapshotted from Employee at entry time
+  ratePerPiece BigInt // paise per piece, entered per piece-entry (rate varies by job, not by worker)
   totalAmount  BigInt // paise, stored: count * ratePerPiece
   note         String?
 

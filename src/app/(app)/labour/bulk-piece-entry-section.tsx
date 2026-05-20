@@ -1,12 +1,14 @@
 "use client";
 
-// Bulk piece-entry form (Phase 18).
+// Bulk piece-entry form (Phase 18, Phase 18.1).
 //
 // Renders one row per LABOUR employee with:
 //   - read-only name
-//   - editable per-piece rate (defaults to Employee.ratePerPiece in
-//     rupees; user can override per entry)
+//   - editable per-piece rate (Phase 18.1: rate is dynamic — entered
+//     per entry, NOT pre-filled from a worker attribute)
 //   - count input (number, defaults to empty)
+//   - optional note (Phase 18.1: records what the piece work was for —
+//     "polishing", "setting", etc.)
 //   - live-computed line total
 //
 // "Save all" submits only the rows with count > 0 to
@@ -16,11 +18,12 @@
 // UX considerations:
 //   - Count input has autoFocus on the first row to let the user start
 //     typing immediately.
-//   - Tab order goes count → rate → count → rate, top to bottom.
-//     (Sticking with HTML's natural tab order — no JS overrides.)
+//   - Tab order goes count → rate → note → count → rate → note, top to
+//     bottom. (Sticking with HTML's natural tab order — no JS overrides.)
 //   - The save button shows the live aggregate "₹X across N workers"
 //     so the user can sanity-check before committing.
-//   - On successful save: counts reset to empty for next day's entry.
+//   - On successful save: counts AND rates AND notes reset for next
+//     day's entry (rates no longer persist since they're per-entry).
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -34,7 +37,8 @@ import type { EmployeeForClient } from "../employees/types";
 
 type RowState = {
   count: string; // string so empty doesn't render as "0"
-  rate: string; // string for the same reason; defaults to employee's rate in rupees
+  rate: string; // string for the same reason; empty by default (rate is dynamic per entry)
+  note: string;
 };
 
 type Props = {
@@ -42,15 +46,10 @@ type Props = {
   onSaved: () => void;
 };
 
-function paiseToRupeeString(paise: number | null): string {
-  if (paise === null) return "";
-  return (paise / 100).toFixed(2);
-}
-
 function defaultRows(employees: EmployeeForClient[]): Record<string, RowState> {
   const rows: Record<string, RowState> = {};
   for (const e of employees) {
-    rows[e.id] = { count: "", rate: paiseToRupeeString(e.ratePerPiece) };
+    rows[e.id] = { count: "", rate: "", note: "" };
   }
   return rows;
 }
@@ -107,6 +106,7 @@ export function BulkPieceEntrySection({ employees, onSaved }: Props) {
           employeeId: e.id,
           count,
           ratePerPiece: rate,
+          note: r.note.trim() === "" ? null : r.note.trim(),
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -128,12 +128,12 @@ export function BulkPieceEntrySection({ employees, onSaved }: Props) {
       return;
     }
 
-    // Reset counts (keep rates so the user can repeat the next day
-    // without retyping).
-    setRows((prev) => {
+    // Reset every row — rate is now dynamic per entry, so it
+    // shouldn't carry over to the next save.
+    setRows(() => {
       const next: Record<string, RowState> = {};
       for (const e of employees) {
-        next[e.id] = { count: "", rate: prev[e.id]?.rate ?? "" };
+        next[e.id] = { count: "", rate: "", note: "" };
       }
       return next;
     });
@@ -169,14 +169,15 @@ export function BulkPieceEntrySection({ employees, onSaved }: Props) {
         <>
           <div className="border border-outline-variant bg-surface-container-low">
             {/* Header row (desktop only) */}
-            <div className="hidden md:grid grid-cols-[1fr_120px_120px_140px] gap-4 px-4 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
+            <div className="hidden md:grid grid-cols-[1fr_110px_100px_1fr_130px] gap-4 px-4 py-2 bg-surface-container-high text-xs uppercase tracking-wider font-display text-on-surface-variant">
               <span>Worker</span>
               <span className="text-right">Rate (₹)</span>
               <span className="text-right">Count</span>
+              <span>Note</span>
               <span className="text-right">Line total</span>
             </div>
             {employees.map((e, idx) => {
-              const r = rows[e.id] ?? { count: "", rate: "" };
+              const r = rows[e.id] ?? { count: "", rate: "", note: "" };
               const c = Number(r.count);
               const rate = Number(r.rate);
               const lineTotal =
@@ -188,15 +189,16 @@ export function BulkPieceEntrySection({ employees, onSaved }: Props) {
                   key={e.id}
                   data-testid="bulk-entry-row"
                   data-employee-id={e.id}
-                  className={`grid grid-cols-1 md:grid-cols-[1fr_120px_120px_140px] gap-2 md:gap-4 px-4 py-3 items-center ${
+                  className={`grid grid-cols-1 md:grid-cols-[1fr_110px_100px_1fr_130px] gap-2 md:gap-4 px-4 py-3 items-start md:items-center ${
                     idx % 2 === 0
                       ? "bg-surface-container"
                       : "bg-surface-container-low"
                   }`}
                 >
-                  <div className="min-w-0 text-sm text-on-surface truncate font-medium">
+                  <div className="min-w-0 text-sm text-on-surface truncate font-medium md:self-center">
                     {e.name}
                   </div>
+                  {/* Mobile: rate + count side by side (2 cols), note full-width below */}
                   <div className="grid grid-cols-2 md:contents gap-2">
                     <div>
                       <FormLabel
@@ -236,6 +238,27 @@ export function BulkPieceEntrySection({ employees, onSaved }: Props) {
                           setRow(e.id, { count: ev.target.value })
                         }
                         className="text-right tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <div className="md:contents">
+                    <div>
+                      <FormLabel
+                        htmlFor={`bulk-note-${e.id}`}
+                        className="md:sr-only"
+                      >
+                        Note
+                      </FormLabel>
+                      <FormInput
+                        id={`bulk-note-${e.id}`}
+                        type="text"
+                        autoComplete="off"
+                        maxLength={500}
+                        value={r.note}
+                        onChange={(ev) =>
+                          setRow(e.id, { note: ev.target.value })
+                        }
+                        placeholder="e.g. polishing, setting"
                       />
                     </div>
                   </div>

@@ -162,12 +162,8 @@ export type MissingSalaryEmployee = {
   currentMonth: string; // "May 2026"
 };
 
-export type SerializedEmployee = Omit<
-  Employee,
-  "monthlySalary" | "ratePerPiece"
-> & {
+export type SerializedEmployee = Omit<Employee, "monthlySalary"> & {
   monthlySalary: number | null;
-  ratePerPiece: number | null;
 };
 
 export type SerializedPieceEntry = Omit<
@@ -186,7 +182,6 @@ function serializeEmployee(e: Employee): SerializedEmployee {
   return {
     ...e,
     monthlySalary: e.monthlySalary === null ? null : Number(e.monthlySalary),
-    ratePerPiece: e.ratePerPiece === null ? null : Number(e.ratePerPiece),
   };
 }
 
