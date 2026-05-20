@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canManageLabour,
+  canManageSettings,
   canManageUsers,
   canViewCompleted,
   canViewLabour,
@@ -131,5 +132,16 @@ describe("canManageUsers — Phase 16 (admin-only user management)", () => {
     expect(canManageUsers("PURCHASE_DEPT")).toBe(false);
     expect(canManageUsers("LABOUR_MGMT")).toBe(false);
     expect(canManageUsers("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canManageSettings — Phase 20 (admin-only shop settings)", () => {
+  it("ADMIN can manage settings", () => {
+    expect(canManageSettings("ADMIN")).toBe(true);
+  });
+  it("non-ADMIN roles cannot manage settings", () => {
+    expect(canManageSettings("PURCHASE_DEPT")).toBe(false);
+    expect(canManageSettings("LABOUR_MGMT")).toBe(false);
+    expect(canManageSettings("CASTING_PLATING_MGMT")).toBe(false);
   });
 });

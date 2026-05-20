@@ -104,3 +104,34 @@ describe("SalesTable — photo count badge", () => {
     expect(badge).not.toHaveAccessibleName(/photos/i);
   });
 });
+
+// Phase 20 — Print bill trigger button (desktop row + mobile card).
+describe("SalesTable — Print bill trigger (Phase 20)", () => {
+  it("renders a Print bill anchor in the desktop row pointing to /sales/[id]/bill", () => {
+    render(<SalesTable sales={[makeSale({ id: "sale-abc" })]} />);
+    const printAnchor = screen.getByTestId("print-bill-sale-abc");
+    expect(printAnchor).toBeInTheDocument();
+    expect(printAnchor.tagName).toBe("A");
+    expect(printAnchor).toHaveAttribute("href", "/sales/sale-abc/bill");
+    expect(printAnchor).toHaveAttribute("target", "_blank");
+    expect(printAnchor).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("Print bill is DISTINCT from the Paperclip 'Manage invoice attachment' button", () => {
+    render(<SalesTable sales={[makeSale({ id: "sale-1" })]} />);
+    const printBtn = screen.getByTestId("print-bill-sale-1");
+    const attachBtn = screen.getByRole("button", {
+      name: /manage invoice attachment/i,
+    });
+    expect(printBtn).not.toBe(attachBtn);
+    // Print is an <a target=_blank>; attachment is a <button>.
+    expect(printBtn.tagName).toBe("A");
+    expect(attachBtn.tagName).toBe("BUTTON");
+  });
+
+  it("Print bill title attribute reads 'Print bill'", () => {
+    render(<SalesTable sales={[makeSale({ id: "sale-x" })]} />);
+    const printAnchor = screen.getByTestId("print-bill-sale-x");
+    expect(printAnchor).toHaveAttribute("title", "Print bill");
+  });
+});

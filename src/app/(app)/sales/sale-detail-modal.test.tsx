@@ -120,3 +120,33 @@ describe("SaleDetailModal — photos render gate (Phase 12c)", () => {
     });
   });
 });
+
+// Phase 20 — Print bill trigger button in the modal footer.
+describe("SaleDetailModal — Print bill button (Phase 20)", () => {
+  it("renders a Print bill button that points to /sales/[id]/bill", () => {
+    render(
+      <SaleDetailModal
+        open={true}
+        onOpenChange={() => {}}
+        sale={makeSale({ id: "sale-xyz" })}
+      />,
+    );
+
+    const btn = screen.getByTestId("print-bill-modal-sale-xyz");
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("href", "/sales/sale-xyz/bill");
+    expect(btn).toHaveAttribute("target", "_blank");
+    expect(btn).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("Print bill button text reads 'Print bill' (distinct from row-level Paperclip 'Manage invoice attachment')", () => {
+    render(
+      <SaleDetailModal
+        open={true}
+        onOpenChange={() => {}}
+        sale={makeSale({ id: "sale-1" })}
+      />,
+    );
+    expect(screen.getByText(/print bill/i)).toBeInTheDocument();
+  });
+});

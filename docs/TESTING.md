@@ -1920,6 +1920,63 @@ import { authorizeCredentials } from "./authorize-credentials";
 
 Both work; the test doesn't load `next-auth`.
 
+## Playwright walkthrough — hydration waits (Phase 20)
+
+When a Playwright script fills a Next.js form on a Vercel-deployed page and then clicks Submit immediately, a race window exists: the script's click can fire BEFORE React has attached its `onSubmit` handler. The browser then falls back to native form submission — a GET request with form values in the URL query string. Symptom: the URL becomes `/route?fieldA=...&fieldB=...` instead of an XHR + redirect, the success banner never appears, and `waitForSelector('[data-testid="saved-banner"]')` times out.
+
+The fix is a `waitForLoadState('networkidle') + 500ms` buffer before each form interaction:
+
+```js
+async function waitHydrated(page) {
+  await page.waitForLoadState("networkidle", { timeout: 30_000 });
+  await page.waitForTimeout(500);
+}
+
+await admin.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded" });
+await admin.waitForSelector("input#settings-shop-name");
+await waitHydrated(admin);
+await admin.fill("input#settings-shop-name", "Shop Name");
+// ... etc ...
+await admin.click('[data-testid="settings-save"]');
+```
+
+`networkidle` is a good signal that the framework's RSC payload + hydration JS has loaded. The 500ms buffer covers React's effect phase (attaching the form's onSubmit handler). Apply BEFORE each form fill+click sequence on any page that uses RHF.
+
+**Lighter forms may not need this** — Phase 16's `/users` form worked without it because the page loaded fast enough. But ANY form on a heavier page (the (app) layout fetches session + role-aware sidebar) can race. Default to including `waitHydrated` for safety; it costs ~half a second and prevents flaky walkthrough failures.
+
+**Also: SaveDropdown.** Some forms use a `SaveDropdown` split-button (`src/components/save-dropdown.tsx`) that's `type="button"` and calls `handleSubmit()` programmatically via JS. Locating it as `button[type="submit"]` won't match. Use accessible name:
+
+```js
+const saveBtn = page.getByRole("button", { name: /save and return/i }).first();
+await saveBtn.click();
+```
+
+## Single-row config upsert testing (Phase 20)
+
+`ShopSettings` is a single-row config table — the actions enforce one-row semantics via `findFirst` + create-or-update, not a DB constraint. Tests pin the lifecycle: CREATE on first call, UPDATE on subsequent calls, never two rows.
+
+**Pattern**:
+
+```ts
+it("CREATE → UPDATE — first call creates, second call updates same row", async () => {
+  // First call: no row → CREATE
+  vi.mocked(prisma.shopSettings.findFirst).mockResolvedValueOnce(null);
+  vi.mocked(prisma.shopSettings.create).mockResolvedValueOnce(makeRow({ id: "row-id" }));
+  await upsertShopSettings({ shopName: "First", ... });
+  expect(prisma.shopSettings.create).toHaveBeenCalledOnce();
+  expect(prisma.shopSettings.update).not.toHaveBeenCalled();
+
+  // Second call: row exists → UPDATE
+  vi.mocked(prisma.shopSettings.findFirst).mockResolvedValueOnce(makeRow({ id: "row-id" }));
+  vi.mocked(prisma.shopSettings.update).mockResolvedValueOnce(makeRow({ id: "row-id", shopName: "Second" }));
+  await upsertShopSettings({ shopName: "Second", ... });
+  expect(prisma.shopSettings.create).toHaveBeenCalledOnce(); // still only once
+  expect(prisma.shopSettings.update).toHaveBeenCalledOnce();
+});
+```
+
+Both branches separately tested (CREATE-only test + UPDATE-only test) AND a combined lifecycle test that proves create runs ONCE across both calls. The lifecycle test is what catches a regression where someone "simplifies" the action by always calling `create` regardless of findFirst result.
+
 ## Per-phase reporting
 
 From Phase 2.3 onward, the "Test count delta" line in every phase report
