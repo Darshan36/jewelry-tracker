@@ -81,11 +81,27 @@ export default async function PrintBillPage({ params }: Props) {
   const shopAddress = shopSettings?.address ?? null;
   const shopFooter = shopSettings?.footer ?? null;
 
+  // Filename for PDF download. Slug = lowercase, alphanumeric +
+  // hyphens; falls back to "bill" if customer name is unusable. The
+  // YYYY-MM-DD comes from the sale date in UTC; close enough for an
+  // IST workshop's bill file naming.
+  const customerSlug =
+    (sale.partyName ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "bill";
+  const dateYmd = new Date(sale.date).toISOString().slice(0, 10);
+  const pdfFilename = `bill-${customerSlug}-${dateYmd}`;
+
   return (
     <div className="max-w-[210mm] mx-auto p-8 md:p-12 print:p-0">
-      {/* Toolbar — Print + Save as PDF. Hidden in print output. */}
-      <BillToolbar />
+      {/* Toolbar — Print + Save as PDF. Hidden in print output and
+          excluded from the PDF capture (html2pdf.js targets only
+          #bill-printable below). */}
+      <BillToolbar targetId="bill-printable" filename={pdfFilename} />
 
+      <div id="bill-printable">
       {/* Shop header */}
       <header
         className="text-center pb-6 border-b-2 border-black"
@@ -239,6 +255,7 @@ export default async function PrintBillPage({ params }: Props) {
           {shopFooter}
         </footer>
       )}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,18 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/(app)/settings/actions", () => ({
   getShopSettings: vi.fn(),
 }));
+// html2pdf.js doesn't run cleanly under jsdom (DOM ranges, canvas, etc).
+// Mock it to a noop that returns a chainable Worker stub. The toolbar
+// component's CALL TO html2pdf is what we want to pin in tests, not
+// the library's actual rendering.
+vi.mock("html2pdf.js", () => {
+  const worker = {
+    from: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
+    save: vi.fn().mockResolvedValue(undefined),
+  };
+  return { default: vi.fn(() => worker), __worker: worker };
+});
 
 import { auth as _auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -398,6 +410,95 @@ describe("BillPage — toolbar (Print + Save as PDF, no Back link)", () => {
     expect(backLink).toBeNull();
     // And no text "Back to sales".
     expect(screen.queryByText(/back to sales/i)).toBeNull();
+  });
+
+  it("wraps the bill body in a #bill-printable container (html2pdf target)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce(makeSale() as any);
+
+    const jsx = await BillPage({ params: params("sale-1") });
+    const { container } = render(jsx);
+
+    const printable = container.querySelector("#bill-printable");
+    expect(printable).toBeInTheDocument();
+    // The toolbar must NOT be inside the printable container (so it
+    // doesn't appear in the downloaded PDF).
+    expect(printable?.querySelector('[data-testid="print-button"]')).toBeNull();
+    expect(
+      printable?.querySelector('[data-testid="download-pdf-button"]'),
+    ).toBeNull();
+    // The shop header (and everything else) MUST be inside.
+    expect(
+      printable?.querySelector('[data-testid="bill-shop-header"]'),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("BillPage — Save-as-PDF download handler", () => {
+  beforeEach(() => {
+    vi.mocked(auth).mockResolvedValue(sessionFor("ADMIN"));
+    vi.mocked(getShopSettings).mockResolvedValueOnce(makeShopSettings());
+  });
+
+  it("invokes html2pdf with the bill element and a customer-named filename", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const html2pdfMod = (await import("html2pdf.js")) as any;
+    const html2pdfFn = html2pdfMod.default as ReturnType<typeof vi.fn>;
+    const worker = html2pdfMod.__worker;
+    html2pdfFn.mockClear();
+    worker.from.mockClear();
+    worker.set.mockClear();
+    worker.save.mockClear();
+
+    const sale = makeSale({
+      partyName: "John Customer",
+      date: new Date("2026-05-20T00:00:00Z"),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce(sale as any);
+
+    const userEvent = (await import("@testing-library/user-event")).default;
+    const user = userEvent.setup();
+
+    const jsx = await BillPage({ params: params("sale-1") });
+    render(jsx);
+
+    await user.click(screen.getByTestId("download-pdf-button"));
+
+    expect(html2pdfFn).toHaveBeenCalled();
+    expect(worker.from).toHaveBeenCalled();
+    // The captured element is the #bill-printable wrapper.
+    const fromArg = worker.from.mock.calls[0][0];
+    expect(fromArg).toBeInstanceOf(HTMLElement);
+    expect((fromArg as HTMLElement).id).toBe("bill-printable");
+
+    // The filename uses a slugified customer name + the sale's date.
+    const setArg = worker.set.mock.calls[0][0];
+    expect(setArg.filename).toBe("bill-john-customer-2026-05-20.pdf");
+    expect(worker.save).toHaveBeenCalled();
+  });
+
+  it("filename slug falls back to 'bill' for unusable customer names", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const html2pdfMod = (await import("html2pdf.js")) as any;
+    const worker = html2pdfMod.__worker;
+    worker.set.mockClear();
+
+    const sale = makeSale({
+      partyName: "!!!!", // non-alphanumeric only → empty slug
+      date: new Date("2026-01-15T00:00:00Z"),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce(sale as any);
+
+    const userEvent = (await import("@testing-library/user-event")).default;
+    const user = userEvent.setup();
+    const jsx = await BillPage({ params: params("sale-1") });
+    render(jsx);
+    await user.click(screen.getByTestId("download-pdf-button"));
+
+    const setArg = worker.set.mock.calls[0][0];
+    expect(setArg.filename).toBe("bill-bill-2026-01-15.pdf");
   });
 });
 
