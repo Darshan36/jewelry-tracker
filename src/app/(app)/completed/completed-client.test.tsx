@@ -60,6 +60,18 @@ vi.mock("@/app/(app)/plating/plating-detail-modal", () => ({
       <div data-testid="plating-detail-modal">plating:{entry?.id}</div>
     ) : null,
 }));
+vi.mock("@/components/payment-detail-modal", () => ({
+  PaymentDetailModal: ({
+    open,
+    payment,
+  }: {
+    open: boolean;
+    payment: { id: string } | null;
+  }) =>
+    open ? (
+      <div data-testid="payment-detail-modal">payment:{payment?.id}</div>
+    ) : null,
+}));
 
 import { CompletedClient } from "./completed-client";
 import type { SaleForClient } from "@/app/(app)/sales/sale-helpers";
@@ -339,6 +351,17 @@ describe("CompletedClient — row click opens detail modal", () => {
     fireEvent.click(row);
     expect(screen.getByTestId("plating-detail-modal")).toHaveTextContent(
       "plating:plating-1",
+    );
+  });
+
+  it("opens PaymentDetailModal on payroll row click", async () => {
+    const user = userEvent.setup();
+    renderClient({ payroll: [fakePayment] });
+    await user.click(screen.getByTestId("tab-payroll"));
+    const row = await screen.findByTestId("completed-payroll-row-ep-1");
+    fireEvent.click(row);
+    expect(screen.getByTestId("payment-detail-modal")).toHaveTextContent(
+      "payment:ep-1",
     );
   });
 });

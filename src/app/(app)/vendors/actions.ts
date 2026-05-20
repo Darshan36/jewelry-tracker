@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth-guards";
+import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 
 import { vendorInputSchema, type VendorInput } from "./schema";
@@ -47,13 +48,13 @@ export async function createVendor(input: VendorInput) {
     }
   }
 
-  const vendor = await prisma.party.create({
-    data: {
-      ...parsed.data,
-      isCastingVendor: true,
-      isPlatingVendor: true,
-    },
-  });
+  const partyData = {
+    ...parsed.data,
+    isCastingVendor: true,
+    isPlatingVendor: true,
+  };
+  assertPartyHasRole(partyData);
+  const vendor = await prisma.party.create({ data: partyData });
   revalidatePath("/vendors");
   return { ok: true as const, vendor };
 }

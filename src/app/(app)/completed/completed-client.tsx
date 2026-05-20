@@ -24,6 +24,7 @@ import { SaleDetailModal } from "@/app/(app)/sales/sale-detail-modal";
 import { PurchaseDetailModal } from "@/app/(app)/purchases/purchase-detail-modal";
 import { CastingDetailModal } from "@/app/(app)/casting/casting-detail-modal";
 import { PlatingDetailModal } from "@/app/(app)/plating/plating-detail-modal";
+import { PaymentDetailModal } from "@/components/payment-detail-modal";
 
 import type { SaleForClient } from "@/app/(app)/sales/sale-helpers";
 import type { PurchaseForClient } from "@/app/(app)/purchases/purchase-helpers";
@@ -75,6 +76,7 @@ export function CompletedClient({
   const [viewingPurchaseId, setViewingPurchaseId] = useState<string | null>(null);
   const [viewingCastingId, setViewingCastingId] = useState<string | null>(null);
   const [viewingPlatingId, setViewingPlatingId] = useState<string | null>(null);
+  const [viewingPayrollId, setViewingPayrollId] = useState<string | null>(null);
 
   const viewingSale = viewingSaleId
     ? (sales.find((s) => s.id === viewingSaleId) ?? null)
@@ -87,6 +89,9 @@ export function CompletedClient({
     : null;
   const viewingPlating = viewingPlatingId
     ? (plating.find((p) => p.id === viewingPlatingId) ?? null)
+    : null;
+  const viewingPayroll = viewingPayrollId
+    ? (payroll.find((p) => p.id === viewingPayrollId) ?? null)
     : null;
 
   // Push current filter state to URL. Date changes commit immediately;
@@ -269,7 +274,10 @@ export function CompletedClient({
           {payroll.length === 0 ? (
             <EmptyState label="No employee payments in this period." />
           ) : (
-            <CompletedPayrollTable payments={payroll} />
+            <CompletedPayrollTable
+              payments={payroll}
+              onRowClick={(id) => setViewingPayrollId(id)}
+            />
           )}
         </TabsContent>
       </Tabs>
@@ -296,6 +304,11 @@ export function CompletedClient({
         open={viewingPlating !== null}
         onOpenChange={(open) => !open && setViewingPlatingId(null)}
         entry={viewingPlating}
+      />
+      <PaymentDetailModal
+        open={viewingPayroll !== null}
+        onOpenChange={(open) => !open && setViewingPayrollId(null)}
+        payment={viewingPayroll}
       />
     </div>
   );

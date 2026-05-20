@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth-guards";
+import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 
@@ -91,16 +92,16 @@ async function buildSaleData(
       partyName = existing.name;
       partyPhone = existing.phone;
     } else {
-      const created = await tx.party.create({
-        data: {
-          name: partyName,
-          phone: partyPhone,
-          email: null,
-          address: null,
-          notes: null,
-          isCustomer: true,
-        },
-      });
+      const newPartyData = {
+        name: partyName,
+        phone: partyPhone,
+        email: null,
+        address: null,
+        notes: null,
+        isCustomer: true,
+      };
+      assertPartyHasRole(newPartyData);
+      const created = await tx.party.create({ data: newPartyData });
       partyId = created.id;
       partyName = created.name;
       partyPhone = created.phone;

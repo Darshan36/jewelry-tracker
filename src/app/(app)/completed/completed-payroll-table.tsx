@@ -4,9 +4,9 @@
 //
 // Each row is one EmployeePayment (SALARY or WAGE — both inherently
 // completed events; the discriminator is purely informational on this
-// surface). The row is non-clickable on this iteration — payments
-// don't have a standalone detail modal yet. The employee + period +
-// amount + note are visible inline.
+// surface). Row click opens the lightweight `PaymentDetailModal`
+// (polish session follow-up to Phase 19) with the same already-loaded
+// data rendered in a fuller layout — no server round-trip.
 
 import {
   ResponsiveTable,
@@ -20,9 +20,10 @@ import type { EmployeePaymentForCompleted } from "@/lib/completed-queries";
 
 type Props = {
   payments: EmployeePaymentForCompleted[];
+  onRowClick?: (id: string) => void;
 };
 
-export function CompletedPayrollTable({ payments }: Props) {
+export function CompletedPayrollTable({ payments, onRowClick }: Props) {
   return (
     <ResponsiveTable
       desktopTable={
@@ -43,7 +44,10 @@ export function CompletedPayrollTable({ payments }: Props) {
                 <tr
                   key={p.id}
                   data-testid={`completed-payroll-row-${p.id}`}
-                  className="odd:bg-surface-container-low even:bg-surface-container border-b border-outline-variant last:border-b-0"
+                  onClick={onRowClick ? () => onRowClick(p.id) : undefined}
+                  className={`odd:bg-surface-container-low even:bg-surface-container border-b border-outline-variant last:border-b-0 ${
+                    onRowClick ? "cursor-pointer hover:bg-surface-container-high transition-colors" : ""
+                  }`}
                 >
                   <Td>
                     <span className="text-on-surface-variant tabular-nums">
@@ -88,6 +92,8 @@ export function CompletedPayrollTable({ payments }: Props) {
             <MobileCard
               key={p.id}
               data-testid={`completed-payroll-card-${p.id}`}
+              onClick={onRowClick ? () => onRowClick(p.id) : undefined}
+              clickable={Boolean(onRowClick)}
             >
               <MobileCardHeader>
                 <MobileCardTitle>

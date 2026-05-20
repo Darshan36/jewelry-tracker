@@ -60,6 +60,22 @@ describe("PhotoLightbox — open/close", () => {
     });
   });
 
+  it("renders a visually-hidden DialogTitle for Radix a11y compliance", async () => {
+    const photos = makePhotos(2);
+    render(
+      <PhotoLightbox
+        photos={photos}
+        initialIndex={0}
+        open={true}
+        onClose={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("photo-lightbox"));
+    const title = screen.getByText("Photo viewer");
+    expect(title).toBeInTheDocument();
+    expect(title).toHaveClass("sr-only");
+  });
+
   it("does not render any lightbox content when open=false", () => {
     const photos = makePhotos(2);
     render(

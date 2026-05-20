@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
+  ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import {
   getAttachmentViewUrl,
@@ -99,6 +100,12 @@ export function PhotoLightbox({ photos, initialIndex, open, onClose }: Props) {
           data-photo-id={current.id}
           className="relative w-full flex flex-col"
         >
+          {/* Visually-hidden title satisfies Radix's DialogContent a11y
+              requirement. The visible caption strip below carries the
+              filename for sighted users. */}
+          <ResponsiveDialogTitle className="sr-only">
+            Photo viewer
+          </ResponsiveDialogTitle>
           {/* Image area — fills viewport, lets the image breathe with contain. */}
           <div className="relative bg-surface-container-highest min-h-[60vh] md:min-h-[70vh] flex items-center justify-center overflow-hidden">
             {loading && !currentUrl && (

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth-guards";
+import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 
 import { customerInputSchema, type CustomerInput } from "./schema";
@@ -49,9 +50,9 @@ export async function createCustomer(input: CustomerInput) {
     }
   }
 
-  const customer = await prisma.party.create({
-    data: { ...parsed.data, isCustomer: true },
-  });
+  const partyData = { ...parsed.data, isCustomer: true };
+  assertPartyHasRole(partyData);
+  const customer = await prisma.party.create({ data: partyData });
   revalidatePath("/customers");
   return { ok: true as const, customer };
 }

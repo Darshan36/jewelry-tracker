@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Decimal } from "decimal.js";
 
 import { requireRole } from "@/lib/auth-guards";
+import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 import { computeLineTotal } from "@/lib/weight-helpers";
 import type { Prisma } from "@/generated/prisma";
@@ -84,16 +85,16 @@ async function buildPlatingData(
       partyName = existing.name;
       partyPhone = existing.phone;
     } else {
-      const created = await tx.party.create({
-        data: {
-          name: partyName,
-          phone: partyPhone,
-          email: null,
-          address: null,
-          notes: null,
-          isPlatingVendor: true,
-        },
-      });
+      const newPartyData = {
+        name: partyName,
+        phone: partyPhone,
+        email: null,
+        address: null,
+        notes: null,
+        isPlatingVendor: true,
+      };
+      assertPartyHasRole(newPartyData);
+      const created = await tx.party.create({ data: newPartyData });
       partyId = created.id;
       partyName = created.name;
       partyPhone = created.phone;
