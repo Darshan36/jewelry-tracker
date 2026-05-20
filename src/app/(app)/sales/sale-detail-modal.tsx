@@ -21,7 +21,7 @@
 // adaptation in Phase 11 straightforward.
 
 import Link from "next/link";
-import { Link as LinkIcon } from "lucide-react";
+import { Link as LinkIcon, Printer } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -175,7 +175,22 @@ export function SaleDetailModal({ open, onOpenChange, sale }: Props) {
           )}
         </div>
 
-        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-end">
+        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-between gap-3 flex-wrap">
+          {/* Phase 20: Print bill — opens the printable receipt for
+              this sale in a new tab. Distinct from the row-level
+              "Manage invoice attachment" action (Paperclip), which is
+              about the uploaded invoice document — Printer + the
+              word "Print" carry the distinction. */}
+          <a
+            href={`/sales/${sale.id}/bill`}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`print-bill-modal-${sale.id}`}
+            className="h-9 px-4 border border-outline-variant text-on-surface font-display text-sm font-medium uppercase tracking-wider hover:bg-surface-container-high transition-colors inline-flex items-center gap-2"
+          >
+            <Printer className="size-4" />
+            Print bill
+          </a>
           <Link
             href={`/sales/${sale.id}/edit`}
             onClick={() => onOpenChange(false)}

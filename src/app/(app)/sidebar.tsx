@@ -63,7 +63,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/reports", label: "Reports", icon: BarChart3, enabled: false, allowedRoles: ["ADMIN"] },
   { href: "/users", label: "Users", icon: ShieldCheck, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/admin/bills-test", label: "Bills Test", icon: FileText, enabled: true, allowedRoles: ["ADMIN"] },
-  { href: "/settings", label: "Settings", icon: Settings, enabled: false, allowedRoles: ["ADMIN"] },
+  { href: "/settings", label: "Settings", icon: Settings, enabled: true, allowedRoles: ["ADMIN"] },
 ];
 
 const ROLE_LABEL: Record<Role, string> = {

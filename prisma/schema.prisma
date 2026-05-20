@@ -45,7 +45,26 @@ model User {
   employeePaymentsUpdated EmployeePayment[] @relation("EmployeePaymentUpdatedBy")
   employeePaymentsDeleted EmployeePayment[] @relation("EmployeePaymentDeletedBy")
 
+  shopSettingsUpdated ShopSettings[] @relation("ShopSettingsUpdatedBy")
+
   @@map("users")
+}
+
+// Phase 20 — single-row shop configuration for the printable bill header.
+// Conceptually a singleton — actions enforce one-row semantics via
+// findFirst + upsert. No soft-delete (it's config, not transactional
+// data). `updatedById` records the admin who last edited.
+model ShopSettings {
+  id          String   @id @default(cuid())
+  shopName    String
+  phone       String?
+  address     String?
+  footer      String?
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+  updatedBy   User?    @relation("ShopSettingsUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("shop_settings")
 }
 
 enum AttachmentStatus {

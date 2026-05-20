@@ -24,6 +24,7 @@ import {
   Loader2,
   Paperclip,
   Plus,
+  Printer,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -169,6 +170,7 @@ export function SalesTable({ sales }: Props) {
       enableSorting: false,
       cell: ({ row }) => (
         <QuickActions
+          saleId={row.original.id}
           onPay={() => setPaymentRowId(row.original.id)}
           onBill={() => setBillRowId(row.original.id)}
           onReturn={() => setReturnRowId(row.original.id)}
@@ -447,10 +449,12 @@ function SaleRow({
 }
 
 function QuickActions({
+  saleId,
   onPay,
   onBill,
   onReturn,
 }: {
+  saleId: string;
   onPay: () => void;
   onBill: () => void;
   onReturn: () => void;
@@ -472,12 +476,27 @@ function QuickActions({
       <button
         type="button"
         onClick={onBill}
-        aria-label="Manage bill"
-        title="Manage bill"
+        aria-label="Manage invoice attachment"
+        title="Manage invoice attachment"
         className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
       >
         <Paperclip className="size-4" />
       </button>
+      {/* Phase 20: Print bill — opens a printable receipt in a new
+          tab. Distinct from the Paperclip "Manage invoice attachment"
+          (uploaded invoice document) via icon + label + leading verb. */}
+      <a
+        href={`/sales/${saleId}/bill`}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Print bill"
+        title="Print bill"
+        data-testid={`print-bill-${saleId}`}
+        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+      >
+        <Printer className="size-4" />
+      </a>
       <button
         type="button"
         onClick={onReturn}
@@ -627,27 +646,49 @@ function SaleMobileCard({
       <MobileCardActions>
         <button
           type="button"
-          onClick={onPay}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPay();
+          }}
           aria-label="Add payment"
-          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
         >
           <DollarSign className="size-4" />
           <span>Pay</span>
         </button>
         <button
           type="button"
-          onClick={onBill}
-          aria-label="Manage bill"
-          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            onBill();
+          }}
+          aria-label="Manage invoice attachment"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
         >
           <Paperclip className="size-4" />
-          <span>Attachment</span>
+          <span>Attach</span>
         </button>
+        {/* Phase 20: Print bill — opens printable receipt in a new tab. */}
+        <a
+          href={`/sales/${sale.id}/bill`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Print bill"
+          data-testid={`print-bill-mobile-${sale.id}`}
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+        >
+          <Printer className="size-4" />
+          <span>Print</span>
+        </a>
         <button
           type="button"
-          onClick={onReturn}
+          onClick={(e) => {
+            e.stopPropagation();
+            onReturn();
+          }}
           aria-label="Record return"
-          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
         >
           <Undo2 className="size-4" />
           <span>Return</span>

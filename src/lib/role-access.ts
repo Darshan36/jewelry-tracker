@@ -112,3 +112,16 @@ export function canViewReports(role: Role): boolean {
 export function canManageUsers(role: Role): boolean {
   return role === "ADMIN";
 }
+
+// Phase 20 — Shop settings.
+//
+// `/settings` is ADMIN-only — admins configure the bill header
+// content (shop name, phone, address, footer). Same three-layer
+// pattern. The print bill route `/sales/[id]/bill` inherits the
+// existing `/sales` ADMIN gate via the proxy's prefix match; no
+// new role helper needed for it.
+
+/** Whether a role can manage shop settings (bill header config). */
+export function canManageSettings(role: Role): boolean {
+  return role === "ADMIN";
+}

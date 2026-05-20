@@ -33,6 +33,10 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   "/reports": ["ADMIN"],
   // Phase 16: User management UI — ADMIN-only.
   "/users": ["ADMIN"],
+  // Phase 20: Shop settings (bill header config) — ADMIN-only.
+  // The print bill route `/sales/[id]/bill` is covered by the
+  // existing `/sales` gate above; no separate entry needed.
+  "/settings": ["ADMIN"],
   "/admin": ["ADMIN"],
   "/dashboard": ["ADMIN", "PURCHASE_DEPT", "LABOUR_MGMT", "CASTING_PLATING_MGMT"],
 };
