@@ -27,14 +27,11 @@ import {
   ResponsiveDialogHeader,
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
-import {
-  FormError,
-  FormInput,
-  FormLabel,
-} from "@/components/form-controls";
+import { FormError, FormLabel } from "@/components/form-controls";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 
 import { resetUserPassword } from "./actions";
+import { PasswordField } from "./password-field";
 import { resetPasswordInputSchema } from "./schema";
 import type { UserForClient } from "./types";
 
@@ -139,16 +136,16 @@ export function ResetPasswordModal({ open, onOpenChange, user }: Props) {
             <FormLabel htmlFor="reset-password" required>
               New password
             </FormLabel>
-            <FormInput
+            <PasswordField
               id="reset-password"
-              type="password"
               autoComplete="new-password"
               autoFocus
               aria-invalid={!!errors.password}
               {...register("password")}
             />
             <p className="mt-1 text-xs text-on-surface-variant">
-              Minimum {MIN_PASSWORD_LENGTH} characters.
+              Minimum {MIN_PASSWORD_LENGTH} characters. Click the eye icon to
+              show/hide.
             </p>
             <FormError>{errors.password?.message}</FormError>
           </div>
@@ -157,9 +154,8 @@ export function ResetPasswordModal({ open, onOpenChange, user }: Props) {
             <FormLabel htmlFor="reset-confirm-password" required>
               Confirm new password
             </FormLabel>
-            <FormInput
+            <PasswordField
               id="reset-confirm-password"
-              type="password"
               autoComplete="new-password"
               aria-invalid={!!errors.confirmPassword}
               {...register("confirmPassword")}

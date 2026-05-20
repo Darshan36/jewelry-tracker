@@ -34,6 +34,7 @@ import {
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 
 import { createUser, updateUser } from "./actions";
+import { PasswordField } from "./password-field";
 import {
   createUserInputSchema,
   updateUserInputSchema,
@@ -220,16 +221,16 @@ function CreateForm({ onClose }: { onClose: () => void }) {
         <FormLabel htmlFor="user-password" required>
           Password
         </FormLabel>
-        <FormInput
+        <PasswordField
           id="user-password"
-          type="password"
           autoComplete="new-password"
           aria-invalid={!!errors.password}
           {...register("password")}
         />
         <p className="mt-1 text-xs text-on-surface-variant">
-          Minimum {MIN_PASSWORD_LENGTH} characters. Communicate this to the
-          user directly — they are not notified by email.
+          Minimum {MIN_PASSWORD_LENGTH} characters. Click the eye icon to
+          show/hide. Communicate this to the user directly — they are not
+          notified by email.
         </p>
         <FormError>{errors.password?.message}</FormError>
       </div>
@@ -238,9 +239,8 @@ function CreateForm({ onClose }: { onClose: () => void }) {
         <FormLabel htmlFor="user-confirm-password" required>
           Confirm password
         </FormLabel>
-        <FormInput
+        <PasswordField
           id="user-confirm-password"
-          type="password"
           autoComplete="new-password"
           aria-invalid={!!errors.confirmPassword}
           {...register("confirmPassword")}
