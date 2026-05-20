@@ -403,4 +403,6 @@ Hosted on Vercel; production fed from `main`. Operational reference lives in `do
 
 ## Known gaps and deferred decisions
 
-See [`KNOWN_GAPS.md`](./KNOWN_GAPS.md) at project root for the running list of deferred items, security debt, and decision lineage. Read it before starting a new phase — it flags items that need attention at known milestones (e.g. credential rotation before Phase 2, Prisma+PgBouncer compatibility flag when wiring Prisma).
+See [`KNOWN_GAPS.md`](./KNOWN_GAPS.md) (lean working document) at project root for the running list of deferred items, security debt, and recent decision lineage (Phase 12+). Read it before starting a new phase — it flags items that need attention at known milestones.
+
+Historical decisions (Phase ≤11) and older resolved items live in [`docs/KNOWN_GAPS_ARCHIVE.md`](./docs/KNOWN_GAPS_ARCHIVE.md). The archive is reference-only — consult when historical "why did we decide X" context is needed; NOT auto-loaded at phase start.

@@ -200,7 +200,7 @@ DELETE FROM customers     WHERE name LIKE '%__walkthrough_%';
 
 ## 12. What's still deferred
 
-See `KNOWN_GAPS.md` § Deferred items for the running list. Items added in Phase 4.5 specifically:
+See [`KNOWN_GAPS.md`](../KNOWN_GAPS.md) § Deferred items for the running list (lean working doc). Older / historical items live in [`KNOWN_GAPS_ARCHIVE.md`](./KNOWN_GAPS_ARCHIVE.md) — reference-only. Items added in Phase 4.5 specifically:
 
 - No user-management UI (create staff, change password, forgot password). Direct DB ops only.
 - No app-side backup automation (Supabase backups exist on the free tier; pull periodically).
