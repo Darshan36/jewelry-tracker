@@ -1720,6 +1720,206 @@ test before merging — the bug is silent (correct on Indian dev machine,
 wrong on US CI) and the polish-session SP1 hydration-drift incident is
 the precedent.
 
+## Password-hashing tests (Phase 16)
+
+The bcrypt round-trip is the security contract between `src/lib/password.ts#hashPassword` and the `bcrypt.compare` call in `src/lib/authorize-credentials.ts`. If the algorithm, cost, or library diverges between the two sides, login breaks silently — a user created via the UI can't log in.
+
+**Pin the round-trip with the REAL bcrypt library, no mock**:
+
+```ts
+import bcrypt from "bcryptjs";
+import { hashPassword } from "./password";
+
+it("round-trip — bcrypt.compare verifies the hash against the plaintext", async () => {
+  const plain = "secretRoundTrip$2026";
+  const hash = await hashPassword(plain);
+  expect(await bcrypt.compare(plain, hash)).toBe(true);
+});
+
+it("produces a bcrypt-shaped string ($2a$12$...)", async () => {
+  const hash = await hashPassword("testPassword1");
+  expect(hash).toMatch(/^\$2[aby]\$12\$.{53}$/);
+});
+```
+
+The PHC-format regex `/^\$2[aby]\$12\$.{53}$/` pins THREE invariants at once: bcryptjs (the `$2[aby]` variants are bcryptjs's output set), cost = 12, and the 22-char-salt + 31-char-hash total length. If a future change quietly lowers the cost or switches library, this test catches it before users start getting "wrong password" errors.
+
+**In OTHER tests that exercise password code paths**, mock `hashPassword` so each test doesn't pay the ~250ms hash cost:
+
+```ts
+vi.mock("@/lib/password", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/password")>("@/lib/password");
+  return {
+    ...actual,
+    hashPassword: vi.fn(async (plain: string) => `bcrypt-fake-${plain}`),
+  };
+});
+```
+
+Re-export `actual` so the `MIN_PASSWORD_LENGTH` constant remains real. The fake hash format `bcrypt-fake-<plain>` makes test assertions readable (`expect(callArg.data.passwordHash).toBe("bcrypt-fake-newSecret$1")`).
+
+**Never assert on the plaintext appearing in any post-hash artifact**. The point of hashing is that the plaintext doesn't survive. Tests that check "the hash isn't equal to the plaintext" are vacuous; tests that check "the stored value passes bcrypt.compare with the plaintext" are the meaningful assertion.
+
+## Self-protection guardrail tests (Phase 16)
+
+Three-layer guards (action + UI + test) need three test angles. The action layer is the security boundary — pin REJECTION with explicit assertion, and pin SUCCESS for the non-self path so the guard isn't overzealous.
+
+**Action layer — explicit rejection:**
+
+```ts
+it("G2 — admin cannot change own role away from ADMIN", async () => {
+  vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(
+    makeUser({ id: ADMIN_ID, role: "ADMIN" }),
+  );
+  const result = await updateUser(ADMIN_ID, {
+    name: "Me",
+    email: "admin@example.com",
+    role: "PURCHASE_DEPT",
+  });
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(errs(result).role?.[0]).toMatch(/cannot change your own role/i);
+  }
+  expect(prisma.user.update).not.toHaveBeenCalled();
+});
+```
+
+Three assertions in one test: (1) the result is not OK, (2) the error message is field-keyed correctly (the form modal surfaces it on the matching field), (3) the DB was never touched (defense-in-depth proof — the guard fires before any write).
+
+**Action layer — non-self path still works:**
+
+```ts
+it("G2 — admin updating own name/email but keeping ADMIN role succeeds", async () => {
+  // ... mocks ...
+  const result = await updateUser(ADMIN_ID, {
+    name: "New Name",
+    email: "admin@example.com",
+    role: "ADMIN",  // NOT changing the role
+  });
+  expect(result.ok).toBe(true);
+});
+```
+
+Catches overzealous guards that would reject ALL self-edits, not just self-demotes.
+
+**Count-based guards (G3 / last-admin)** — mock `prisma.user.count` returning 1 vs ≥2 in separate tests, and assert the count query's WHERE clause:
+
+```ts
+it("G3 — demoting the only ACTIVE admin is rejected", async () => {
+  vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(
+    makeUser({ id: "only-admin", role: "ADMIN", deletedAt: null }),
+  );
+  vi.mocked(prisma.user.count).mockResolvedValueOnce(1); // only 1 active admin
+
+  const result = await updateUser("only-admin", { /* ... */ role: "PURCHASE_DEPT" });
+
+  expect(result.ok).toBe(false);
+  expect(prisma.user.count).toHaveBeenCalledWith({
+    where: { role: "ADMIN", deletedAt: null },
+  });
+});
+```
+
+The WHERE-clause assertion pins that the count query targets `deletedAt: null` — a future refactor that drops the active filter would let a deactivated admin satisfy the "≥1 admin" check, defeating G3.
+
+**Skip-path coverage** — a guard that runs an extra query has a cost. Pin that it DOESN'T run when irrelevant:
+
+```ts
+it("G3 — demoting a DEACTIVATED admin doesn't trigger the count check", async () => {
+  vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(
+    makeUser({ id: "dormant", role: "ADMIN", deletedAt: new Date(...) }),
+  );
+  // ... update mock ...
+  await updateUser("dormant", { /* ... */ role: "PURCHASE_DEPT" });
+  expect(prisma.user.count).not.toHaveBeenCalled();
+});
+```
+
+**UI layer — mirror the guard in DOM state:**
+
+```ts
+it("Deactivate button is DISABLED on the current user's row", () => {
+  render(<UsersTable users={mixedUsers()} currentUserId="admin-1" />);
+  const selfDeactivate = screen.getByTestId("deactivate-user-admin-1");
+  expect(selfDeactivate).toBeDisabled();
+  expect(selfDeactivate).toHaveAttribute("title", "You cannot deactivate your own account");
+});
+```
+
+The `title` assertion pins the user-facing explanation — without it, a future refactor that removes the title would silently degrade UX without breaking any test.
+
+**Server-rejection-surfaced-in-UI** — when the action rejects with a field-keyed error, the form modal must show it on the matching field:
+
+```ts
+it("surfaces server-side G2/G3 rejection in the form's role field", async () => {
+  vi.mocked(updateUser).mockResolvedValueOnce({
+    ok: false,
+    errors: { role: ["Cannot demote the only active administrator..."] },
+  });
+  // ... render + interact ...
+  await waitFor(() => {
+    expect(screen.getByText(/only active administrator/i)).toBeInTheDocument();
+  });
+});
+```
+
+This bridges the action-test (server rejection) and the UI-test (server rejection visible to user).
+
+## Discriminated-union error narrowing (Phase 16)
+
+Action results that can fail multiple ways often return `errors` as a discriminated union (`{name?, email?, role?, ...}` from zod | `{id: [...]}` from "not found"). TypeScript can't narrow by accessing a property that doesn't exist on every branch. Two patterns:
+
+**In production code (modals)** — cast to a flat record at the boundary:
+
+```ts
+const flat = result.errors as Record<string, string[] | undefined>;
+const passwordMsg = flat.password?.[0];
+if (passwordMsg) {
+  setError("password", { message: passwordMsg });
+}
+```
+
+**In tests** — use a one-line helper at the top of the file:
+
+```ts
+function errs(r: { errors: unknown }): Record<string, string[] | undefined> {
+  return r.errors as Record<string, string[] | undefined>;
+}
+// then: expect(errs(result).role?.[0]).toMatch(...)
+```
+
+The helper keeps call sites tidy and centralizes the cast (if the action's error shape evolves, only the helper updates).
+
+## Module extraction for unit-test isolation (Phase 16)
+
+When a function lives inside a framework-config file (NextAuth, Next.js middleware, etc.) and needs unit-test coverage, the import chain from that file often blocks the test environment from resolving (e.g., `next-auth` imports `next/server` which Vitest's `jsdom` env can't always resolve).
+
+**Pattern**: hoist the function into its own module that imports only the libraries it actually uses, then re-export from the framework-config file for backward compat. `src/lib/authorize-credentials.ts` is the canonical example: extracted from `src/lib/auth.ts` so `auth.test.ts` can import it without dragging in NextAuth.
+
+The framework-config file becomes a thin wrapper:
+
+```ts
+// src/lib/auth.ts
+import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import { authorizeCredentials } from "@/lib/authorize-credentials";
+
+export { authorizeCredentials } from "@/lib/authorize-credentials";
+
+export const { auth, handlers, signIn, signOut } = NextAuth({
+  // ... config that calls authorizeCredentials ...
+});
+```
+
+The test file imports directly:
+
+```ts
+// src/lib/auth.test.ts
+import { authorizeCredentials } from "./authorize-credentials";
+```
+
+Both work; the test doesn't load `next-auth`.
+
 ## Per-phase reporting
 
 From Phase 2.3 onward, the "Test count delta" line in every phase report

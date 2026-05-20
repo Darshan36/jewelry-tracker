@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canManageLabour,
+  canManageUsers,
   canViewCompleted,
   canViewLabour,
   canViewPayables,
@@ -119,5 +120,16 @@ describe("canViewReports — Phase 19 (placeholder for Phase 15)", () => {
     expect(canViewReports("PURCHASE_DEPT")).toBe(false);
     expect(canViewReports("LABOUR_MGMT")).toBe(false);
     expect(canViewReports("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canManageUsers — Phase 16 (admin-only user management)", () => {
+  it("ADMIN can manage users", () => {
+    expect(canManageUsers("ADMIN")).toBe(true);
+  });
+  it("non-ADMIN roles cannot manage users", () => {
+    expect(canManageUsers("PURCHASE_DEPT")).toBe(false);
+    expect(canManageUsers("LABOUR_MGMT")).toBe(false);
+    expect(canManageUsers("CASTING_PLATING_MGMT")).toBe(false);
   });
 });
