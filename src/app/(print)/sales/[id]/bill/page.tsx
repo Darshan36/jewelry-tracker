@@ -22,7 +22,6 @@
 // still be self-consistent because we render `subtotal` from line
 // items and `total` from the stored field.
 
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
@@ -33,7 +32,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { getShopSettings } from "@/app/(app)/settings/actions";
 import { serializeSale } from "@/app/(app)/sales/sale-helpers";
 
-import { PrintButton } from "./print-button";
+import { BillToolbar } from "./print-button";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -84,16 +83,8 @@ export default async function PrintBillPage({ params }: Props) {
 
   return (
     <div className="max-w-[210mm] mx-auto p-8 md:p-12 print:p-0">
-      {/* Toolbar — hidden in print output */}
-      <div className="print:hidden flex items-center justify-between gap-4 mb-8 pb-4 border-b border-black/20">
-        <Link
-          href={`/sales`}
-          className="text-sm underline underline-offset-2 hover:no-underline"
-        >
-          ← Back to sales
-        </Link>
-        <PrintButton />
-      </div>
+      {/* Toolbar — Print + Save as PDF. Hidden in print output. */}
+      <BillToolbar />
 
       {/* Shop header */}
       <header

@@ -1,28 +1,52 @@
 "use client";
 
-// Phase 20 — print trigger button for the bill page.
+// Phase 20 polish — bill toolbar with Print + Save-as-PDF actions.
 //
-// Lives in its own file so the parent page can stay a server component
-// (which is required to await prisma queries). The button is the only
-// interactive element on the bill — clicking calls window.print() which
-// opens the browser's print dialog. Users can pick paper or save-as-PDF
-// from there.
+// Both buttons call `window.print()` — the browser's native print
+// dialog offers "Save as PDF" as a destination, so the same flow
+// handles both paper and PDF output. Two visible buttons set the
+// user's intent expectation:
+//   - "Print"        → pick a printer in the dialog
+//   - "Save as PDF"  → pick "Save as PDF" in the destination dropdown
 //
-// Hidden in the printed output via the `print:hidden` Tailwind variant
-// so the page is a clean invoice when actually printed.
+// Why not generate the PDF client-side with a library (jspdf etc.)?
+// See KNOWN_GAPS — server-generated PDFs are deferred because the
+// current workflow (admin hands the customer a paper or PDF copy)
+// is well-served by the browser's native dialog. Adding 100–200 KB
+// of PDF-rendering JS for a 1-click-difference UX isn't worth it.
+//
+// Hidden in the printed output via the `print:hidden` Tailwind
+// variant so the toolbar doesn't appear on paper/PDF.
 
-import { Printer } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 
-export function PrintButton() {
+export function BillToolbar() {
+  const triggerPrint = () => window.print();
   return (
-    <button
-      type="button"
-      onClick={() => window.print()}
-      className="print:hidden inline-flex items-center gap-2 h-10 px-4 border border-black text-sm font-semibold hover:bg-black hover:text-white transition-colors"
-      data-testid="print-button"
-    >
-      <Printer className="size-4" />
-      Print
-    </button>
+    <div className="print:hidden flex items-center justify-end gap-2 mb-8 pb-4 border-b border-black/20">
+      <button
+        type="button"
+        onClick={triggerPrint}
+        className="inline-flex items-center gap-2 h-10 px-4 border border-black text-sm font-semibold hover:bg-black hover:text-white transition-colors"
+        data-testid="print-button"
+      >
+        <Printer className="size-4" />
+        Print
+      </button>
+      <button
+        type="button"
+        onClick={triggerPrint}
+        title="Opens the print dialog. Choose 'Save as PDF' as the destination."
+        className="inline-flex items-center gap-2 h-10 px-4 border border-black text-sm font-semibold hover:bg-black hover:text-white transition-colors"
+        data-testid="download-pdf-button"
+      >
+        <Download className="size-4" />
+        Save as PDF
+      </button>
+    </div>
   );
 }
+
+// Preserved for backward compat with any test/import that references
+// the old name. Deprecated; use BillToolbar.
+export const PrintButton = BillToolbar;

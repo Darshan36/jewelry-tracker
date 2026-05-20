@@ -369,6 +369,38 @@ describe("BillPage — money math", () => {
 // Render — locked-decision exclusions
 // =====================================================================
 
+describe("BillPage — toolbar (Print + Save as PDF, no Back link)", () => {
+  beforeEach(() => {
+    vi.mocked(auth).mockResolvedValue(sessionFor("ADMIN"));
+    vi.mocked(getShopSettings).mockResolvedValueOnce(makeShopSettings());
+  });
+
+  it("renders BOTH a Print button and a Save-as-PDF button", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce(makeSale() as any);
+
+    const jsx = await BillPage({ params: params("sale-1") });
+    render(jsx);
+
+    expect(screen.getByTestId("print-button")).toBeInTheDocument();
+    expect(screen.getByTestId("download-pdf-button")).toBeInTheDocument();
+  });
+
+  it("does NOT render the '← Back to sales' link in the toolbar", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce(makeSale() as any);
+
+    const jsx = await BillPage({ params: params("sale-1") });
+    const { container } = render(jsx);
+
+    // No link element pointing back to /sales (the toolbar dropped it).
+    const backLink = container.querySelector('a[href="/sales"]');
+    expect(backLink).toBeNull();
+    // And no text "Back to sales".
+    expect(screen.queryByText(/back to sales/i)).toBeNull();
+  });
+});
+
 describe("BillPage — locked-decision exclusions", () => {
   beforeEach(() => {
     vi.mocked(auth).mockResolvedValue(sessionFor("ADMIN"));
