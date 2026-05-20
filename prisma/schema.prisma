@@ -18,13 +18,20 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   name         String
   role         Role
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // Phase 16: soft-delete (= deactivation) matching the app-wide
+  // convention. `deletedAt IS NOT NULL` means the user is deactivated:
+  // can't log in (auth/authorize rejects), still queryable via listUsers
+  // so they appear in the management UI with an "Inactive" chip, and
+  // their audit-trail FKs (createdById/updatedById/deletedById on every
+  // entity) stay intact.
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   uploadedAttachments Attachment[]
   partiesCreated      Party[]      @relation("PartyCreatedBy")

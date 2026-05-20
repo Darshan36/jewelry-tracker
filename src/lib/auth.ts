@@ -31,6 +31,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           const user = await prisma.user.findUnique({ where: { email } });
           if (!user) return null;
 
+          // Phase 16: deactivated users (deletedAt set) are rejected
+          // even on a correct password match. The check runs BEFORE
+          // bcrypt.compare to avoid leaking activation status via
+          // timing, but the bcrypt timing dominates either way so
+          // ordering is purely about defensive layering.
+          if (user.deletedAt !== null) return null;
+
           const ok = await bcrypt.compare(password, user.passwordHash);
           if (!ok) return null;
 

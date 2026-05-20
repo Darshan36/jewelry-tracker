@@ -99,3 +99,16 @@ export function canViewCompleted(role: Role): boolean {
 export function canViewReports(role: Role): boolean {
   return role === "ADMIN";
 }
+
+// Phase 16 — User management UI.
+//
+// `/users` is ADMIN-only — only admins can list, create, edit, reset
+// passwords for, or deactivate other users. The page server-component
+// uses this for the redirect; the proxy gates the URL; every server
+// action calls `requireRole(['ADMIN'])`. Three-layer defense matches
+// the /completed and /receivables pattern.
+
+/** Whether a role can manage users (list, create, edit, deactivate). */
+export function canManageUsers(role: Role): boolean {
+  return role === "ADMIN";
+}

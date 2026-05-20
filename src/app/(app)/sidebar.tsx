@@ -61,7 +61,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/receivables", label: "Receivables", icon: ArrowDownToLine, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/completed", label: "Completed", icon: CheckCircle2, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/reports", label: "Reports", icon: BarChart3, enabled: false, allowedRoles: ["ADMIN"] },
-  { href: "/users", label: "Users", icon: ShieldCheck, enabled: false, allowedRoles: ["ADMIN"] },
+  { href: "/users", label: "Users", icon: ShieldCheck, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/admin/bills-test", label: "Bills Test", icon: FileText, enabled: true, allowedRoles: ["ADMIN"] },
   { href: "/settings", label: "Settings", icon: Settings, enabled: false, allowedRoles: ["ADMIN"] },
 ];

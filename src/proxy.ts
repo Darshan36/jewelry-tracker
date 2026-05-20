@@ -31,6 +31,8 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   // /reports is preemptively gated for Phase 15 (still a sidebar placeholder).
   "/completed": ["ADMIN"],
   "/reports": ["ADMIN"],
+  // Phase 16: User management UI — ADMIN-only.
+  "/users": ["ADMIN"],
   "/admin": ["ADMIN"],
   "/dashboard": ["ADMIN", "PURCHASE_DEPT", "LABOUR_MGMT", "CASTING_PLATING_MGMT"],
 };
