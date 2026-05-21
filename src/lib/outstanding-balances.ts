@@ -102,6 +102,40 @@ export type SaleWithOutstanding = Sale & {
   hasAttachment: boolean;
 };
 
+// Walk-in rows — transactions with partyId IS NULL. These do not roll
+// up under any Party row (listPayables / listReceivables iterate the
+// Party table), so they need their own surfaced list. Each row is a
+// single transaction; "Pay" on a walk-in opens the per-entity
+// PaymentActionModal (no bulk allocation — there is no party to
+// allocate across).
+//
+// `kind` lets the table render entity-specific chips (Casting /
+// Plating / Purchase / Sale) and dispatch the Pay button to the right
+// `create*Payment` server action.
+export type WalkInPayable = {
+  kind: "PURCHASE" | "CASTING" | "PLATING";
+  id: string;
+  partyName: string;
+  partyPhone: string | null;
+  date: Date;
+  total: number; // paise as Number
+  paidAmount: number; // net paise (PAYMENT − REFUND)
+  outstanding: number; // paise, clamped non-negative
+  hasAttachment: boolean;
+};
+
+export type WalkInReceivable = {
+  kind: "SALE";
+  id: string;
+  partyName: string;
+  partyPhone: string | null;
+  date: Date;
+  total: number;
+  paidAmount: number;
+  outstanding: number;
+  hasAttachment: boolean;
+};
+
 // --- Aggregators -----------------------------------------------------
 
 /**
@@ -534,4 +568,218 @@ function stripChildRelations<T extends object>(row: T): T {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { payments, returns, attachment, ...rest } = r;
   return rest as T;
+}
+
+// --- Walk-in aggregators --------------------------------------------
+//
+// These cover the gap where a transaction is created as a walk-in
+// (no phone → no Party FK is set, the row carries only a partyName/
+// partyPhone snapshot). Party-rollup aggregators above iterate the
+// Party table and never see these rows. Surfacing them here lets
+// /payables, /receivables, and the dashboard payables/receivables
+// cards include EVERY outstanding rupee, regardless of whether the
+// counterparty has a master Party record.
+
+function netPaid(payments: PaymentLike[]): bigint {
+  return payments
+    .filter((p) => p.deletedAt === null)
+    .reduce(
+      (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
+      0n,
+    );
+}
+
+function returnTotalOf(returns: ReturnLike[]): bigint {
+  return returns
+    .filter((r) => r.deletedAt === null)
+    .reduce((sum, r) => sum + r.refundAmount, 0n);
+}
+
+/**
+ * List walk-in payables (purchases, casting entries, plating entries
+ * with `partyId IS NULL`) that still have an outstanding balance.
+ *
+ * Scope mirrors `listPayables`:
+ *   - "purchase" → walk-in purchases only.
+ *   - "casting_plating" → walk-in casting + plating.
+ *   - "all" → all three.
+ *
+ * Sorted by outstanding amount, descending.
+ */
+export async function listWalkInPayables(
+  scope: PayableScope,
+): Promise<WalkInPayable[]> {
+  const includePurchase = scope === "purchase" || scope === "all";
+  const includeCasting = scope === "casting_plating" || scope === "all";
+  const includePlating = scope === "casting_plating" || scope === "all";
+
+  const [purchases, castingEntries, platingEntries] = await Promise.all([
+    includePurchase
+      ? prisma.purchase.findMany({
+          where: { deletedAt: null, partyId: null },
+          include: {
+            payments: { where: { deletedAt: null } },
+            returns: { where: { deletedAt: null } },
+          },
+          orderBy: { date: "desc" },
+        })
+      : Promise.resolve([]),
+    includeCasting
+      ? prisma.castingEntry.findMany({
+          where: { deletedAt: null, partyId: null },
+          include: {
+            payments: { where: { deletedAt: null } },
+            attachment: true,
+          },
+          orderBy: { date: "desc" },
+        })
+      : Promise.resolve([]),
+    includePlating
+      ? prisma.platingEntry.findMany({
+          where: { deletedAt: null, partyId: null },
+          include: {
+            payments: { where: { deletedAt: null } },
+            attachment: true,
+          },
+          orderBy: { date: "desc" },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  // Bulk attachment lookup for purchases — discriminator pattern (no FK
+  // column on Purchase). Single round-trip vs. N+1.
+  let purchaseAttachmentSet = new Set<string>();
+  if (purchases.length > 0) {
+    const attachments = await prisma.attachment.findMany({
+      where: {
+        attachedToType: "PURCHASE",
+        attachedToId: { in: purchases.map((p) => p.id) },
+        status: "READY",
+        deletedAt: null,
+      },
+      select: { attachedToId: true },
+    });
+    purchaseAttachmentSet = new Set(
+      attachments
+        .map((a) => a.attachedToId)
+        .filter((id): id is string => id !== null),
+    );
+  }
+
+  const rows: WalkInPayable[] = [];
+
+  for (const p of purchases) {
+    const outstanding = computeOutstanding({
+      total: p.total,
+      payments: p.payments,
+      returns: p.returns,
+    });
+    if (outstanding <= 0n) continue;
+    rows.push({
+      kind: "PURCHASE",
+      id: p.id,
+      partyName: p.partyName,
+      partyPhone: p.partyPhone ?? null,
+      date: p.date,
+      total: Number(p.total - returnTotalOf(p.returns)),
+      paidAmount: Number(netPaid(p.payments)),
+      outstanding: Number(outstanding),
+      hasAttachment: purchaseAttachmentSet.has(p.id),
+    });
+  }
+
+  for (const e of castingEntries) {
+    const outstanding = computeOutstanding({
+      total: e.total,
+      payments: e.payments,
+    });
+    if (outstanding <= 0n) continue;
+    rows.push({
+      kind: "CASTING",
+      id: e.id,
+      partyName: e.partyName,
+      partyPhone: e.partyPhone ?? null,
+      date: e.date,
+      total: Number(e.total),
+      paidAmount: Number(netPaid(e.payments)),
+      outstanding: Number(outstanding),
+      hasAttachment: e.attachment !== null && e.attachment.status === "READY",
+    });
+  }
+
+  for (const e of platingEntries) {
+    const outstanding = computeOutstanding({
+      total: e.total,
+      payments: e.payments,
+    });
+    if (outstanding <= 0n) continue;
+    rows.push({
+      kind: "PLATING",
+      id: e.id,
+      partyName: e.partyName,
+      partyPhone: e.partyPhone ?? null,
+      date: e.date,
+      total: Number(e.total),
+      paidAmount: Number(netPaid(e.payments)),
+      outstanding: Number(outstanding),
+      hasAttachment: e.attachment !== null && e.attachment.status === "READY",
+    });
+  }
+
+  rows.sort((a, b) => b.outstanding - a.outstanding);
+  return rows;
+}
+
+/** List walk-in receivables — sales with `partyId IS NULL` and outstanding > 0. */
+export async function listWalkInReceivables(): Promise<WalkInReceivable[]> {
+  const sales = await prisma.sale.findMany({
+    where: { deletedAt: null, partyId: null },
+    include: {
+      payments: { where: { deletedAt: null } },
+      returns: { where: { deletedAt: null } },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  let saleAttachmentSet = new Set<string>();
+  if (sales.length > 0) {
+    const attachments = await prisma.attachment.findMany({
+      where: {
+        attachedToType: "SALE",
+        attachedToId: { in: sales.map((s) => s.id) },
+        status: "READY",
+        deletedAt: null,
+      },
+      select: { attachedToId: true },
+    });
+    saleAttachmentSet = new Set(
+      attachments
+        .map((a) => a.attachedToId)
+        .filter((id): id is string => id !== null),
+    );
+  }
+
+  const rows: WalkInReceivable[] = [];
+  for (const s of sales) {
+    const outstanding = computeOutstanding({
+      total: s.total,
+      payments: s.payments,
+      returns: s.returns,
+    });
+    if (outstanding <= 0n) continue;
+    rows.push({
+      kind: "SALE",
+      id: s.id,
+      partyName: s.partyName,
+      partyPhone: s.partyPhone ?? null,
+      date: s.date,
+      total: Number(s.total - returnTotalOf(s.returns)),
+      paidAmount: Number(netPaid(s.payments)),
+      outstanding: Number(outstanding),
+      hasAttachment: saleAttachmentSet.has(s.id),
+    });
+  }
+
+  rows.sort((a, b) => b.outstanding - a.outstanding);
+  return rows;
 }

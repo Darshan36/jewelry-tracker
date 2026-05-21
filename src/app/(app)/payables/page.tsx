@@ -5,15 +5,27 @@ import {
   canViewPayables,
   effectivePayableScope,
 } from "@/lib/role-access";
-import { listPayables } from "@/lib/outstanding-balances";
+import {
+  listPayables,
+  listWalkInPayables,
+} from "@/lib/outstanding-balances";
 
 import { PayablesTable } from "./payables-table";
 
-// /payables — role-scoped list of parties with outstanding payables.
+// /payables — role-scoped list of outstanding payables.
 // ADMIN sees all (purchase + casting + plating combined).
 // PURCHASE_DEPT sees only purchase payables.
 // CASTING_PLATING_MGMT sees only casting + plating payables.
 // LABOUR_MGMT is redirected to /dashboard (no access at any scope).
+//
+// Two row sources are merged into the page:
+//   1. Party rollups (listPayables) — one row per master Party,
+//      aggregated across all their in-scope outstanding transactions.
+//      "Pay" opens the PartyPaymentModal for bulk allocation.
+//   2. Walk-in rows (listWalkInPayables) — one row per transaction
+//      whose `partyId IS NULL` (typically created from a /new form
+//      with no phone). Each row is a single transaction; "Pay" opens
+//      the per-entity PaymentActionModal (no party to allocate across).
 
 export default async function PayablesPage() {
   const session = await auth();
@@ -24,7 +36,12 @@ export default async function PayablesPage() {
     redirect("/dashboard");
   }
 
-  const rollups = await listPayables(scope);
+  const [rollups, walkIns] = await Promise.all([
+    listPayables(scope),
+    listWalkInPayables(scope),
+  ]);
+
+  const totalRows = rollups.length + walkIns.length;
 
   return (
     <div className="p-4 md:p-10">
@@ -33,11 +50,17 @@ export default async function PayablesPage() {
           Payables
         </h1>
         <p className="text-on-surface-variant text-xs uppercase tracking-widest">
-          {rollups.length} {rollups.length === 1 ? "party" : "parties"} with outstanding balances
+          {totalRows}{" "}
+          {totalRows === 1 ? "outstanding payable" : "outstanding payables"}
+          {walkIns.length > 0 && (
+            <>
+              {" "}· {walkIns.length} walk-in{walkIns.length === 1 ? "" : "s"}
+            </>
+          )}
         </p>
       </header>
 
-      <PayablesTable rollups={rollups} scope={scope} />
+      <PayablesTable rollups={rollups} walkIns={walkIns} scope={scope} />
     </div>
   );
 }
