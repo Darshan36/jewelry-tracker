@@ -97,7 +97,7 @@ export default async function PrintBillPage({ params }: Props) {
   return (
     <div className="max-w-[210mm] mx-auto p-8 md:p-12 print:p-0">
       {/* Toolbar — Print + Save as PDF. Hidden in print output and
-          excluded from the PDF capture (html2pdf.js targets only
+          excluded from the PDF capture (html2canvas-pro targets only
           #bill-printable below). */}
       <BillToolbar targetId="bill-printable" filename={pdfFilename} />
 

@@ -4,11 +4,24 @@
 //
 // Two actions:
 //   - Print           → window.print()  (browser dialog → paper)
-//   - Save as PDF     → html2pdf().from(targetElement).save(filename)
-//                       generates a real PDF and triggers a true file
-//                       download. No dialog. The DOM is rasterized via
-//                       html2canvas under the hood, so the visual
-//                       layout matches what's on screen exactly.
+//   - Save as PDF     → html2canvas-pro rasterizes the bill body to
+//                       a canvas, jsPDF wraps it as an A4 PDF and
+//                       triggers a true file download. No dialog.
+//                       The visual layout matches what's on screen.
+//
+// We use html2canvas-pro (NOT plain html2canvas) because Tailwind v4
+// emits `color-mix(in oklab, …)` in computed styles — both directly
+// (e.g. the universal `* { outline-color: color-mix(in oklab, …) }`
+// rule in globals.css) and indirectly (any `color/opacity` slash
+// class). The original html2canvas v1.x parses computed colors
+// manually and throws "Attempting to parse an unsupported color
+// function 'oklab'" the moment it walks one of those values.
+// html2canvas-pro adds oklab/oklch parsing, so the entire class of
+// "modern color function" failures is gone.
+//
+// jsPDF is invoked directly rather than via the html2pdf.js wrapper
+// because that wrapper bundles a fixed (broken) html2canvas v1.x
+// internally — we can't swap it out.
 //
 // The "Save as PDF" path captures only the element matching
 // `targetId` (the bill body — shop header + items + totals + notes +
@@ -17,20 +30,17 @@
 //
 // Trade-offs vs. server-generated PDF (puppeteer/chromium): client
 // generation is simpler (no infra), produces a raster PDF (text is
-// not searchable/selectable but the visual fidelity is identical),
-// and adds ~150 KB to the bill route's bundle. Server-side
-// generation remains the upgrade path if searchable text or
-// programmatic batch-export ever matters — see KNOWN_GAPS.
+// not searchable/selectable but the visual fidelity is identical).
+// Server-side generation remains the upgrade path if searchable
+// text or programmatic batch-export ever matters — see KNOWN_GAPS.
 
 import { useState } from "react";
 import { Download, Loader2, Printer } from "lucide-react";
 
-// html2pdf.js is imported lazily inside the click handler. Its UMD
-// wrapper references `self` at module-eval time, which is undefined
-// in Node — a top-level import crashes Next.js's SSR pass on this
-// client component (`ReferenceError: self is not defined`) and the
-// route fails to render. Dynamic import defers evaluation to the
-// browser, where `self` is defined.
+// html2canvas-pro and jspdf are imported lazily inside the click
+// handler so they only load in the browser. Both are heavy bundles
+// (~200 KB combined) and there is no reason to ship them on the
+// initial route payload.
 
 type Props = {
   /** DOM id of the element to capture into the PDF. */
@@ -56,48 +66,82 @@ export function BillToolbar({ targetId, filename }: Props) {
     }
     setGenerating(true);
     try {
-      const { default: html2pdf } = await import("html2pdf.js");
-      await html2pdf()
-        .from(el)
-        .set({
-          // Margins match the @page rule in (print)/layout.tsx so
-          // print and PDF outputs visually align.
-          margin: [14, 14, 14, 14],
-          filename: `${filename}.pdf`,
-          image: { type: "jpeg", quality: 0.98 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: "#ffffff",
-            logging: false,
-            // Tailwind v4 emits `color-mix(in oklab, …)` for the
-            // universal `outline-color` rule in globals.css and for
-            // any `color/opacity` slash class. The bundled
-            // html2canvas v1.x does not understand oklab/oklch and
-            // throws "Attempting to parse an unsupported color
-            // function 'oklab'". Inject a style into the clone that
-            // forces outline-color to a plain rgb value and disables
-            // color-mix on the captured subtree. Non-layered rules
-            // beat the @layer base rules in globals.css without
-            // needing !important.
-            onclone: (clonedDoc: Document) => {
-              const style = clonedDoc.createElement("style");
-              style.textContent = `
-                * { outline-color: transparent !important; }
-              `;
-              clonedDoc.head.appendChild(style);
-            },
-          },
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        })
-        .save();
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import("html2canvas-pro"),
+        import("jspdf"),
+      ]);
+
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+
+      // A4 portrait = 210mm × 297mm. Margins match the @page rule
+      // in (print)/layout.tsx (14mm all sides) so print and PDF
+      // outputs visually align.
+      const pdf = new jsPDF({
+        unit: "mm",
+        format: "a4",
+        orientation: "portrait",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 14;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2;
+      const imgHeight = (canvas.height * contentWidth) / canvas.width;
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+
+      if (imgHeight <= contentHeight) {
+        // Single page — common case for short receipts.
+        pdf.addImage(
+          imgData,
+          "JPEG",
+          margin,
+          margin,
+          contentWidth,
+          imgHeight,
+        );
+      } else {
+        // Multi-page — draw the same full-height image but offset
+        // upward each page; jsPDF clips to the page bounds so each
+        // page renders the correct vertical slice.
+        let heightLeft = imgHeight;
+        let yPos = margin;
+        pdf.addImage(
+          imgData,
+          "JPEG",
+          margin,
+          yPos,
+          contentWidth,
+          imgHeight,
+        );
+        heightLeft -= contentHeight;
+        while (heightLeft > 0) {
+          yPos = margin - (imgHeight - heightLeft);
+          pdf.addPage();
+          pdf.addImage(
+            imgData,
+            "JPEG",
+            margin,
+            yPos,
+            contentWidth,
+            imgHeight,
+          );
+          heightLeft -= contentHeight;
+        }
+      }
+
+      pdf.save(`${filename}.pdf`);
     } finally {
       setGenerating(false);
     }
   };
 
   return (
-    <div className="print:hidden flex items-center justify-end gap-2 mb-8 pb-4 border-b border-black/20">
+    <div className="print:hidden flex items-center justify-end gap-2 mb-8 pb-4 border-b border-[#00000033]">
       <button
         type="button"
         onClick={triggerPrint}

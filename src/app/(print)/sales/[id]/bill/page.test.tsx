@@ -16,17 +16,34 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/(app)/settings/actions", () => ({
   getShopSettings: vi.fn(),
 }));
-// html2pdf.js doesn't run cleanly under jsdom (DOM ranges, canvas, etc).
-// Mock it to a noop that returns a chainable Worker stub. The toolbar
-// component's CALL TO html2pdf is what we want to pin in tests, not
-// the library's actual rendering.
-vi.mock("html2pdf.js", () => {
-  const worker = {
-    from: vi.fn().mockReturnThis(),
-    set: vi.fn().mockReturnThis(),
-    save: vi.fn().mockResolvedValue(undefined),
+// html2canvas-pro and jspdf don't run cleanly under jsdom (canvas
+// APIs, DOM ranges). Mock both to noop stubs that surface the call
+// shape the toolbar drives.
+vi.mock("html2canvas-pro", () => {
+  const fakeCanvas = {
+    toDataURL: vi.fn(() => "data:image/jpeg;base64,fake"),
+    width: 800,
+    height: 1000,
   };
-  return { default: vi.fn(() => worker), __worker: worker };
+  return {
+    default: vi.fn(async () => fakeCanvas),
+    __canvas: fakeCanvas,
+  };
+});
+vi.mock("jspdf", () => {
+  const pdf = {
+    addImage: vi.fn(),
+    addPage: vi.fn(),
+    save: vi.fn(),
+    internal: {
+      pageSize: { getWidth: () => 210, getHeight: () => 297 },
+    },
+  };
+  // Use a constructable function so `new jsPDF(...)` works.
+  const jsPDF = vi.fn(function (this: unknown) {
+    return pdf;
+  });
+  return { jsPDF, __pdf: pdf };
 });
 
 import { auth as _auth } from "@/lib/auth";
@@ -440,15 +457,18 @@ describe("BillPage — Save-as-PDF download handler", () => {
     vi.mocked(getShopSettings).mockResolvedValueOnce(makeShopSettings());
   });
 
-  it("invokes html2pdf with the bill element and a customer-named filename", async () => {
+  it("invokes html2canvas-pro with the bill element and saves a customer-named PDF", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const html2pdfMod = (await import("html2pdf.js")) as any;
-    const html2pdfFn = html2pdfMod.default as ReturnType<typeof vi.fn>;
-    const worker = html2pdfMod.__worker;
-    html2pdfFn.mockClear();
-    worker.from.mockClear();
-    worker.set.mockClear();
-    worker.save.mockClear();
+    const h2cMod = (await import("html2canvas-pro")) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jsMod = (await import("jspdf")) as any;
+    const h2cFn = h2cMod.default as ReturnType<typeof vi.fn>;
+    const jsPDFFn = jsMod.jsPDF as ReturnType<typeof vi.fn>;
+    const pdf = jsMod.__pdf;
+    h2cFn.mockClear();
+    jsPDFFn.mockClear();
+    pdf.addImage.mockClear();
+    pdf.save.mockClear();
 
     const sale = makeSale({
       partyName: "John Customer",
@@ -465,24 +485,37 @@ describe("BillPage — Save-as-PDF download handler", () => {
 
     await user.click(screen.getByTestId("download-pdf-button"));
 
-    expect(html2pdfFn).toHaveBeenCalled();
-    expect(worker.from).toHaveBeenCalled();
-    // The captured element is the #bill-printable wrapper.
-    const fromArg = worker.from.mock.calls[0][0];
-    expect(fromArg).toBeInstanceOf(HTMLElement);
-    expect((fromArg as HTMLElement).id).toBe("bill-printable");
+    // Captures the #bill-printable element.
+    expect(h2cFn).toHaveBeenCalled();
+    const captured = h2cFn.mock.calls[0][0];
+    expect(captured).toBeInstanceOf(HTMLElement);
+    expect((captured as HTMLElement).id).toBe("bill-printable");
 
-    // The filename uses a slugified customer name + the sale's date.
-    const setArg = worker.set.mock.calls[0][0];
-    expect(setArg.filename).toBe("bill-john-customer-2026-05-20.pdf");
-    expect(worker.save).toHaveBeenCalled();
+    // Builds an A4 portrait PDF and writes a single image at the
+    // configured 14mm margins (short-receipt case — fits one page).
+    expect(jsPDFFn).toHaveBeenCalledWith({
+      unit: "mm",
+      format: "a4",
+      orientation: "portrait",
+    });
+    expect(pdf.addImage).toHaveBeenCalledTimes(1);
+    const addArgs = pdf.addImage.mock.calls[0];
+    expect(addArgs[0]).toBe("data:image/jpeg;base64,fake");
+    expect(addArgs[1]).toBe("JPEG");
+    expect(addArgs[2]).toBe(14); // x = left margin
+    expect(addArgs[3]).toBe(14); // y = top margin
+
+    // Filename uses a slugified customer name + the sale's date.
+    expect(pdf.save).toHaveBeenCalledWith(
+      "bill-john-customer-2026-05-20.pdf",
+    );
   });
 
   it("filename slug falls back to 'bill' for unusable customer names", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const html2pdfMod = (await import("html2pdf.js")) as any;
-    const worker = html2pdfMod.__worker;
-    worker.set.mockClear();
+    const jsMod = (await import("jspdf")) as any;
+    const pdf = jsMod.__pdf;
+    pdf.save.mockClear();
 
     const sale = makeSale({
       partyName: "!!!!", // non-alphanumeric only → empty slug
@@ -497,8 +530,7 @@ describe("BillPage — Save-as-PDF download handler", () => {
     render(jsx);
     await user.click(screen.getByTestId("download-pdf-button"));
 
-    const setArg = worker.set.mock.calls[0][0];
-    expect(setArg.filename).toBe("bill-bill-2026-01-15.pdf");
+    expect(pdf.save).toHaveBeenCalledWith("bill-bill-2026-01-15.pdf");
   });
 });
 
