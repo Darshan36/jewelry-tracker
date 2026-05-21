@@ -6,6 +6,7 @@ import { Decimal } from "decimal.js";
 import { requireRole } from "@/lib/auth-guards";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
+import { revalidatePlatingViews } from "@/lib/revalidate-transaction-views";
 import { computeLineTotal } from "@/lib/weight-helpers";
 import type { Prisma } from "@/generated/prisma";
 
@@ -187,7 +188,7 @@ export async function createPlatingEntry(input: PlatingEntryInput) {
 
   if (!result.ok) return { ok: false as const, errors: result.errors };
 
-  revalidatePath("/plating");
+  revalidatePlatingViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/vendors");
   return { ok: true as const, entry: serializePlatingEntry(result.entry) };
 }
@@ -233,7 +234,7 @@ export async function updatePlatingEntry(id: string, input: PlatingEntryInput) {
 
   if (!result.ok) return { ok: false as const, errors: result.errors };
 
-  revalidatePath("/plating");
+  revalidatePlatingViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/vendors");
   return { ok: true as const, entry: serializePlatingEntry(result.entry) };
 }
@@ -245,7 +246,7 @@ export async function softDeletePlatingEntry(id: string) {
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/plating");
+  revalidatePlatingViews();
   return { ok: true as const };
 }
 
@@ -256,7 +257,7 @@ export async function attachAttachmentToPlatingEntry(entryId: string, attachment
     where: { id: entryId, deletedAt: null },
     data: { attachmentId },
   });
-  revalidatePath("/plating");
+  revalidatePlatingViews();
   return { ok: true as const };
 }
 
@@ -267,6 +268,6 @@ export async function detachAttachmentFromPlatingEntry(entryId: string) {
     where: { id: entryId, deletedAt: null },
     data: { attachmentId: null },
   });
-  revalidatePath("/plating");
+  revalidatePlatingViews();
   return { ok: true as const };
 }

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth-guards";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
+import { revalidateSaleViews } from "@/lib/revalidate-transaction-views";
 import type { Prisma } from "@/generated/prisma";
 
 import { saleInputSchema, type SaleInput } from "./schema";
@@ -179,7 +180,7 @@ export async function createSale(input: SaleInput) {
     return { ok: false as const, errors: result.errors };
   }
 
-  revalidatePath("/sales");
+  revalidateSaleViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/customers");
   return { ok: true as const, sale: serializeSale(result.sale) };
 }
@@ -222,7 +223,7 @@ export async function updateSale(id: string, input: SaleInput) {
     return { ok: false as const, errors: result.errors };
   }
 
-  revalidatePath("/sales");
+  revalidateSaleViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/customers");
   return { ok: true as const, sale: serializeSale(result.sale) };
 }
@@ -234,6 +235,6 @@ export async function softDeleteSale(id: string) {
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/sales");
+  revalidateSaleViews();
   return { ok: true as const };
 }

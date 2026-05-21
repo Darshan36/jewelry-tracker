@@ -6,6 +6,7 @@ import { Decimal } from "decimal.js";
 import { requireRole } from "@/lib/auth-guards";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
+import { revalidateCastingViews } from "@/lib/revalidate-transaction-views";
 import { computeLineTotal } from "@/lib/weight-helpers";
 import type { Prisma } from "@/generated/prisma";
 
@@ -187,7 +188,7 @@ export async function createCastingEntry(input: CastingEntryInput) {
 
   if (!result.ok) return { ok: false as const, errors: result.errors };
 
-  revalidatePath("/casting");
+  revalidateCastingViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/vendors");
   return { ok: true as const, entry: serializeCastingEntry(result.entry) };
 }
@@ -233,7 +234,7 @@ export async function updateCastingEntry(id: string, input: CastingEntryInput) {
 
   if (!result.ok) return { ok: false as const, errors: result.errors };
 
-  revalidatePath("/casting");
+  revalidateCastingViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/vendors");
   return { ok: true as const, entry: serializeCastingEntry(result.entry) };
 }
@@ -245,7 +246,7 @@ export async function softDeleteCastingEntry(id: string) {
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/casting");
+  revalidateCastingViews();
   return { ok: true as const };
 }
 
@@ -256,7 +257,7 @@ export async function attachAttachmentToCastingEntry(entryId: string, attachment
     where: { id: entryId, deletedAt: null },
     data: { attachmentId },
   });
-  revalidatePath("/casting");
+  revalidateCastingViews();
   return { ok: true as const };
 }
 
@@ -267,6 +268,6 @@ export async function detachAttachmentFromCastingEntry(entryId: string) {
     where: { id: entryId, deletedAt: null },
     data: { attachmentId: null },
   });
-  revalidatePath("/casting");
+  revalidateCastingViews();
   return { ok: true as const };
 }

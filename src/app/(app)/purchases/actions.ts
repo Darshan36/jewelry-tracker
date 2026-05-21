@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth-guards";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
+import { revalidatePurchaseViews } from "@/lib/revalidate-transaction-views";
 import type { Prisma } from "@/generated/prisma";
 
 import { purchaseInputSchema, type PurchaseInput } from "./schema";
@@ -163,7 +164,7 @@ export async function createPurchase(input: PurchaseInput) {
     return { ok: false as const, errors: result.errors };
   }
 
-  revalidatePath("/purchases");
+  revalidatePurchaseViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/suppliers");
   return { ok: true as const, purchase: serializePurchase(result.purchase) };
 }
@@ -203,7 +204,7 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
     return { ok: false as const, errors: result.errors };
   }
 
-  revalidatePath("/purchases");
+  revalidatePurchaseViews();
   if (result.partyCreatedOrUpdated) revalidatePath("/suppliers");
   return { ok: true as const, purchase: serializePurchase(result.purchase) };
 }
@@ -215,6 +216,6 @@ export async function softDeletePurchase(id: string) {
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/purchases");
+  revalidatePurchaseViews();
   return { ok: true as const };
 }

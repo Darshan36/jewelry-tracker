@@ -1,10 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
+import { revalidatePlatingViews } from "@/lib/revalidate-transaction-views";
 
 import { serializePlatingEntry } from "./plating-helpers";
 
@@ -97,7 +97,7 @@ export async function createPlatingPayment(input: PlatingPaymentInput) {
     },
   });
 
-  revalidatePath("/plating");
+  revalidatePlatingViews();
 
   // Re-read the entry with everything included so callers can update
   // their local snapshot without a separate round trip.
@@ -123,6 +123,6 @@ export async function softDeletePlatingPayment(id: string) {
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/plating");
+  revalidatePlatingViews();
   return { ok: true as const, platingEntryId: payment.platingEntryId };
 }

@@ -1,10 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
+import { revalidateCastingViews } from "@/lib/revalidate-transaction-views";
 
 import { serializeCastingEntry } from "./casting-helpers";
 
@@ -97,7 +97,7 @@ export async function createCastingPayment(input: CastingPaymentInput) {
     },
   });
 
-  revalidatePath("/casting");
+  revalidateCastingViews();
 
   // Re-read the entry with everything included so callers can update
   // their local snapshot without a separate round trip.
@@ -123,6 +123,6 @@ export async function softDeleteCastingPayment(id: string) {
     where: { id, deletedAt: null },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/casting");
+  revalidateCastingViews();
   return { ok: true as const, castingEntryId: payment.castingEntryId };
 }

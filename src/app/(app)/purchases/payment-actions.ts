@@ -1,9 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
+import { revalidatePurchaseViews } from "@/lib/revalidate-transaction-views";
 
 import {
   purchasePaymentInputSchema,
@@ -117,7 +116,7 @@ export async function createPurchasePayment(input: PurchasePaymentInput) {
     },
   });
 
-  revalidatePath("/purchases");
+  revalidatePurchaseViews();
   return { ok: true as const, payment: serializePurchasePayment(created) };
 }
 
@@ -129,6 +128,6 @@ export async function softDeletePurchasePayment(id: string) {
     data: { deletedAt: new Date() },
   });
 
-  revalidatePath("/purchases");
+  revalidatePurchaseViews();
   return { ok: true as const };
 }
