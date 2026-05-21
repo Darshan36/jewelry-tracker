@@ -24,7 +24,13 @@
 
 import { useState } from "react";
 import { Download, Loader2, Printer } from "lucide-react";
-import html2pdf from "html2pdf.js";
+
+// html2pdf.js is imported lazily inside the click handler. Its UMD
+// wrapper references `self` at module-eval time, which is undefined
+// in Node — a top-level import crashes Next.js's SSR pass on this
+// client component (`ReferenceError: self is not defined`) and the
+// route fails to render. Dynamic import defers evaluation to the
+// browser, where `self` is defined.
 
 type Props = {
   /** DOM id of the element to capture into the PDF. */
@@ -50,6 +56,7 @@ export function BillToolbar({ targetId, filename }: Props) {
     }
     setGenerating(true);
     try {
+      const { default: html2pdf } = await import("html2pdf.js");
       await html2pdf()
         .from(el)
         .set({
