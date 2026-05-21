@@ -70,6 +70,23 @@ export function BillToolbar({ targetId, filename }: Props) {
             useCORS: true,
             backgroundColor: "#ffffff",
             logging: false,
+            // Tailwind v4 emits `color-mix(in oklab, …)` for the
+            // universal `outline-color` rule in globals.css and for
+            // any `color/opacity` slash class. The bundled
+            // html2canvas v1.x does not understand oklab/oklch and
+            // throws "Attempting to parse an unsupported color
+            // function 'oklab'". Inject a style into the clone that
+            // forces outline-color to a plain rgb value and disables
+            // color-mix on the captured subtree. Non-layered rules
+            // beat the @layer base rules in globals.css without
+            // needing !important.
+            onclone: (clonedDoc: Document) => {
+              const style = clonedDoc.createElement("style");
+              style.textContent = `
+                * { outline-color: transparent !important; }
+              `;
+              clonedDoc.head.appendChild(style);
+            },
           },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         })

@@ -178,7 +178,7 @@ export default async function PrintBillPage({ params }: Props) {
             {sale.lineItems.map((li) => (
               <tr
                 key={li.id}
-                className="border-b border-black/30"
+                className="border-b border-[#0000004d]"
                 data-testid={`bill-line-item-${li.id}`}
               >
                 <td className="py-2 px-2 align-top">{li.itemDescription}</td>
@@ -237,7 +237,7 @@ export default async function PrintBillPage({ params }: Props) {
 
       {sale.notes && (
         <section
-          className="mt-8 pt-4 border-t border-black/30 text-sm"
+          className="mt-8 pt-4 border-t border-[#0000004d] text-sm"
           data-testid="bill-notes"
         >
           <div className="uppercase text-xs tracking-widest font-semibold mb-1">
