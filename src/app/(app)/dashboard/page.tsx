@@ -148,8 +148,33 @@ async function AdminDashboard({ name }: { name: string }) {
     getLabourSummary(),
   ]);
 
-  const totalPayables = payables.reduce((s, p) => s + p.totalOutstanding, 0);
+  // Per-source payables breakdown. `listPayables("all")` already returns
+  // every rollup with per-source amounts attached, so splitting is free
+  // — no extra queries. Each top-3 list re-sorts by the per-source
+  // amount because the rollup array is sorted by combined total.
+  const purchaseTotal = payables.reduce((s, p) => s + p.purchaseOutstanding, 0);
+  const castingTotal = payables.reduce((s, p) => s + p.castingOutstanding, 0);
+  const platingTotal = payables.reduce((s, p) => s + p.platingOutstanding, 0);
   const totalReceivables = receivables.reduce((s, r) => s + r.totalOutstanding, 0);
+
+  const projectBySource = (key: "purchase" | "casting" | "plating") =>
+    payables
+      .map((p: PartyPayableRollup) => ({
+        id: p.party.id,
+        name: p.party.name,
+        outstanding:
+          key === "purchase"
+            ? p.purchaseOutstanding
+            : key === "casting"
+              ? p.castingOutstanding
+              : p.platingOutstanding,
+      }))
+      .filter((r) => r.outstanding > 0)
+      .sort((a, b) => b.outstanding - a.outstanding);
+
+  const supplierTop = projectBySource("purchase");
+  const castingTop = projectBySource("casting");
+  const platingTop = projectBySource("plating");
 
   return (
     <div className="p-10">
@@ -168,9 +193,19 @@ async function AdminDashboard({ name }: { name: string }) {
           hint={`${purchasesAgg._count._all} transactions`}
         />
         <Card
-          label="Total Payables"
-          value={formatCurrency(totalPayables)}
-          hint={`${payables.length} parties`}
+          label="Purchase Payables"
+          value={formatCurrency(purchaseTotal)}
+          hint={`${supplierTop.length} ${supplierTop.length === 1 ? "supplier" : "suppliers"}`}
+        />
+        <Card
+          label="Casting Payables"
+          value={formatCurrency(castingTotal)}
+          hint={`${castingTop.length} ${castingTop.length === 1 ? "vendor" : "vendors"}`}
+        />
+        <Card
+          label="Plating Payables"
+          value={formatCurrency(platingTotal)}
+          hint={`${platingTop.length} ${platingTop.length === 1 ? "vendor" : "vendors"}`}
         />
         <Card
           label="Total Receivables"
@@ -184,16 +219,24 @@ async function AdminDashboard({ name }: { name: string }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
         <TopThreeList
-          title="Top parties you owe"
-          rollups={payables.map((p: PartyPayableRollup) => ({
-            id: p.party.id,
-            name: p.party.name,
-            outstanding: p.totalOutstanding,
-          }))}
+          title="Top suppliers you owe"
+          rollups={supplierTop}
           basePath="/payables"
-          emptyText="No outstanding payables."
+          emptyText="No outstanding supplier payables."
+        />
+        <TopThreeList
+          title="Top casting vendors you owe"
+          rollups={castingTop}
+          basePath="/payables"
+          emptyText="No outstanding casting payables."
+        />
+        <TopThreeList
+          title="Top plating vendors you owe"
+          rollups={platingTop}
+          basePath="/payables"
+          emptyText="No outstanding plating payables."
         />
         <TopThreeList
           title="Top customers who owe you"
