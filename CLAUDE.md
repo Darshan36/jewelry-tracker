@@ -283,6 +283,8 @@ The unified `<TransactionStatusChip>` in `src/components/` is shared across all 
 
 **Type aliases** `SaleStatus` (in `sales/sale-helpers.ts`) and `PurchaseStatus` (in `purchases/purchase-helpers.ts`) preserve readability at the call site without duplicating logic. If business rules ever diverge between Sales and Purchases, `transaction-status.ts` is the natural extension point.
 
+**Chip rendering is walk-in-only (Phase 21a.1)**. Status is still computed for every row (the serializer always invokes `computeTransactionStatus`), but the chip is **rendered only when `partyId IS NULL`** in the entity tables and detail modals across Sales / Purchases / Casting / Plating. Party-linked rows render a small `data-testid="ledger-tracked-hint"` ("on ledger") instead. **Why**: Phase 21a moved payment from per-bill `*Payment` rows to a party-level `LedgerEntry` for party-linked transactions; the serializer now passes `paidAmount=0n` for those rows so status always derives to `pending`. Rendering a stale "Pending" chip while the party-ledger pointer in the same row said the payment was tracked elsewhere was contradictory misinformation. The chip remains meaningful for walk-ins because walk-ins still aggregate on `*Payment` children.
+
 ## 6. Conventions
 
 - **TypeScript strict mode.** No `any`. Use `unknown` for genuinely unknown shapes and narrow with zod.
@@ -297,6 +299,8 @@ The unified `<TransactionStatusChip>` in `src/components/` is shared across all 
 - **Role gates on every server action.** Every server action calls `await requireRole([...allowedRoles])` as its first await. The list is per-action and declares which roles can invoke it — reading the action's first line tells you the access matrix at a glance.
 - **Phone identity for parties.** Normalize via `src/lib/phone.ts#normalizePhone` (idempotent). Apply at every **storage** boundary (Party.phone, Sale.partyPhone, Purchase.partyPhone, CastingEntry.partyPhone, PlatingEntry.partyPhone) AND every **lookup** boundary (`findFirst` in auto-promotion, party-picker phone-prefix match). Asymmetric normalization → lookup misses already-stored records.
 - **Multi-item line items use replace-all on edit.** `tx.<child>LineItem.deleteMany({ where: { <parent>Id } })` then `tx.<parent>.update({ data: { ..., lineItems: { create: [...] } } })` inside `prisma.$transaction`. Atomicity guarantees either all line items replace cleanly or none do. Line items are subordinate to parent; the audit-relevant unit is the parent.
+- **Ledger MANUAL_PAYMENT entries are editable + soft-deletable in place; TRANSACTION_LINKED entries are corrected via their source transaction (Phase 21a.1).** `updateLedgerPayment(id, { amount, date, description })` and `softDeleteLedgerEntry(id)` in `src/app/(app)/parties/ledger-actions.ts` operate only when `entryType === 'MANUAL_PAYMENT'`. Both reject `TRANSACTION_LINKED` rows at the action layer; the per-party ledger UI renders a small `data-testid="ledger-readonly-hint"` ("via source") on those rows instead of edit/delete buttons. **Why**: a TRANSACTION_LINKED entry mirrors a Sale / Purchase / Casting / Plating / Return row — editing the ledger entry directly would desync it from its source. Fix the parent transaction; the existing `updateX` / `softDeleteX` flow cascades to the linked entry via `updateTransactionLedgerEntry` / `softDeleteTransactionLedgerEntry`. Role gates for edit/delete use the same `rolesAllowedForParty` intersection as `createLedgerPayment`.
+- **Credit balances surface in payables / receivables list rollups (Phase 21a.1).** `listPayables` and `listReceivables` filter only `balance === 0n` rows — parties with negative balance (DECREASE > INCREASE, i.e. "we owe them back" / "they prepaid") stay in the result set. List tables render `data-testid="credit-badge"` ("Credit") plus a leading `−` prefix and the secondary tint on the outstanding amount. The per-party ledger statement view (`/payables/[partyId]`, `/receivables/[partyId]`) labels the header "Credit balance" instead of "Outstanding" when the signed balance is negative. **Don't clamp signed balances to ≥0** in any party-rollup code path; the negative state is a legal balance representable on the ledger.
 - **Browser → R2 file uploads use a two-step prepare/confirm flow.** `prepareUpload` (server action) validates schema → creates PENDING Attachment row → returns 10-min presigned PUT URL. Browser PUTs bytes directly to R2 (no Vercel transit, no body-size limit at the function layer). `confirmUpload` (server action) re-fetches the row → `headObject` against R2 → verifies actual mime + size match registered → flips row to READY (or FAILED + R2 cleanup on mismatch). Both actions revalidate the relevant page.
 - **AttachmentActionModal prop contract.** `onAttach` and `onDetach` props are optional. Absent → discriminator-only flow (Sales / Purchases): the modal short-circuits both calls. Present → FK + discriminator flow (Casting / Plating): `onDetach` runs FIRST in the replace path (clears the FK so the soft-delete can fire without tripping `@unique`), and `onAttach` runs LAST after `confirmUpload`. Same component handles both attachment patterns cleanly. Internal chain: `getAttachmentForEntity → [onDetach] → softDelete → prepareUpload → R2 PUT → confirmUpload → [onAttach]`.
 - **Photos vs bills share `Attachment` table; discriminator-only dispatch.** Bills (invoices/receipts) and photos (visual record on Purchase/Sale) both live in one table — differ only by `attachedToType` and client-side MIME allowlist. **Cardinality enforced at application layer**, not schema. **Adding photo support to a new entity**: extend `ATTACHED_TO_TYPES`, add `ROLE_MATRIX` entry, extend `PhotoGallery`'s `entityType` prop union, mount `<PhotoGallery>` on parent's form/detail surfaces, add `Photos (optional)` section to entity form (create-mode `pendingPhotos: File[]` batched after entity create; edit-mode live `<PhotoGallery mode="edit">`), add `<PhotoCountBadge>` to the table, extend `serializeEntity` with `options.photoCount`, and add a `prisma.attachment.groupBy` aggregate to the page query. `<PhotoGallery>` and `<PhotoLightbox>` are entityType-parameterized and reused as-is.
@@ -314,22 +318,7 @@ The unified `<TransactionStatusChip>` in `src/components/` is shared across all 
 
 ## 7. Recent phases (last 3)
 
-For phases ≤17, see [`docs/CLAUDE_ARCHIVE.md`](./docs/CLAUDE_ARCHIVE.md).
-
-### Phase 18 + 18.1 — Labour management
-
-`/labour` route (ADMIN + LABOUR_MGMT only) with three sections:
-1. **Pending salaries** — FIXED employees missing a SALARY-type EmployeePayment for the current IST calendar month.
-2. **Outstanding wages** — LABOUR employees with PieceEntry rows not covered by any WAGE-type payment's period.
-3. **Bulk piece entry** — one row per active LABOUR employee with rate input (empty default, typed per entry), count input, and Note column ("polishing", "setting", etc.); filters zero-count rows on submit; `createBulkPieceEntries` atomic via `prisma.$transaction`.
-
-**`<EmployeePaymentModal>`** (`src/components/action-modals/employee-payment-modal.tsx`) records a single-employee payment with type chip (SALARY/WAGE), pre-fills amount + period from caller-provided defaults. **Employee detail modal** extended with Pieces history (LABOUR only — per-entry rate + note surfaced) and Payment history sections, fetched via `getEmployeeHistory(employeeId)` on modal open.
-
-**`labour-balances.ts` pipeline** mirrors `outstanding-balances.ts` shape: pure `computeOutstandingWages` / `isPieceEntryCovered` / `isMonthSalaryPaid` + DB aggregators (`listEmployeesWithOutstandingWages`, `listEmployeesMissingSalaryThisMonth`, `getOutstandingWages`, `getLabourSummary`, `countPieceEntriesForIstDay`).
-
-**Dashboard** gets a labour section for ADMIN + LABOUR_MGMT (Salaries due / Outstanding wages / [Pieces today on LABOUR_MGMT only]); each card links to `/labour`.
-
-**Role gates**: `canViewLabour(role)` + `canManageLabour(role)` in `src/lib/role-access.ts`; `/labour` in proxy `ROUTE_ROLES`; every action calls `requireRole(['ADMIN','LABOUR_MGMT'])`.
+For phases ≤18, see [`docs/CLAUDE_ARCHIVE.md`](./docs/CLAUDE_ARCHIVE.md).
 
 ### Phase 19 — Completed transactions view
 
@@ -360,6 +349,36 @@ ADMIN-only `/completed` page aggregating settled history across all five entity 
 **Disambiguated** from the existing "Manage bill" attachment action (relabeled "Manage invoice attachment", Paperclip icon stays) via icon + leading verb + target (modal vs new tab).
 
 **Three-layer ADMIN gate**: proxy `ROUTE_ROLES["/settings"] = ["ADMIN"]` (bill route inherits `/sales` ADMIN gate via prefix match) + page server-component redirect via `canManageSettings(role)` + `upsertShopSettings` action `requireRole(["ADMIN"])`.
+
+### Phase 21a — Party ledger model
+
+New `LedgerEntry` table replaces per-bill `*Payment` allocation as the source of truth for **party-linked** transactions. A Sale / Purchase / Casting / Plating row whose `partyId` is non-null emits a `TRANSACTION_LINKED` INCREASE entry; payment / receipt / return events emit DECREASE entries. Walk-in transactions (`partyId IS NULL`) stay on the legacy `*Payment` rails — they're dropped in 21c.
+
+`LedgerEntry` columns: `id, partyId, date, direction (INCREASE | DECREASE), amount (BigInt paise), description, entryType (TRANSACTION_LINKED | MANUAL_PAYMENT), sourceType (LedgerSourceType: SALE | PURCHASE | CASTING | PLATING | SALE_RETURN | PURCHASE_RETURN | null), sourceId (cuid of the source row | null), createdAt, updatedAt, deletedAt, createdById/updatedById/deletedById`. `MANUAL_PAYMENT` rows have `sourceType IS NULL` and `sourceId IS NULL`; they reconcile against the full party balance, not a specific bill.
+
+**Atomicity invariant**: every ledger write helper takes a `Prisma.TransactionClient` and is called inside the parent action's `prisma.$transaction`. A parent-create-without-ledger-write OR a parent-soft-delete-without-ledger-cascade would desync the party balance — the wrapper guarantees both succeed or both roll back. Lives in `src/lib/ledger.ts`: `writeTransactionLedgerEntry`, `updateTransactionLedgerEntry` (handles the four party-change transitions on parent update), `softDeleteTransactionLedgerEntry`, `writeReturnLedgerEntry`, `softDeleteReturnLedgerEntry`.
+
+**Raw-signed balance, NO clamp**: `computePartyBalance(entries)` returns `Σ(INCREASE) − Σ(DECREASE)` over non-deleted entries — never clamped to ≥0. Negative results represent credit balances (party prepaid; we owe them back). UI labels the sign at render time.
+
+**Walk-in → party-link migration on update**: `updateTransactionLedgerEntry` migrates any existing `*Payment` rows on the transaction into `MANUAL_PAYMENT` ledger entries on the newly-linked party, then soft-deletes the `*Payment` rows. Preserves payment history across the rail switch.
+
+**Per-party UI**: `/payables/[partyId]` and `/receivables/[partyId]` render the chronological `LedgerEntry` statement with running balance. Adding a payment opens `PartyLedgerPaymentModal` (single party-level entry, no bulk allocation — the Phase 17b bulk modal is removed).
+
+**Status loses payment-meaning for party-linked transactions**: `serializeSale` / `serializePurchase` / `serializeCastingEntry` / `serializePlatingEntry` pass `paidAmount=0n` to `computeTransactionStatus` when the row is party-linked. Status still computes (and is still a TypeScript union, not a DB enum), but the chip is hidden from those rows in UI — see Phase 21a.1.
+
+**Karigar handling and `/completed` rework deferred** to 21b and 21c respectively. The bill-wise `*Payment` tables remain alive in 21a for walk-in transactions only.
+
+### Phase 21a.1 — Ledger corrections + chip cleanup + credit visibility
+
+Polish phase landing real-usage gaps found within hours of 21a shipping:
+
+**(1) Ledger payments are editable + deletable.** `updateLedgerPayment(id, { amount, date, description })` added to `parties/ledger-actions.ts`; `softDeleteLedgerEntry` (already present) surfaced in the per-party statement UI. Both reject `TRANSACTION_LINKED` entries with a field-error — those are corrected by editing or soft-deleting the parent transaction, which cascades via the 21a `updateTransactionLedgerEntry` / `softDeleteTransactionLedgerEntry` helpers. The per-party statement now renders a 6th "Actions" column: edit + delete icons on MANUAL_PAYMENT rows; a "via source" hint on TRANSACTION_LINKED rows. `PartyLedgerPaymentModal` gained an `editEntry` prop that prefills date / amount / description and switches the submit button to "Save changes".
+
+**(2) Status chip walks-in-only.** The chip is hidden on party-linked rows across all four entity tables + detail modals (Sales / Purchases / Casting / Plating); rendered only when `partyId IS NULL`. Party-linked rows show a small "on ledger" hint (`data-testid="ledger-tracked-hint"`) in the Status column. See §5 for the rationale.
+
+**(3) Credit-balance parties surface in lists.** `listPayables` and `listReceivables` already returned negative-balance rollups (only `balance === 0n` is filtered); the table render already supported the "Credit" badge + `−` prefix + secondary tint. 21a.1 pins the behavior with explicit tests covering both the credit `listReceivables` shape (customer overpaid by ₹9k → −900_000 paise) and the credit `listPayables` shape (supplier overpaid by ₹4k → −400_000 paise). See §6 conventions.
+
+**Live confirmation**: 12/12 prod walkthrough PASS on commit `5aefca4` (deployment `dpl_6eL743MoWFVaA6bHZXvF7KR5hrJW`), marker `__phase21a1_walk_1779458405858` — the screenshot scenario reproduced end-to-end (₹1k sale + ₹10k payment → −₹9k credit → edit to ₹1k → ₹0 → delete → ₹1k → new ₹200 payment → ₹800), credit badge visible in `/receivables`, party-linked sale shows no chip, walk-in sale still shows chip. Marker rows tombstoned. **Lesson**: PartyLedgerPaymentModal button label varies by direction + mode — locate by `/record receipt/i` in receivable mode, `/save changes/i` in edit mode, `/record payment/i` only in payable-create mode.
 
 ## 8. Out of Scope (do not build)
 
