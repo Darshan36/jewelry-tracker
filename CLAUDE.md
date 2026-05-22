@@ -122,7 +122,7 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - Conditional schema: if `type = LABOUR` and `monthlySalary !== null`, validation fails. Switching `FIXED → LABOUR` on the edit form clears `monthlySalary` (a `useEffect` on the watched type).
 - Currency pipeline: BigInt paise in Prisma → Number at action return → `formatCurrency(paise)` for display. Form accepts rupees; conversion to paise happens in the action's `toPrismaData()` at the Prisma boundary (NOT in the zod schema — see §6 wire-format reasoning).
 - Soft delete via `deletedAt`.
-- Reverse relations: `pieceEntries: PieceEntry[]`, `payments: EmployeePayment[]` (Prisma-only — FK on child side).
+- Reverse relations: `pieceEntries: PieceEntry[]`, `payments: EmployeePayment[]`, and **`ledgerEntries: LedgerEntry[]`** (Phase 21b — karigar piece work + wage payments mirror onto `LedgerEntry` rows owned by this employee; see `LedgerEntry` below).
 - Indexes: `@@index([deletedAt])`, `@@index([name])`, `@@index([type])`.
 
 ### PieceEntry
@@ -134,15 +134,17 @@ All currency is stored as integer **paise** (1 ₹ = 100 paise). Display formatt
 - `totalAmount` stored, not derived (matches Sale/Purchase stored-total convention).
 - Immutable corrections via soft-delete + recreate — no `updatePieceEntry`.
 - `onDelete: RESTRICT` on the Employee FK prevents employee hard-delete while piece history exists.
+- **Phase 21b — every PieceEntry create emits a linked `TRANSACTION_LINKED` INCREASE `LedgerEntry` atomically inside `prisma.$transaction`** (`sourceType=PIECE_ENTRY`, `sourceId=pieceEntry.id`, owner=employee). Soft-deleting the PieceEntry cascades via `softDeleteTransactionLedgerEntry` in the same `prisma.$transaction`. Description uses the locked template `${count} pcs @ ₹${rate}/pc${note ? ' — ' + note : ''}` — see §6.
 - Indexes: `@@index([employeeId, date, deletedAt])`, `@@index([date, deletedAt])`.
 
 ### EmployeePayment
 `id, employeeId (FK → Employee, RESTRICT), type (EmployeePaymentType: SALARY | WAGE), paidAt, amount (BigInt paise), periodStart, periodEnd, note, createdAt, updatedAt, deletedAt, createdById/updatedById/deletedById (FKs → User, SET NULL)`
 
-- Unified ledger: `type=SALARY` for FIXED employees (monthly), `type=WAGE` for LABOUR (per-period, covers a range of PieceEntries).
+- Unified ledger: `type=SALARY` for FIXED employees (monthly), `type=WAGE` for LABOUR (per-period; **Phase 21b — outstanding-wage math derives from the `LedgerEntry` table, not the period-overlap workaround**).
 - Type-vs-employee-type guard at the action layer — `createEmployeePayment` rejects `SALARY` for LABOUR and `WAGE` for FIXED.
-- **Wage coverage via period overlap, NOT per-entry paid flag**: a PieceEntry dated X is "covered" iff at least one non-deleted WAGE EmployeePayment has `periodStart ≤ X ≤ periodEnd`. The `isPieceEntryCovered` helper in `labour-balances.ts` is the single source of truth. Decouples production tracking from payment tracking; soft-deleting a payment unpays all entries in that window without per-row updates.
-- For SALARY payments, `periodStart` doubles as the month identifier — `isMonthSalaryPaid(payments, monthStart, monthEnd)` checks `periodStart >= monthStart AND periodStart < monthEnd`.
+- **Phase 21b — WAGE payments emit a linked `TRANSACTION_LINKED` DECREASE `LedgerEntry` atomically** (`sourceType=WAGE_PAYMENT`, `sourceId=payment.id`, owner=employee). Description: `Wage payment${note ? ' — ' + note : ''}` (see §6). Soft-deleting the WAGE payment cascades the ledger row. **Advances are WAGE payments with a descriptive note** (the `[Advance]` quick-tag in `EmployeePaymentModal` sets `note="advance"`); no separate "advance" entry type. An advance recorded before matching piece work produces a negative (credit) balance on the karigar's ledger.
+- **SALARY rail is UNCHANGED in Phase 21b**: SALARY payments do NOT emit ledger rows; FIXED-employee outstanding still derives from `isMonthSalaryPaid(payments, monthStart, monthEnd)` (a SALARY payment whose `periodStart` is in the current IST month marks the month paid). The 21b scope is karigar-only.
+- **Deprecated Phase 18 helpers** (slated to drop in 21c): `isPieceEntryCovered`, `computeOutstandingWages`, `isDateInPeriod` — kept as `@deprecated` re-exports for one phase while call sites finish migrating to `computeOwnerBalance`.
 - Immutable corrections via soft-delete + recreate — no `updateEmployeePayment`.
 - Schema-level cross-field validation: `periodEnd >= periodStart` via `superRefine` (single-day pay period allowed).
 - No overpayment check at the action layer (advances/corrections + WAGE rounding are acceptable at workshop scale).
@@ -254,6 +256,17 @@ Mirror of `SaleReturn` with `purchaseId` FK. Semantically: the shop returning it
 ### CastingPayment / PlatingPayment
 Mirror of `PurchasePayment` with `<entry>Id` FK. Reuses the `PaymentType` enum. REFUND = vendor refunded money back to the shop (money IN, same direction as Purchases). Same immutability + action-layer validation (substituting "Owed to vendor"). Indexes: `@@index([<entry>Id])`, `@@index([<entry>Id, type])`, `@@index([deletedAt])`.
 
+### LedgerEntry (Phase 21a + 21b)
+`id, partyId (FK → Party, nullable, ON DELETE RESTRICT), employeeId (FK → Employee, nullable, ON DELETE RESTRICT), date, direction (LedgerDirection: INCREASE | DECREASE), amount (BigInt paise), description, entryType (LedgerEntryType: TRANSACTION_LINKED | MANUAL_PAYMENT), sourceType (LedgerSourceType: SALE | PURCHASE | CASTING | PLATING | SALE_RETURN | PURCHASE_RETURN | PIECE_ENTRY | WAGE_PAYMENT | null), sourceId, createdAt, updatedAt, deletedAt, createdById/updatedById/deletedById`
+
+- **Owner discriminator — `owner_exactly_one` CHECK constraint**: exactly one of `(partyId, employeeId)` is non-null. Party-owned entries are 21a's party-linked transaction balances; employee-owned entries are 21b's karigar piece work + wage payments. The DB CHECK + the action-layer `assertOwnerExactlyOne` (in `src/lib/ledger-owner.ts`) are the two guards.
+- **Single source of truth for two balance domains**: the same table holds party-side and karigar-side ledger rows. `computeOwnerBalance(entries)` (renamed from 21a's `computePartyBalance` — `@deprecated` alias retained for one phase) is owner-agnostic: Σ INCREASE − Σ DECREASE over non-deleted entries, raw signed (no clamp). Negative balances are credit (overpaid customer, party prepaid, karigar holds advance). 21c reads this single table for the unified ledger view.
+- **TRANSACTION_LINKED entries** carry `sourceType + sourceId` pointing at the originating row. Partial unique index `(sourceType, sourceId) WHERE deletedAt IS NULL` enforces "one active linked entry per source." **MANUAL_PAYMENT** entries (party-side only, sourceType IS NULL) are the party-level payment events not tied to a specific bill — see Phase 21a §7.
+- **Phase 21b karigar entries** are always TRANSACTION_LINKED: `PIECE_ENTRY` INCREASE (work earned) and `WAGE_PAYMENT` DECREASE (cash out, including advances). No karigar-side MANUAL_PAYMENT — an advance is just a WAGE_PAYMENT with `note="advance"`.
+- **Atomicity invariant**: every ledger write helper takes a `Prisma.TransactionClient` and is called inside the parent action's `prisma.$transaction`. The atomic shape is non-negotiable — a parent insert that succeeded while the ledger write failed would silently desync balance. Soft-deletes follow the same pattern (`softDeleteTransactionLedgerEntry` runs in the parent's tx).
+- **Description builders** (locked in 21b): party-side `describeTransactionLedgerEntry` for `Sale - N items` etc.; karigar-side `describePieceEntry` for `${count} pcs @ ₹${rate}/pc — ${note}` (`pc` singular, `pcs` plural) and `describeWagePayment` for `Wage payment${note ? ' — ' + note : ''}`. Descriptions are the entire UX of the 21c per-karigar khata view — they must read like work logs, not amount rows.
+- Indexes: `@@index([partyId, date])`, `@@index([partyId, deletedAt])`, `@@index([employeeId, date])`, `@@index([employeeId, deletedAt])`, `@@index([sourceType, sourceId])`, `@@index([entryType])`, `@@index([deletedAt])`.
+
 ## 5. Status Logic
 
 **Statuses are derived, never stored.** Computed at query time from payment + return children. The four computed states (`pending` | `partial` | `completed` | `refund_due`) are **TypeScript string-literal union types** — they are NOT Prisma database enums. Do not create a Prisma `enum Status` or a `status` column on `Sale` / `Purchase`. Define the union as `type SaleStatus = 'pending' | 'partial' | 'completed' | 'refund_due'` and compute in the query/serializer.
@@ -301,6 +314,9 @@ The unified `<TransactionStatusChip>` in `src/components/` is shared across all 
 - **Multi-item line items use replace-all on edit.** `tx.<child>LineItem.deleteMany({ where: { <parent>Id } })` then `tx.<parent>.update({ data: { ..., lineItems: { create: [...] } } })` inside `prisma.$transaction`. Atomicity guarantees either all line items replace cleanly or none do. Line items are subordinate to parent; the audit-relevant unit is the parent.
 - **Ledger MANUAL_PAYMENT entries are editable + soft-deletable in place; TRANSACTION_LINKED entries are corrected via their source transaction (Phase 21a.1).** `updateLedgerPayment(id, { amount, date, description })` and `softDeleteLedgerEntry(id)` in `src/app/(app)/parties/ledger-actions.ts` operate only when `entryType === 'MANUAL_PAYMENT'`. Both reject `TRANSACTION_LINKED` rows at the action layer; the per-party ledger UI renders a small `data-testid="ledger-readonly-hint"` ("via source") on those rows instead of edit/delete buttons. **Why**: a TRANSACTION_LINKED entry mirrors a Sale / Purchase / Casting / Plating / Return row — editing the ledger entry directly would desync it from its source. Fix the parent transaction; the existing `updateX` / `softDeleteX` flow cascades to the linked entry via `updateTransactionLedgerEntry` / `softDeleteTransactionLedgerEntry`. Role gates for edit/delete use the same `rolesAllowedForParty` intersection as `createLedgerPayment`.
 - **Credit balances surface in payables / receivables list rollups (Phase 21a.1).** `listPayables` and `listReceivables` filter only `balance === 0n` rows — parties with negative balance (DECREASE > INCREASE, i.e. "we owe them back" / "they prepaid") stay in the result set. List tables render `data-testid="credit-badge"` ("Credit") plus a leading `−` prefix and the secondary tint on the outstanding amount. The per-party ledger statement view (`/payables/[partyId]`, `/receivables/[partyId]`) labels the header "Credit balance" instead of "Outstanding" when the signed balance is negative. **Don't clamp signed balances to ≥0** in any party-rollup code path; the negative state is a legal balance representable on the ledger.
+- **Karigar (LABOUR employees) live on the `LedgerEntry` table — Phase 21b.** Every PieceEntry create emits a `TRANSACTION_LINKED` INCREASE entry; every WAGE EmployeePayment emits a `TRANSACTION_LINKED` DECREASE. Both go through dedicated writers (`writePieceEntryLedger`, `writeWagePaymentLedger` in `src/lib/ledger.ts`) wrapped in the parent action's `prisma.$transaction`. **Outstanding wages derive from `computeOwnerBalance(employee.ledgerEntries)`** — the period-overlap helpers from Phase 18 (`isPieceEntryCovered`, `computeOutstandingWages`, `isDateInPeriod`) are `@deprecated` and scheduled to drop in 21c. The `computePartyBalance` alias is similarly `@deprecated` (rename → `computeOwnerBalance` is owner-agnostic).
+- **Advance = WAGE payment with a descriptive note → produces a credit (negative) balance — Phase 21b.** There is no separate "advance" entry type or enum value. An advance is recorded as a regular WAGE-type `EmployeePayment` whose `note` carries the intent (the `EmployeePaymentModal` ships a `data-testid="quick-note-advance"` chip that sets `note="advance"` in one tap, visible only when `paymentType === "WAGE"`). The linked ledger DECREASE renders as `"Wage payment — advance"`. If recorded before matching piece work exists, the karigar's running balance goes negative — that's the credit balance representing the advance against future work. The 21c per-karigar view will surface this directly.
+- **FIXED-employee SALARY rail is untouched by Phase 21b.** SALARY-type `EmployeePayment` rows do NOT emit ledger entries. The monthly-reminder model (`isMonthSalaryPaid(payments, monthStart, monthEnd)` — checks `periodStart` falls in the current IST month) remains the source of truth for "is this month paid?" on FIXED employees. Don't extend ledger writes to the SALARY path without a deliberate scope expansion.
 - **Browser → R2 file uploads use a two-step prepare/confirm flow.** `prepareUpload` (server action) validates schema → creates PENDING Attachment row → returns 10-min presigned PUT URL. Browser PUTs bytes directly to R2 (no Vercel transit, no body-size limit at the function layer). `confirmUpload` (server action) re-fetches the row → `headObject` against R2 → verifies actual mime + size match registered → flips row to READY (or FAILED + R2 cleanup on mismatch). Both actions revalidate the relevant page.
 - **AttachmentActionModal prop contract.** `onAttach` and `onDetach` props are optional. Absent → discriminator-only flow (Sales / Purchases): the modal short-circuits both calls. Present → FK + discriminator flow (Casting / Plating): `onDetach` runs FIRST in the replace path (clears the FK so the soft-delete can fire without tripping `@unique`), and `onAttach` runs LAST after `confirmUpload`. Same component handles both attachment patterns cleanly. Internal chain: `getAttachmentForEntity → [onDetach] → softDelete → prepareUpload → R2 PUT → confirmUpload → [onAttach]`.
 - **Photos vs bills share `Attachment` table; discriminator-only dispatch.** Bills (invoices/receipts) and photos (visual record on Purchase/Sale) both live in one table — differ only by `attachedToType` and client-side MIME allowlist. **Cardinality enforced at application layer**, not schema. **Adding photo support to a new entity**: extend `ATTACHED_TO_TYPES`, add `ROLE_MATRIX` entry, extend `PhotoGallery`'s `entityType` prop union, mount `<PhotoGallery>` on parent's form/detail surfaces, add `Photos (optional)` section to entity form (create-mode `pendingPhotos: File[]` batched after entity create; edit-mode live `<PhotoGallery mode="edit">`), add `<PhotoCountBadge>` to the table, extend `serializeEntity` with `options.photoCount`, and add a `prisma.attachment.groupBy` aggregate to the page query. `<PhotoGallery>` and `<PhotoLightbox>` are entityType-parameterized and reused as-is.
@@ -318,21 +334,7 @@ The unified `<TransactionStatusChip>` in `src/components/` is shared across all 
 
 ## 7. Recent phases (last 3)
 
-For phases ≤18, see [`docs/CLAUDE_ARCHIVE.md`](./docs/CLAUDE_ARCHIVE.md).
-
-### Phase 19 — Completed transactions view
-
-ADMIN-only `/completed` page aggregating settled history across all five entity types via tabs (Sales / Purchases / Casting / Plating / Payroll).
-
-**Shared filters across tabs** (date range + party-or-employee search) apply uniformly — the workshop's mental model is "show me everything that happened in October," not per-tab filtering. Default range is the **current IST calendar month**.
-
-**Strict completion**: Sales/Purchases/Casting/Plating filter to `status === 'completed'` (derived); Payroll shows every non-deleted `EmployeePayment` as inherently completed.
-
-**Server-side filtering** in `src/lib/completed-queries.ts` (`getCompletedSales/Purchases/CastingEntries/PlatingEntries/EmployeePayments`) push date range + case-insensitive partyName/partyPhone search into Prisma; status post-filter runs after `serialize*` because status is derived. Client owns from/to/q state; date changes commit immediately to URL via `router.replace`; party search debounces 300ms.
-
-**Tab content** uses entity-specific dedicated read-only tables in `src/app/(app)/completed/completed-*-table.tsx` (NOT the main entity list tables — those bake in mutation UX that doesn't fit a settled-history surface). Row click opens the entity's existing read-only detail modal. Payroll rows are non-clickable (no `EmployeePaymentDetailModal` yet).
-
-**Role gate**: `canViewCompleted(role)` (ADMIN-only); enforced at three layers (proxy + page redirect + sidebar nav-item filter). The sidebar's `/reports` placeholder remains "Soon"; `canViewReports` + proxy gate preemptively wired.
+For phases ≤19, see [`docs/CLAUDE_ARCHIVE.md`](./docs/CLAUDE_ARCHIVE.md).
 
 ### Phase 20 — Print bill + Shop settings
 
@@ -379,6 +381,30 @@ Polish phase landing real-usage gaps found within hours of 21a shipping:
 **(3) Credit-balance parties surface in lists.** `listPayables` and `listReceivables` already returned negative-balance rollups (only `balance === 0n` is filtered); the table render already supported the "Credit" badge + `−` prefix + secondary tint. 21a.1 pins the behavior with explicit tests covering both the credit `listReceivables` shape (customer overpaid by ₹9k → −900_000 paise) and the credit `listPayables` shape (supplier overpaid by ₹4k → −400_000 paise). See §6 conventions.
 
 **Live confirmation**: 12/12 prod walkthrough PASS on commit `5aefca4` (deployment `dpl_6eL743MoWFVaA6bHZXvF7KR5hrJW`), marker `__phase21a1_walk_1779458405858` — the screenshot scenario reproduced end-to-end (₹1k sale + ₹10k payment → −₹9k credit → edit to ₹1k → ₹0 → delete → ₹1k → new ₹200 payment → ₹800), credit badge visible in `/receivables`, party-linked sale shows no chip, walk-in sale still shows chip. Marker rows tombstoned. **Lesson**: PartyLedgerPaymentModal button label varies by direction + mode — locate by `/record receipt/i` in receivable mode, `/save changes/i` in edit mode, `/record payment/i` only in payable-create mode.
+
+### Phase 21b — Karigar (Employee) owner on the ledger — data layer only
+
+Piece work + wage payments + advances now post to the same `LedgerEntry` table as party-side balances. **Owner model: Option A** — `LedgerEntry.partyId` becomes nullable, new nullable `employeeId` column + FK + DB CHECK (`ledger_entries_owner_exactly_one`) enforces exactly one owner. The 21c unified ledger view reads a single table for both party and karigar balances.
+
+**Why Option A over a parallel `EmployeeLedgerEntry` table**: a polymorphic single table gives the 21c union for free (one `SELECT … FROM ledger_entries`), reuses `computeOwnerBalance` math unchanged, and keeps FK safety on a financial table (FK from each owner column → its respective parent, ON DELETE RESTRICT). The Attachment-style discriminator-without-FK pattern was rejected for the ledger — orphan attachments are tolerable bucket bloat; orphan ledger rows would silently corrupt balances.
+
+**Description templates (locked)** — these are the entire UX of the 21c per-karigar khata view:
+- `PIECE_ENTRY`: `${count} pcs @ ₹${rate}/pc${note ? ' — ' + note : ''}` — singular `pc`, plural `pcs`. Rate uses Indian comma grouping; the `.00` is suppressed when the rupee value is whole. Line total NOT embedded (amount column shows it).
+- `WAGE_PAYMENT`: `Wage payment${note ? ' — ' + note : ''}` — covers both regular wages and advances.
+
+**Advance affordance** — `EmployeePaymentModal` ships a one-tap `[Advance]` quick-tag (only when `paymentType === "WAGE"`) that sets `note="advance"`. The data model treats advances as regular DECREASE entries; an advance recorded before matching piece work produces a credit (negative) running balance on the karigar.
+
+**Scope discipline — what 21b did NOT touch**:
+- No karigar VIEW (the rich per-karigar khata statement is 21c, where it joins the unified `/ledger` home with the four-box payables/receivables/karigar/customer summary).
+- FIXED-employee SALARY payments stay on the EmployeePayment rail with the monthly-reminder `isMonthSalaryPaid` model. Provably verified live: a SALARY-type payment emits zero ledger entries (`/labour` Section 1 unchanged).
+
+**`computePartyBalance` → `computeOwnerBalance` rename** with a `@deprecated` alias re-export for one phase (drop in 21c when call sites finish migrating). Math unchanged — only the name + owner-agnosticism. The 21a party ledger still works through the alias; verified live (the screenshot-scenario S2 of the 21b prod walkthrough was the regression check).
+
+**Atomicity invariant extends**: `writePieceEntryLedger`, `writeWagePaymentLedger`, and the soft-delete cascade via `softDeleteTransactionLedgerEntry` all take a `Prisma.TransactionClient` and run inside the parent labour action's `prisma.$transaction`. A thrown ledger write rolls the PieceEntry / EmployeePayment insert back atomically.
+
+**Migration is purely additive** — nullable column + FK + CHECK + 2 enum values + 2 indexes. Zero data movement (prod karigar tables confirmed zero-active before migration; the failed-workaround Ajay Bhai rows were soft-deleted by owner authorization at Checkpoint 0). The post-migration check confirmed all 10 pre-existing party-owned ledger rows still satisfied the CHECK (party set, employee null).
+
+**Live confirmation**: 12/12 prod smoke PASS on commit `34c1388` (deployment `dpl_EiewwKNHLobJQ4pPj1myncwNCjtW`), marker `__phase21b_walk_*`. Verified: piece entry → INCREASE with exact description `"50 pcs @ ₹15/pc — polishing"`; advance → DECREASE with `"Wage payment — advance"`; balance flips to credit when advance > work; soft-delete cascades the linked ledger row; **FIXED SALARY rail emits zero ledger entries (rail-untouched check, live)**; and crucially **`/receivables` shows the right party balance via `computeOwnerBalance` — the rename did NOT break the party ledger Hitesh is using**. Marker rows tombstoned post-walkthrough.
 
 ## 8. Out of Scope (do not build)
 
