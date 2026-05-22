@@ -407,20 +407,51 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("listEmployeesWithOutstandingWages", () => {
-  it("only returns LABOUR employees with > 0 outstanding wages, sorted desc", async () => {
+describe("listEmployeesWithOutstandingWages (Phase 21b — ledger-driven)", () => {
+  // Each employee fixture now includes `ledgerEntries`, the new source
+  // of truth for outstanding wages. `pieceEntries` is still surfaced
+  // for downstream reporting (totalPieces / earliestUnpaidDate) but
+  // doesn't drive the balance math.
+  function buildEmployee(opts: {
+    id: string;
+    name: string;
+    ledgerEntries: Array<{
+      direction: "INCREASE" | "DECREASE";
+      amount: bigint;
+      deletedAt: Date | null;
+    }>;
+    pieceEntries?: Array<{
+      id: string;
+      date: Date;
+      totalAmount: bigint;
+      count: number;
+      deletedAt: Date | null;
+    }>;
+  }) {
+    return {
+      id: opts.id,
+      name: opts.name,
+      type: "LABOUR" as const,
+      phone: null,
+      monthlySalary: null,
+      address: null,
+      notes: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      pieceEntries: opts.pieceEntries ?? [],
+      ledgerEntries: opts.ledgerEntries,
+    };
+  }
+
+  it("only returns LABOUR employees with positive ledger balance, sorted desc", async () => {
     vi.mocked(prisma.employee.findMany).mockResolvedValue([
-      {
+      buildEmployee({
         id: "a",
         name: "Alice",
-        type: "LABOUR",
-        phone: null,
-        monthlySalary: null,
-        address: null,
-        notes: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
+        ledgerEntries: [
+          { direction: "INCREASE", amount: 30000n, deletedAt: null },
+        ],
         pieceEntries: [
           {
             id: "p1",
@@ -430,19 +461,13 @@ describe("listEmployeesWithOutstandingWages", () => {
             deletedAt: null,
           },
         ],
-        payments: [],
-      },
-      {
+      }),
+      buildEmployee({
         id: "b",
         name: "Bob",
-        type: "LABOUR",
-        phone: null,
-        monthlySalary: null,
-        address: null,
-        notes: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
+        ledgerEntries: [
+          { direction: "INCREASE", amount: 50000n, deletedAt: null },
+        ],
         pieceEntries: [
           {
             id: "p2",
@@ -452,24 +477,9 @@ describe("listEmployeesWithOutstandingWages", () => {
             deletedAt: null,
           },
         ],
-        payments: [],
-      },
-      {
-        id: "c",
-        name: "Cara",
-        type: "LABOUR",
-        phone: null,
-        monthlySalary: null,
-        address: null,
-        notes: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        pieceEntries: [],
-        payments: [],
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ] as any);
+      }),
+      buildEmployee({ id: "c", name: "Cara", ledgerEntries: [] }),
+    ] as never);
 
     const result = await listEmployeesWithOutstandingWages();
     expect(result.length).toBe(2);
@@ -483,6 +493,89 @@ describe("listEmployeesWithOutstandingWages", () => {
     vi.mocked(prisma.employee.findMany).mockResolvedValue([]);
     const result = await listEmployeesWithOutstandingWages();
     expect(result).toEqual([]);
+  });
+
+  it("excludes employees with zero balance (settled)", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      buildEmployee({
+        id: "settled",
+        name: "Settled Karigar",
+        ledgerEntries: [
+          { direction: "INCREASE", amount: 50000n, deletedAt: null },
+          { direction: "DECREASE", amount: 50000n, deletedAt: null },
+        ],
+      }),
+    ] as never);
+    expect(await listEmployeesWithOutstandingWages()).toEqual([]);
+  });
+
+  it("excludes employees with credit balance (advance — negative balance)", async () => {
+    // Karigar received an advance before piece work — negative balance.
+    // /labour Section 2 surfaces "wages owed" only, so this row is
+    // filtered out at this list level. The advance is still on the
+    // ledger and will appear in 21c's per-karigar view.
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      buildEmployee({
+        id: "advanced",
+        name: "Advance Holder",
+        ledgerEntries: [
+          { direction: "DECREASE", amount: 100000n, deletedAt: null },
+        ],
+      }),
+    ] as never);
+    expect(await listEmployeesWithOutstandingWages()).toEqual([]);
+  });
+
+  it("excludes soft-deleted ledger entries from the balance math", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      buildEmployee({
+        id: "with-deleted",
+        name: "With Deleted",
+        ledgerEntries: [
+          { direction: "INCREASE", amount: 30000n, deletedAt: null },
+          // Soft-deleted INCREASE should NOT contribute — without this
+          // exclusion, the balance would double.
+          { direction: "INCREASE", amount: 30000n, deletedAt: new Date() },
+        ],
+        pieceEntries: [
+          {
+            id: "p1",
+            date: new Date("2026-05-10T00:00:00Z"),
+            totalAmount: 30000n,
+            count: 1,
+            deletedAt: null,
+          },
+        ],
+      }),
+    ] as never);
+    const result = await listEmployeesWithOutstandingWages();
+    expect(result.length).toBe(1);
+    expect(result[0].totalAmount).toBe(30000); // not 60000
+  });
+
+  it("net balance: INCREASE − DECREASE (piece work minus wage payments)", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValue([
+      buildEmployee({
+        id: "mixed",
+        name: "Mixed",
+        ledgerEntries: [
+          { direction: "INCREASE", amount: 100000n, deletedAt: null }, // ₹1,000 work
+          { direction: "DECREASE", amount: 40000n, deletedAt: null }, // ₹400 paid
+        ],
+        pieceEntries: [
+          {
+            id: "p1",
+            date: new Date("2026-05-10T00:00:00Z"),
+            totalAmount: 100000n,
+            count: 1,
+            deletedAt: null,
+          },
+        ],
+      }),
+    ] as never);
+    const result = await listEmployeesWithOutstandingWages();
+    expect(result.length).toBe(1);
+    expect(result[0].totalAmount).toBe(60000); // ₹600 net outstanding
   });
 });
 
@@ -580,7 +673,7 @@ describe("getLabourSummary", () => {
           type: "LABOUR",
           phone: null,
           monthlySalary: null,
-            address: null,
+          address: null,
           notes: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -594,7 +687,12 @@ describe("getLabourSummary", () => {
               deletedAt: null,
             },
           ],
-          payments: [],
+          // Phase 21b — listEmployeesWithOutstandingWages reads
+          // ledgerEntries (not payments). Mirror the piece entry as
+          // an INCREASE so the balance comes out to 50000p.
+          ledgerEntries: [
+            { direction: "INCREASE", amount: 50000n, deletedAt: null },
+          ],
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ] as any);

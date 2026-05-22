@@ -248,7 +248,35 @@ export function EmployeePaymentModal({
               rows={2}
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              placeholder={
+                paymentType === "WAGE"
+                  ? 'e.g. "advance for next week", "weekly settlement"'
+                  : undefined
+              }
             />
+            {/* Phase 21b — quick-fill chip for "advance". An advance is
+                a WAGE payment recorded BEFORE the matching piece work,
+                producing a credit balance against the karigar's ledger
+                until the work catches up. The data model doesn't have
+                a separate "advance" enum — it's just a wage payment
+                with a descriptive note. This chip keeps the concept
+                explicit in the UI so the workshop owner can mark it
+                with one tap. */}
+            {paymentType === "WAGE" && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-on-surface-variant">
+                  Quick tag:
+                </span>
+                <button
+                  type="button"
+                  data-testid="quick-note-advance"
+                  onClick={() => setNote("advance")}
+                  className="px-2 py-1 text-[10px] uppercase tracking-wider border border-outline-variant bg-surface-container-low text-on-surface hover:bg-surface-container-high transition-colors"
+                >
+                  Advance
+                </button>
+              </div>
+            )}
             <FormError>{fieldErrors.note}</FormError>
           </div>
 

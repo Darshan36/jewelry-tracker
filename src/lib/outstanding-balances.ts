@@ -186,17 +186,25 @@ export async function listPayables(
   const incomingSources = allowedSources.filter(
     (s) => !s.endsWith("_RETURN"),
   );
+  // Phase 21b — partyId is now nullable on LedgerEntry (karigar entries
+  // set employeeId instead). Filter the nulls so the downstream `id: {
+  // in: partyIds }` query receives only valid party ids.
   const partyIds = await prisma.ledgerEntry
     .findMany({
       where: {
         deletedAt: null,
         direction: "INCREASE",
         sourceType: { in: incomingSources },
+        partyId: { not: null },
       },
       select: { partyId: true },
       distinct: ["partyId"],
     })
-    .then((rows) => rows.map((r) => r.partyId));
+    .then((rows) =>
+      rows
+        .map((r) => r.partyId)
+        .filter((id): id is string => id !== null),
+    );
 
   if (partyIds.length === 0) return [];
 
@@ -260,17 +268,23 @@ export async function listPayables(
 
 export async function listReceivables(): Promise<PartyReceivableRollup[]> {
   // Receivables = parties with INCREASE entries from SALE source.
+  // Phase 21b: filter null partyId (karigar entries).
   const partyIds = await prisma.ledgerEntry
     .findMany({
       where: {
         deletedAt: null,
         direction: "INCREASE",
         sourceType: { in: ["SALE"] },
+        partyId: { not: null },
       },
       select: { partyId: true },
       distinct: ["partyId"],
     })
-    .then((rows) => rows.map((r) => r.partyId));
+    .then((rows) =>
+      rows
+        .map((r) => r.partyId)
+        .filter((id): id is string => id !== null),
+    );
 
   if (partyIds.length === 0) return [];
 

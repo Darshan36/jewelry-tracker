@@ -20,14 +20,19 @@ vi.mock("@/lib/prisma");
 import { prisma } from "@/lib/prisma";
 
 import {
+  computeOwnerBalance,
   computePartyBalance,
   computeScopedBalance,
+  describePieceEntry,
   describeTransactionLedgerEntry,
+  describeWagePayment,
   softDeleteReturnLedgerEntry,
   softDeleteTransactionLedgerEntry,
   updateTransactionLedgerEntry,
+  writePieceEntryLedger,
   writeReturnLedgerEntry,
   writeTransactionLedgerEntry,
+  writeWagePaymentLedger,
 } from "./ledger";
 
 beforeEach(() => {
@@ -65,6 +70,182 @@ describe("describeTransactionLedgerEntry", () => {
     expect(
       describeTransactionLedgerEntry({ sourceType: "PURCHASE_RETURN", lineItemCount: 99 }),
     ).toBe("Purchase return");
+  });
+
+  it("returns defensive fallback for karigar sourceTypes (call sites should use describePieceEntry / describeWagePayment)", () => {
+    expect(
+      describeTransactionLedgerEntry({ sourceType: "PIECE_ENTRY", lineItemCount: 1 }),
+    ).toBe("Piece work");
+    expect(
+      describeTransactionLedgerEntry({ sourceType: "WAGE_PAYMENT", lineItemCount: 0 }),
+    ).toBe("Wage payment");
+  });
+});
+
+// Phase 21b — karigar-side description builders.
+//
+// These strings are what the 21c per-karigar khata view will render
+// directly — pinning them now means the 21c view reads correctly the
+// moment it's wired up.
+
+describe("describePieceEntry (Phase 21b)", () => {
+  it("plural: '50 pcs @ ₹15/pc — polishing' (with note)", () => {
+    expect(
+      describePieceEntry({
+        count: 50,
+        ratePerPiece: 1500n, // ₹15
+        note: "polishing",
+      }),
+    ).toBe("50 pcs @ ₹15/pc — polishing");
+  });
+
+  it("plural without note: '20 pcs @ ₹40/pc'", () => {
+    expect(
+      describePieceEntry({
+        count: 20,
+        ratePerPiece: 4000n, // ₹40
+        note: null,
+      }),
+    ).toBe("20 pcs @ ₹40/pc");
+  });
+
+  it("singular: '1 pc @ ₹2,500/pc — setting' (uses 'pc' not 'pcs')", () => {
+    expect(
+      describePieceEntry({
+        count: 1,
+        ratePerPiece: 250000n, // ₹2,500
+        note: "setting",
+      }),
+    ).toBe("1 pc @ ₹2,500/pc — setting");
+  });
+
+  it("singular without note: '1 pc @ ₹100/pc'", () => {
+    expect(
+      describePieceEntry({
+        count: 1,
+        ratePerPiece: 10000n, // ₹100
+        note: null,
+      }),
+    ).toBe("1 pc @ ₹100/pc");
+  });
+
+  it("rate with paise: '5 pcs @ ₹12.50/pc' (non-whole rupee shows decimals)", () => {
+    expect(
+      describePieceEntry({
+        count: 5,
+        ratePerPiece: 1250n, // ₹12.50
+        note: null,
+      }),
+    ).toBe("5 pcs @ ₹12.50/pc");
+  });
+
+  it("Indian comma grouping for large rates: '1 pc @ ₹1,00,000/pc'", () => {
+    expect(
+      describePieceEntry({
+        count: 1,
+        ratePerPiece: 10_000_000n, // ₹1,00,000
+        note: null,
+      }),
+    ).toBe("1 pc @ ₹1,00,000/pc");
+  });
+
+  it("trims whitespace from note", () => {
+    expect(
+      describePieceEntry({
+        count: 2,
+        ratePerPiece: 5000n,
+        note: "  polishing  ",
+      }),
+    ).toBe("2 pcs @ ₹50/pc — polishing");
+  });
+
+  it("empty-string note is treated as absent", () => {
+    expect(
+      describePieceEntry({
+        count: 3,
+        ratePerPiece: 2000n,
+        note: "",
+      }),
+    ).toBe("3 pcs @ ₹20/pc");
+  });
+
+  it("does NOT embed the line total in the description (the amount column shows it)", () => {
+    const desc = describePieceEntry({
+      count: 50,
+      ratePerPiece: 1500n,
+      note: "polishing",
+    });
+    expect(desc).not.toMatch(/₹750/);
+    expect(desc).not.toMatch(/=/);
+  });
+});
+
+describe("describeWagePayment (Phase 21b)", () => {
+  it("with note: 'Wage payment — advance for next week'", () => {
+    expect(describeWagePayment({ note: "advance for next week" })).toBe(
+      "Wage payment — advance for next week",
+    );
+  });
+
+  it("without note: 'Wage payment'", () => {
+    expect(describeWagePayment({ note: null })).toBe("Wage payment");
+  });
+
+  it("undefined note also produces 'Wage payment'", () => {
+    expect(describeWagePayment({})).toBe("Wage payment");
+  });
+
+  it("trims whitespace", () => {
+    expect(describeWagePayment({ note: "  advance  " })).toBe(
+      "Wage payment — advance",
+    );
+  });
+
+  it("empty-string note is treated as absent", () => {
+    expect(describeWagePayment({ note: "" })).toBe("Wage payment");
+  });
+
+  it("advance is just a wage payment with a note (no separate enum)", () => {
+    // Pinning the data-model decision: there's no "Advance" entry type.
+    // An advance is a wage payment whose note happens to say "advance".
+    expect(describeWagePayment({ note: "advance" })).toBe(
+      "Wage payment — advance",
+    );
+  });
+});
+
+describe("computeOwnerBalance (Phase 21b rename — owner-agnostic)", () => {
+  it("computePartyBalance still works as a @deprecated alias", () => {
+    // The rename must not break existing party-side call sites. The
+    // alias re-export points at the same function (identity equality).
+    expect(computePartyBalance).toBe(computeOwnerBalance);
+    expect(
+      computePartyBalance([
+        { direction: "INCREASE", amount: 100n, deletedAt: null },
+        { direction: "DECREASE", amount: 30n, deletedAt: null },
+      ]),
+    ).toBe(70n);
+  });
+
+  it("owner-agnostic: identical math on karigar-shape entries (employee owner) as on party entries", () => {
+    // The helper takes LedgerEntryLike[] — direction + amount +
+    // deletedAt — and doesn't care about partyId vs employeeId.
+    const entries = [
+      { direction: "INCREASE" as const, amount: 100_000n, deletedAt: null }, // ₹1,000 piece
+      { direction: "DECREASE" as const, amount: 50_000n, deletedAt: null }, // ₹500 wage
+    ];
+    expect(computeOwnerBalance(entries)).toBe(50_000n);
+  });
+
+  it("ADVANCE scenario: DECREASE before any INCREASE produces a credit balance", () => {
+    // Owner records ₹500 advance to karigar BEFORE any piece work →
+    // running balance is −₹500 (karigar holds advance against future
+    // work). Direct support for the "advance = credit balance" model.
+    expect(
+      computeOwnerBalance([
+        { direction: "DECREASE", amount: 50_000n, deletedAt: null },
+      ]),
+    ).toBe(-50_000n);
   });
 });
 
@@ -479,5 +660,96 @@ describe("softDeleteReturnLedgerEntry", () => {
       sourceId: "sr-1",
       deletedAt: null,
     });
+  });
+});
+
+// ---- writePieceEntryLedger (Phase 21b — karigar INCREASE) -------------
+
+describe("writePieceEntryLedger", () => {
+  it("creates an employee-owned INCREASE with PIECE_ENTRY sourceType and richly-described row", async () => {
+    await writePieceEntryLedger(prisma, {
+      employeeId: "emp-1",
+      date: new Date("2026-05-23T00:00:00Z"),
+      sourceId: "pe-1",
+      count: 50,
+      ratePerPiece: 1500n,
+      totalAmount: 75000n,
+      note: "polishing",
+      userId: "user-1",
+    });
+
+    expect(prisma.ledgerEntry.create).toHaveBeenCalledOnce();
+    const call = vi.mocked(prisma.ledgerEntry.create).mock.calls[0][0];
+    expect(call.data).toMatchObject({
+      employeeId: "emp-1",
+      partyId: null,
+      direction: "INCREASE",
+      amount: 75000n,
+      description: "50 pcs @ ₹15/pc — polishing",
+      entryType: "TRANSACTION_LINKED",
+      sourceType: "PIECE_ENTRY",
+      sourceId: "pe-1",
+      createdById: "user-1",
+      updatedById: "user-1",
+    });
+  });
+
+  it("singular: count=1 uses 'pc' not 'pcs'", async () => {
+    await writePieceEntryLedger(prisma, {
+      employeeId: "emp-1",
+      date: new Date(),
+      sourceId: "pe-2",
+      count: 1,
+      ratePerPiece: 250000n,
+      totalAmount: 250000n,
+      note: null,
+      userId: null,
+    });
+    const call = vi.mocked(prisma.ledgerEntry.create).mock.calls[0][0];
+    expect(call.data.description).toBe("1 pc @ ₹2,500/pc");
+  });
+});
+
+// ---- writeWagePaymentLedger (Phase 21b — karigar DECREASE) ------------
+
+describe("writeWagePaymentLedger", () => {
+  it("creates an employee-owned DECREASE with WAGE_PAYMENT sourceType", async () => {
+    await writeWagePaymentLedger(prisma, {
+      employeeId: "emp-1",
+      date: new Date("2026-05-23T00:00:00Z"),
+      sourceId: "ep-1",
+      amount: 500_000n,
+      note: "weekly settlement",
+      userId: "user-1",
+    });
+
+    expect(prisma.ledgerEntry.create).toHaveBeenCalledOnce();
+    const call = vi.mocked(prisma.ledgerEntry.create).mock.calls[0][0];
+    expect(call.data).toMatchObject({
+      employeeId: "emp-1",
+      partyId: null,
+      direction: "DECREASE",
+      amount: 500_000n,
+      description: "Wage payment — weekly settlement",
+      entryType: "TRANSACTION_LINKED",
+      sourceType: "WAGE_PAYMENT",
+      sourceId: "ep-1",
+      createdById: "user-1",
+      updatedById: "user-1",
+    });
+  });
+
+  it("advance: a wage payment with note 'advance' produces 'Wage payment — advance'", async () => {
+    await writeWagePaymentLedger(prisma, {
+      employeeId: "emp-1",
+      date: new Date(),
+      sourceId: "ep-2",
+      amount: 100_000n,
+      note: "advance",
+      userId: null,
+    });
+    const call = vi.mocked(prisma.ledgerEntry.create).mock.calls[0][0];
+    expect(call.data.description).toBe("Wage payment — advance");
+    expect(call.data.direction).toBe("DECREASE");
   });
 });

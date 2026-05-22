@@ -5,6 +5,11 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 import {
+  softDeleteTransactionLedgerEntry,
+  writePieceEntryLedger,
+  writeWagePaymentLedger,
+} from "@/lib/ledger";
+import {
   bulkPieceEntryInputSchema,
   employeePaymentInputSchema,
   pieceEntryInputSchema,
@@ -36,7 +41,7 @@ function revalidateLabour() {
  * — empty save is a no-op, not an error.
  */
 export async function createBulkPieceEntries(input: BulkPieceEntryInput) {
-  await requireRole(["ADMIN", "LABOUR_MGMT"]);
+  const session = await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
   // Defensive filter: drop zero-count rows.
   const cleaned: BulkPieceEntryInput = {
@@ -85,7 +90,7 @@ export async function createBulkPieceEntries(input: BulkPieceEntryInput) {
       const ratePerPiece = rupeesToPaise(e.ratePerPiece);
       const count = BigInt(e.count);
       const totalAmount = ratePerPiece * count;
-      await tx.pieceEntry.create({
+      const created = await tx.pieceEntry.create({
         data: {
           employeeId: e.employeeId,
           date: parsed.data.date,
@@ -94,6 +99,19 @@ export async function createBulkPieceEntries(input: BulkPieceEntryInput) {
           totalAmount,
           note: e.note,
         },
+      });
+      // Phase 21b — emit INCREASE on the karigar's ledger. Atomic
+      // with the parent insert: a thrown ledger write rolls the
+      // piece_entry insert back.
+      await writePieceEntryLedger(tx, {
+        employeeId: e.employeeId,
+        date: parsed.data.date,
+        sourceId: created.id,
+        count: e.count,
+        ratePerPiece,
+        totalAmount,
+        note: e.note ?? null,
+        userId: session.user.id,
       });
     }
   });
@@ -107,7 +125,7 @@ export async function createBulkPieceEntries(input: BulkPieceEntryInput) {
  * or anywhere else outside the bulk form).
  */
 export async function createPieceEntry(input: PieceEntryInput) {
-  await requireRole(["ADMIN", "LABOUR_MGMT"]);
+  const session = await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
   const parsed = pieceEntryInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -137,15 +155,31 @@ export async function createPieceEntry(input: PieceEntryInput) {
   const ratePerPiece = rupeesToPaise(parsed.data.ratePerPiece);
   const totalAmount = ratePerPiece * BigInt(parsed.data.count);
 
-  const entry = await prisma.pieceEntry.create({
-    data: {
+  // Phase 21b — wrap the piece-entry insert and the linked ledger
+  // INCREASE in a single prisma.$transaction so a thrown ledger write
+  // rolls the parent back atomically.
+  const entry = await prisma.$transaction(async (tx) => {
+    const created = await tx.pieceEntry.create({
+      data: {
+        employeeId: parsed.data.employeeId,
+        date: parsed.data.date,
+        count: parsed.data.count,
+        ratePerPiece,
+        totalAmount,
+        note: parsed.data.note,
+      },
+    });
+    await writePieceEntryLedger(tx, {
       employeeId: parsed.data.employeeId,
       date: parsed.data.date,
+      sourceId: created.id,
       count: parsed.data.count,
       ratePerPiece,
       totalAmount,
-      note: parsed.data.note,
-    },
+      note: parsed.data.note ?? null,
+      userId: session.user.id,
+    });
+    return created;
   });
 
   revalidateLabour();
@@ -165,11 +199,23 @@ export async function createPieceEntry(input: PieceEntryInput) {
  * Sales/Purchases payments).
  */
 export async function softDeletePieceEntry(id: string) {
-  await requireRole(["ADMIN", "LABOUR_MGMT"]);
+  const session = await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
-  await prisma.pieceEntry.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  // Phase 21b — cascade soft-delete to the linked PIECE_ENTRY ledger
+  // row inside the same transaction. Without this, the ledger would
+  // keep the INCREASE entry active while its source piece_entry is
+  // tombstoned, corrupting the karigar's running balance (same shape
+  // as the 21a soft-delete-cascade fix on party-side payments).
+  await prisma.$transaction(async (tx) => {
+    await tx.pieceEntry.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await softDeleteTransactionLedgerEntry(tx, {
+      sourceType: "PIECE_ENTRY",
+      sourceId: id,
+      userId: session.user.id,
+    });
   });
 
   revalidateLabour();
@@ -197,7 +243,7 @@ export async function softDeletePieceEntry(id: string) {
  *     advance bonus or correction. The amount is whatever they say.
  */
 export async function createEmployeePayment(input: EmployeePaymentInput) {
-  await requireRole(["ADMIN", "LABOUR_MGMT"]);
+  const session = await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
   const parsed = employeePaymentInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -238,7 +284,7 @@ export async function createEmployeePayment(input: EmployeePaymentInput) {
   const amountPaise = rupeesToPaise(parsed.data.amount);
 
   await prisma.$transaction(async (tx) => {
-    await tx.employeePayment.create({
+    const created = await tx.employeePayment.create({
       data: {
         employeeId: parsed.data.employeeId,
         type: parsed.data.type,
@@ -249,6 +295,23 @@ export async function createEmployeePayment(input: EmployeePaymentInput) {
         note: parsed.data.note,
       },
     });
+
+    // Phase 21b — emit DECREASE on the karigar's ledger for WAGE
+    // payments only. SALARY payments stay on the EmployeePayment rail
+    // (FIXED employees use the monthly-reminder model — untouched in
+    // 21b). Advances are WAGE payments with a note ("advance for next
+    // week" etc.); the data model treats them as regular DECREASE
+    // entries, producing a credit balance until piece work catches up.
+    if (parsed.data.type === "WAGE") {
+      await writeWagePaymentLedger(tx, {
+        employeeId: parsed.data.employeeId,
+        date: parsed.data.paidAt,
+        sourceId: created.id,
+        amount: amountPaise,
+        note: parsed.data.note ?? null,
+        userId: session.user.id,
+      });
+    }
   });
 
   revalidateLabour();
@@ -260,11 +323,29 @@ export async function createEmployeePayment(input: EmployeePaymentInput) {
  * SalePayment — tombstone so the audit trail survives.
  */
 export async function softDeleteEmployeePayment(id: string) {
-  await requireRole(["ADMIN", "LABOUR_MGMT"]);
+  const session = await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
-  await prisma.employeePayment.update({
+  // Phase 21b — for WAGE payments, cascade soft-delete to the linked
+  // ledger DECREASE row. SALARY payments have no ledger entry to
+  // cascade (21b scope: karigar-only). Load the type before the
+  // update so we know whether the cascade applies.
+  const existing = await prisma.employeePayment.findUnique({
     where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+    select: { type: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.employeePayment.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (existing?.type === "WAGE") {
+      await softDeleteTransactionLedgerEntry(tx, {
+        sourceType: "WAGE_PAYMENT",
+        sourceId: id,
+        userId: session.user.id,
+      });
+    }
   });
 
   revalidateLabour();

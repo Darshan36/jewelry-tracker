@@ -1,23 +1,22 @@
-// Outstanding-wages and missing-salary helpers (Phase 18).
+// Outstanding-wages and missing-salary helpers (Phase 18 → 21b).
 //
-// Mirrors the Phase 17b `outstanding-balances.ts` pattern: pure
-// per-employee math at the top + DB-querying aggregators at the
-// bottom. Currency stays as `bigint` paise through the aggregation;
-// only the page renderers convert to Number for display.
+// "Outstanding wages" model — PHASE 21b:
+//   A LABOUR employee's outstanding wages = the raw-signed balance of
+//   their LedgerEntry rows (PIECE_ENTRY INCREASE entries minus
+//   WAGE_PAYMENT DECREASE entries). Positive balance = shop owes
+//   karigar; negative balance = karigar holds an advance against
+//   future work. Source of truth is the ledger, NOT period overlap.
 //
-// "Outstanding wages" model:
-//   A LABOUR employee accumulates piece work via PieceEntry rows.
-//   Each WAGE-type EmployeePayment covers a [periodStart, periodEnd]
-//   window. A PieceEntry is "covered" iff there exists at least one
-//   non-deleted WAGE payment whose period contains the entry's date.
-//   Coverage is by period overlap (NOT a per-entry flag) — this
-//   decouples production tracking from payment tracking and lets the
-//   user record a single payment for a range of days without
-//   touching the underlying piece data.
+//   The Phase 18 period-overlap model (`isPieceEntryCovered`,
+//   `computeOutstandingWages`, `isDateInPeriod`) is preserved as
+//   `@deprecated` exports for one phase so external imports don't
+//   break during the cutover — drop in 21c.
 //
-// "Missing salary this month" model:
+// "Missing salary this month" model — UNCHANGED in 21b:
 //   For each FIXED employee, check if any non-deleted SALARY-type
 //   EmployeePayment exists with periodStart in the current IST month.
+//   FIXED-employee salary stays on the EmployeePayment rail; only the
+//   LABOUR-side wage tracking moves to the ledger.
 
 import { prisma } from "@/lib/prisma";
 import type {
@@ -25,6 +24,7 @@ import type {
   EmployeePayment,
   PieceEntry,
 } from "@/generated/prisma";
+import { computeOwnerBalance } from "@/lib/ledger";
 import {
   currentIstYearMonth,
   endOfMonthIST,
@@ -56,6 +56,10 @@ type SalaryPaymentLike = {
 };
 
 /**
+ * @deprecated Phase 18 period-overlap helper. The ledger is now the
+ * source of truth for outstanding wages (see `computeOwnerBalance`).
+ * Kept for one phase so external imports don't break; drop in 21c.
+ *
  * True iff the given moment falls within the half-open
  * [periodStart, periodEnd] inclusive range. The check is inclusive on
  * both ends — a payment for "May 1 to May 31" covers a piece entry
@@ -71,6 +75,10 @@ export function isDateInPeriod(
 }
 
 /**
+ * @deprecated Phase 18 period-overlap coverage helper. Outstanding
+ * wages now derive from the ledger; coverage is implicit in the
+ * running balance. Kept for one phase; drop in 21c.
+ *
  * True iff any non-deleted WAGE-type payment's period covers this
  * piece entry's date.
  */
@@ -87,6 +95,10 @@ export function isPieceEntryCovered(
 }
 
 /**
+ * @deprecated Phase 18 period-overlap aggregator. Replaced by
+ * `computeOwnerBalance(employee.ledgerEntries)` from `@/lib/ledger`.
+ * Kept for one phase; drop in 21c.
+ *
  * Reduce per-employee piece entries + wage payments to a single
  * outstanding-wages bundle. Pure function — no DB. Used by the
  * aggregator below and by tests.
@@ -210,6 +222,17 @@ function serializeEmployeePayment(
 export async function getOutstandingWages(
   employeeId: string,
 ): Promise<OutstandingWagesForEmployee | null> {
+  // Phase 21b — ledger-driven outstanding wages.
+  //
+  // The Phase 18 shape returned `unpaidEntries` (the list of PieceEntry
+  // rows not yet covered by a WAGE period) plus aggregate totals. With
+  // the ledger as source of truth, "unpaid pieces" stops being a
+  // well-defined concept — coverage is no longer per-entry, it's the
+  // running balance. We still surface the LABOUR employee's
+  // `pieceEntries` list (read-side history) and the ledger-derived
+  // `totalAmount`. `unpaidEntries` is intentionally returned as ALL
+  // active piece entries (callers that need a strict unpaid filter can
+  // walk the ledger directly via `listEmployeeLedger`).
   const employee = await prisma.employee.findUnique({
     where: { id: employeeId, deletedAt: null },
     include: {
@@ -217,8 +240,8 @@ export async function getOutstandingWages(
         where: { deletedAt: null },
         orderBy: { date: "asc" },
       },
-      payments: {
-        where: { deletedAt: null, type: "WAGE" },
+      ledgerEntries: {
+        where: { deletedAt: null },
       },
     },
   });
@@ -233,17 +256,23 @@ export async function getOutstandingWages(
     };
   }
 
-  const result = computeOutstandingWages(
-    employee.pieceEntries,
-    employee.payments,
-  );
+  const balance = computeOwnerBalance(employee.ledgerEntries);
+  // Clamp the surfaced "outstanding" to ≥0 for the existing UI contract
+  // (the /labour Section 2 doesn't show advance/credit yet — that's a
+  // 21c-era surface). Credit balances are still legal on the ledger;
+  // they just don't show as "owed wages" here.
+  const totalAmount = balance > 0n ? balance : 0n;
+  const totalPieces = employee.pieceEntries.reduce((s, e) => s + e.count, 0);
+  const earliestUnpaidDate = employee.pieceEntries.length > 0
+    ? employee.pieceEntries[0].date
+    : null;
 
   return {
     employee: serializeEmployee(employee),
-    totalPieces: result.totalPieces,
-    totalAmount: Number(result.totalAmount),
-    earliestUnpaidDate: result.earliestUnpaidDate,
-    unpaidEntries: result.unpaidEntries.map((e) =>
+    totalPieces,
+    totalAmount: Number(totalAmount),
+    earliestUnpaidDate,
+    unpaidEntries: employee.pieceEntries.map((e) =>
       serializePieceEntry(e as PieceEntry),
     ),
   };
@@ -257,24 +286,38 @@ export async function getOutstandingWages(
 export async function listEmployeesWithOutstandingWages(): Promise<
   EmployeeWagesRollup[]
 > {
+  // Phase 21b — ledger-driven rollup. The existing /labour Section 2
+  // surface (and the dashboard outstanding-wages card) reads this list;
+  // both display "outstanding wages" as a positive number. Credit /
+  // advance balances are filtered out of THIS list (negative balance
+  // means karigar holds an advance — not "wages owed") but stay
+  // representable on the ledger; 21c's per-karigar view will surface
+  // them explicitly.
   const employees = await prisma.employee.findMany({
     where: { deletedAt: null, type: "LABOUR" },
     include: {
       pieceEntries: { where: { deletedAt: null } },
-      payments: { where: { deletedAt: null, type: "WAGE" } },
+      ledgerEntries: { where: { deletedAt: null } },
     },
     orderBy: { name: "asc" },
   });
 
   const rollups: EmployeeWagesRollup[] = [];
   for (const emp of employees) {
-    const r = computeOutstandingWages(emp.pieceEntries, emp.payments);
-    if (r.totalAmount === 0n) continue;
+    const balance = computeOwnerBalance(emp.ledgerEntries);
+    if (balance <= 0n) continue;
+    const totalPieces = emp.pieceEntries.reduce((s, e) => s + e.count, 0);
+    const earliestUnpaidDate = emp.pieceEntries.length > 0
+      ? emp.pieceEntries.reduce(
+          (acc, e) => (acc === null || e.date < acc ? e.date : acc),
+          null as Date | null,
+        )
+      : null;
     rollups.push({
       employee: serializeEmployee(emp),
-      totalAmount: Number(r.totalAmount),
-      totalPieces: r.totalPieces,
-      earliestUnpaidDate: r.earliestUnpaidDate,
+      totalAmount: Number(balance),
+      totalPieces,
+      earliestUnpaidDate,
     });
   }
   rollups.sort((a, b) => b.totalAmount - a.totalAmount);

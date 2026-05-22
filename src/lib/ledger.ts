@@ -33,7 +33,11 @@ import type { LedgerSourceType, Prisma } from "@/generated/prisma";
 // ---- Description builders --------------------------------------------
 
 /**
- * Auto-derived description for a TRANSACTION_LINKED entry.
+ * Auto-derived description for a TRANSACTION_LINKED entry on the PARTY
+ * side (Sale / Purchase / Casting / Plating + returns). Karigar-side
+ * entries (PIECE_ENTRY, WAGE_PAYMENT) have richer descriptions built by
+ * `describePieceEntry` / `describeWagePayment` — those carry
+ * count/rate/note details that wouldn't fit the "N items" template.
  *
  * The description is shown in the party-ledger statement view. The
  * sourceType + sourceId discriminator on the row is the authoritative
@@ -58,7 +62,80 @@ export function describeTransactionLedgerEntry(input: {
       return "Sale return";
     case "PURCHASE_RETURN":
       return "Purchase return";
+    case "PIECE_ENTRY":
+      // Defensive fallback — call sites should use describePieceEntry,
+      // which carries the count/rate/note context this generic helper
+      // doesn't see. Returning a marker rather than throwing keeps the
+      // ledger row creatable even if a future code path misroutes here.
+      return "Piece work";
+    case "WAGE_PAYMENT":
+      // Same defensive fallback — call sites use describeWagePayment.
+      return "Wage payment";
   }
+}
+
+/**
+ * Format a paise integer as a rupee string for embedding in a
+ * description. Uses Indian comma grouping (lakh / crore). Drops the
+ * decimal when the amount is a whole rupee, so "₹15" reads cleaner
+ * than "₹15.00" in `"50 pcs @ ₹15/pc"`. Used only by the description
+ * builders; storage and display elsewhere still go through
+ * `formatCurrency`.
+ */
+function formatRateForDescription(paise: bigint): string {
+  const negative = paise < 0n;
+  const abs = negative ? -paise : paise;
+  const rupees = abs / 100n;
+  const remainder = abs % 100n;
+  const grouped = new Intl.NumberFormat("en-IN").format(Number(rupees));
+  const minus = negative ? "−" : "";
+  if (remainder === 0n) return `${minus}₹${grouped}`;
+  const paiseStr = remainder.toString().padStart(2, "0");
+  return `${minus}₹${grouped}.${paiseStr}`;
+}
+
+/**
+ * Karigar piece-entry description. The 21c per-karigar view will render
+ * these directly — the product owner wants to SEE what the work was,
+ * not just a number.
+ *
+ * Examples:
+ *   - "50 pcs @ ₹15/pc — polishing"  (with Phase 18.1 note)
+ *   - "20 pcs @ ₹40/pc"              (no note)
+ *   - "1 pc @ ₹2,500/pc — setting"   (singular)
+ *
+ * Singular/plural is "pc" vs "pcs". The line total is intentionally NOT
+ * embedded — the amount column on the ledger view already shows it.
+ */
+export function describePieceEntry(input: {
+  count: number;
+  ratePerPiece: bigint;
+  note?: string | null;
+}): string {
+  const unit = input.count === 1 ? "pc" : "pcs";
+  const rate = formatRateForDescription(input.ratePerPiece);
+  const base = `${input.count} ${unit} @ ${rate}/pc`;
+  const note = input.note?.trim();
+  return note ? `${base} — ${note}` : base;
+}
+
+/**
+ * Karigar wage-payment description. Advances are wage payments with a
+ * descriptive note — there's no separate "advance" entry type; the
+ * data model treats both as DECREASE entries against the employee's
+ * ledger balance. Surface the note when present; otherwise just
+ * "Wage payment".
+ *
+ * Examples:
+ *   - "Wage payment — advance for next week"
+ *   - "Wage payment — weekly settlement"
+ *   - "Wage payment"
+ */
+export function describeWagePayment(input: {
+  note?: string | null;
+}): string {
+  const note = input.note?.trim();
+  return note ? `Wage payment — ${note}` : "Wage payment";
 }
 
 // ---- TRANSACTION_LINKED writes (parent create path) ------------------
@@ -254,6 +331,85 @@ export async function softDeleteTransactionLedgerEntry(
     data: {
       deletedAt: new Date(),
       deletedById: input.userId,
+    },
+  });
+}
+
+// ---- Karigar (Employee-owned) ledger writes — Phase 21b -------------
+//
+// PIECE_ENTRY → INCREASE on the karigar's ledger ("shop owes karigar").
+// WAGE_PAYMENT → DECREASE ("shop paid karigar"). Advances are wage
+// payments with a descriptive note — the data model treats them as
+// regular DECREASE entries; a credit balance (negative) means the
+// karigar holds an advance against future work.
+//
+// Both helpers MUST be called inside the parent labour action's
+// `prisma.$transaction` so a thrown ledger write rolls the parent
+// (PieceEntry / EmployeePayment) back atomically. Soft-deletes reuse
+// the owner-agnostic `softDeleteTransactionLedgerEntry` from above.
+
+type PieceEntryLedgerInput = {
+  employeeId: string;
+  date: Date;
+  sourceId: string;        // piece_entries.id
+  count: number;
+  ratePerPiece: bigint;
+  totalAmount: bigint;     // = count × ratePerPiece (caller computes)
+  note: string | null;
+  userId: string | null;
+};
+
+export async function writePieceEntryLedger(
+  tx: Prisma.TransactionClient,
+  input: PieceEntryLedgerInput,
+): Promise<void> {
+  await tx.ledgerEntry.create({
+    data: {
+      employeeId: input.employeeId,
+      partyId: null,
+      date: input.date,
+      direction: "INCREASE",
+      amount: input.totalAmount,
+      description: describePieceEntry({
+        count: input.count,
+        ratePerPiece: input.ratePerPiece,
+        note: input.note,
+      }),
+      entryType: "TRANSACTION_LINKED",
+      sourceType: "PIECE_ENTRY",
+      sourceId: input.sourceId,
+      createdById: input.userId,
+      updatedById: input.userId,
+    },
+  });
+}
+
+type WagePaymentLedgerInput = {
+  employeeId: string;
+  date: Date;
+  sourceId: string;        // employee_payments.id
+  amount: bigint;
+  note: string | null;
+  userId: string | null;
+};
+
+export async function writeWagePaymentLedger(
+  tx: Prisma.TransactionClient,
+  input: WagePaymentLedgerInput,
+): Promise<void> {
+  await tx.ledgerEntry.create({
+    data: {
+      employeeId: input.employeeId,
+      partyId: null,
+      date: input.date,
+      direction: "DECREASE",
+      amount: input.amount,
+      description: describeWagePayment({ note: input.note }),
+      entryType: "TRANSACTION_LINKED",
+      sourceType: "WAGE_PAYMENT",
+      sourceId: input.sourceId,
+      createdById: input.userId,
+      updatedById: input.userId,
     },
   });
 }
@@ -476,14 +632,21 @@ type LedgerEntryLike = {
 };
 
 /**
- * RAW SIGNED party balance: Σ(INCREASE) − Σ(DECREASE) across
+ * RAW SIGNED owner balance: Σ(INCREASE) − Σ(DECREASE) across
  * non-deleted entries. NEVER clamped — negative results represent
- * credit balances (the shop owes the party, or the party paid more
- * than they owed against historical INCREASEs that have since been
- * removed). The UI must label negative balances as "credit" rather
- * than displaying a minus-prefixed outstanding amount.
+ * credit balances. The UI must label negative balances as "credit"
+ * rather than displaying a minus-prefixed outstanding amount.
+ *
+ * Owner-agnostic: works for Party-owned entries (Phase 21a) and
+ * Employee-owned entries (Phase 21b — karigar). The math is identical
+ * because the LedgerEntry shape already separated direction from
+ * owner.
+ *
+ * Phase 21b: renamed from `computePartyBalance`. The old name is
+ * preserved as a `@deprecated` alias for one phase; drop the alias in
+ * 21c when all call sites have moved.
  */
-export function computePartyBalance(entries: LedgerEntryLike[]): bigint {
+export function computeOwnerBalance(entries: LedgerEntryLike[]): bigint {
   let total = 0n;
   for (const e of entries) {
     if (e.deletedAt !== null) continue;
@@ -492,6 +655,13 @@ export function computePartyBalance(entries: LedgerEntryLike[]): bigint {
   }
   return total;
 }
+
+/**
+ * @deprecated Use `computeOwnerBalance` instead — owner-agnostic name.
+ * Kept for one phase (drop in 21c) so existing party-side call sites
+ * don't break during the rename.
+ */
+export const computePartyBalance = computeOwnerBalance;
 
 /**
  * Scoped-balance computation — for /payables role-scoped views.
@@ -555,6 +725,43 @@ export async function listPartyLedger(
 ): Promise<LedgerEntryForClient[]> {
   const entries = await prisma.ledgerEntry.findMany({
     where: { partyId, deletedAt: null },
+    orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+  });
+
+  let running = 0n;
+  const out: LedgerEntryForClient[] = [];
+  for (const e of entries) {
+    if (e.direction === "INCREASE") running += e.amount;
+    else running -= e.amount;
+    out.push({
+      id: e.id,
+      date: e.date,
+      direction: e.direction,
+      amount: Number(e.amount),
+      description: e.description,
+      entryType: e.entryType,
+      sourceType: e.sourceType,
+      sourceId: e.sourceId,
+      runningBalance: Number(running),
+    });
+  }
+  return out;
+}
+
+/**
+ * Phase 21b — chronological ledger entries for one karigar (Employee)
+ * with running balance precomputed. Peer to `listPartyLedger`.
+ *
+ * Note: 21b ships no dedicated per-karigar view (that's 21c). This
+ * helper exists because `labour-balances.ts` needs to fetch karigar
+ * entries to drive the outstanding-wages number on /labour, and the
+ * 21c view will consume it as-is.
+ */
+export async function listEmployeeLedger(
+  employeeId: string,
+): Promise<LedgerEntryForClient[]> {
+  const entries = await prisma.ledgerEntry.findMany({
+    where: { employeeId, deletedAt: null },
     orderBy: [{ date: "asc" }, { createdAt: "asc" }],
   });
 

@@ -183,6 +183,13 @@ export async function softDeleteLedgerEntry(
       },
     };
   }
+  // Phase 21b — LedgerEntry.party is now optional (karigar entries set
+  // employeeId instead). MANUAL_PAYMENT entries are always party-side
+  // in the current data model, so this guard is defensive only — but
+  // TypeScript needs the narrowing.
+  if (!entry.party) {
+    return { ok: false, errors: { message: "Ledger entry has no party owner." } };
+  }
 
   const allowed = rolesAllowedForParty(entry.party);
   if (allowed.length === 0) {
@@ -270,6 +277,12 @@ export async function updateLedgerPayment(
           "Cannot edit a TRANSACTION_LINKED entry directly. Edit the parent transaction instead.",
       },
     };
+  }
+  // Phase 21b — narrowing: MANUAL_PAYMENT entries always have a party
+  // owner (karigar advances are TRANSACTION_LINKED WAGE_PAYMENT rows,
+  // not MANUAL_PAYMENT). Defensive guard for TS.
+  if (!entry.party) {
+    return { ok: false, errors: { message: "Ledger entry has no party owner." } };
   }
 
   const allowed = rolesAllowedForParty(entry.party);
