@@ -62,7 +62,12 @@ export function SaleDetailModal({ open, onOpenChange, sale }: Props) {
               )}
               <span>{sale.partyName}</span>
             </span>
-            <TransactionStatusChip status={sale.status} />
+            {/* Phase 21a.1: status chip only for walk-in sales — party-linked
+                sales reconcile on the party ledger, so a per-sale status
+                would contradict the ledger pointer below. */}
+            {sale.partyId === null && (
+              <TransactionStatusChip status={sale.status} />
+            )}
           </ResponsiveDialogTitle>
         </ResponsiveDialogHeader>
 

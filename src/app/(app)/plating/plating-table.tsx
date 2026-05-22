@@ -152,7 +152,19 @@ export function PlatingTable({ entries }: Props) {
       accessorKey: "status",
       header: "Status",
       enableSorting: false,
-      cell: ({ row }) => <TransactionStatusChip status={row.original.status} />,
+      // Phase 21a.1: walk-in only.
+      cell: ({ row }) =>
+        row.original.partyId === null ? (
+          <TransactionStatusChip status={row.original.status} />
+        ) : (
+          <span
+            className="text-[10px] text-on-surface-variant"
+            data-testid="ledger-tracked-hint"
+            title="Payment tracked on this vendor's ledger"
+          >
+            on ledger
+          </span>
+        ),
     },
     {
       id: "quickActions",
@@ -553,7 +565,9 @@ function PlatingMobileCard({
             </div>
           )}
         </MobileCardTitle>
-        <TransactionStatusChip status={entry.status} />
+        {entry.partyId === null && (
+          <TransactionStatusChip status={entry.status} />
+        )}
       </MobileCardHeader>
 
       <div className="text-sm text-on-surface-variant">

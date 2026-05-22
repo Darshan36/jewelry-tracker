@@ -285,6 +285,79 @@ describe("listReceivables (ledger-backed)", () => {
     // 100000 (sale) − 30000 (return) − 20000 (manual payment) = 50000 owed
     expect(r[0].totalOutstanding).toBe(50000);
   });
+
+  // Phase 21a.1 — credit-balance customers must be visible in receivables
+  // (not filtered out by an "outstanding > 0" pre-check). The screenshot
+  // scenario: ₹1,000 sale + ₹10,000 payment → −₹9,000 credit.
+  it("INCLUDES credit-balance customers (negative balance) — Phase 21a.1", async () => {
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([
+      { partyId: "cust-credit" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([
+      {
+        ...makeParty({ id: "cust-credit", name: "Overpaid Customer" }),
+        isCustomer: true,
+        isSupplier: false,
+        ledgerEntries: [
+          makeLedgerEntry({
+            direction: "INCREASE",
+            amount: 100_000n,
+            sourceType: "SALE",
+            sourceId: "s-1",
+          }),
+          makeLedgerEntry({
+            id: "le-2",
+            direction: "DECREASE",
+            amount: 1_000_000n,
+            entryType: "MANUAL_PAYMENT",
+            sourceType: null,
+            sourceId: null,
+          }),
+        ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    ]);
+
+    const r = await listReceivables();
+    expect(r).toHaveLength(1);
+    expect(r[0].totalOutstanding).toBe(-900_000); // credit balance −₹9,000
+  });
+});
+
+// Phase 21a.1 — credit-balance suppliers visible in payables too.
+describe("listPayables — credit-balance visibility (Phase 21a.1)", () => {
+  it("includes a party with credit balance (negative outstanding)", async () => {
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([
+      { partyId: "sup-credit" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([
+      {
+        ...makeParty({ id: "sup-credit", name: "Overpaid Supplier" }),
+        ledgerEntries: [
+          makeLedgerEntry({
+            direction: "INCREASE",
+            amount: 100_000n,
+            sourceType: "PURCHASE",
+          }),
+          makeLedgerEntry({
+            id: "le-2",
+            direction: "DECREASE",
+            amount: 500_000n,
+            entryType: "MANUAL_PAYMENT",
+            sourceType: null,
+            sourceId: null,
+          }),
+        ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    ]);
+
+    const r = await listPayables("all");
+    expect(r).toHaveLength(1);
+    expect(r[0].totalOutstanding).toBe(-400_000); // raw signed credit
+  });
 });
 
 // --- listWalkInPayables (unchanged from Phase 17b) ---------------------

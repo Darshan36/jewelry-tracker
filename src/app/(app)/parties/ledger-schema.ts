@@ -33,3 +33,26 @@ export const createLedgerPaymentSchema = z.object({
 });
 
 export type CreateLedgerPaymentInput = z.input<typeof createLedgerPaymentSchema>;
+
+// Phase 21a.1 — edit an existing MANUAL_PAYMENT ledger entry.
+//
+// Fields mirror createLedgerPaymentSchema; the action enforces the
+// TRANSACTION_LINKED rejection (only MANUAL_PAYMENT entries are
+// editable from the ledger UI). The entry's `id` identifies the row;
+// `partyId` is not editable — moving a payment between parties is a
+// soft-delete + new-create operation, not an in-place edit.
+export const updateLedgerPaymentSchema = z.object({
+  id: z.string().min(1, "Entry id is required"),
+  date: z.coerce.date({ message: "Date is required" }),
+  amount: z.number().positive("Amount must be greater than zero"),
+  description: z
+    .string()
+    .trim()
+    .max(2000)
+    .nullish()
+    .transform((v) =>
+      v === undefined || v === null || v === "" ? null : v,
+    ),
+});
+
+export type UpdateLedgerPaymentInput = z.input<typeof updateLedgerPaymentSchema>;

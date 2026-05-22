@@ -162,7 +162,21 @@ export function SalesTable({ sales }: Props) {
       accessorKey: "status",
       header: "Status",
       enableSorting: false,
-      cell: ({ row }) => <TransactionStatusChip status={row.original.status} />,
+      // Phase 21a.1: status chip only meaningful for walk-in transactions.
+      // Party-linked rows reconcile on the party ledger; rendering a
+      // "pending" chip there was misinformation.
+      cell: ({ row }) =>
+        row.original.partyId === null ? (
+          <TransactionStatusChip status={row.original.status} />
+        ) : (
+          <span
+            className="text-[10px] text-on-surface-variant"
+            data-testid="ledger-tracked-hint"
+            title="Payment tracked on this customer's ledger"
+          >
+            on ledger
+          </span>
+        ),
     },
     {
       id: "quickActions",
@@ -634,7 +648,9 @@ function SaleMobileCard({
             </div>
           )}
         </MobileCardTitle>
-        <TransactionStatusChip status={sale.status} />
+        {sale.partyId === null && (
+          <TransactionStatusChip status={sale.status} />
+        )}
       </MobileCardHeader>
 
       <div className="flex items-center gap-2 text-sm text-on-surface-variant">

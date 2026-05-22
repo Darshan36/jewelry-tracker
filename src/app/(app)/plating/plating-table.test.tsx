@@ -252,3 +252,34 @@ describe("PlatingTable — delete confirmation", () => {
     expect(within(row!).getByRole("button", { name: /^delete$/i })).toBeInTheDocument();
   });
 });
+
+// Phase 21a.1 — status chip is walk-in-only on plating too.
+describe("PlatingTable — status chip is walk-in-only (Phase 21a.1)", () => {
+  it("renders the chip for a walk-in entry", () => {
+    render(
+      <PlatingTable
+        entries={[
+          makeEntry({ id: "walk", partyId: null, status: "pending" }),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Pending/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("ledger-tracked-hint")).toBeNull();
+  });
+
+  it("HIDES the chip for a party-linked entry and shows 'on ledger'", () => {
+    render(
+      <PlatingTable
+        entries={[
+          makeEntry({
+            id: "linked",
+            partyId: "party-1",
+            status: "pending",
+          }),
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/Pending/i)).toBeNull();
+    expect(screen.getByTestId("ledger-tracked-hint")).toBeInTheDocument();
+  });
+});

@@ -24,7 +24,9 @@ import type { Role } from "@/generated/prisma";
 
 import {
   createLedgerPaymentSchema,
+  updateLedgerPaymentSchema,
   type CreateLedgerPaymentInput,
+  type UpdateLedgerPaymentInput,
 } from "./ledger-schema";
 
 export type LedgerActionResult =
@@ -197,6 +199,100 @@ export async function softDeleteLedgerEntry(
       deletedAt: new Date(),
       deletedById: session.user.id,
     },
+  });
+
+  revalidatePath("/payables");
+  revalidatePath("/receivables");
+  revalidatePath("/dashboard");
+  revalidatePath(`/payables/${entry.party.id}`);
+  revalidatePath(`/receivables/${entry.party.id}`);
+
+  return { ok: true, entryId: entry.id };
+}
+
+/**
+ * Edit an existing MANUAL_PAYMENT ledger entry — change amount / date /
+ * description. Phase 21a.1.
+ *
+ * Constraints:
+ *   - Rejects entries whose `entryType` is not MANUAL_PAYMENT. Transaction-
+ *     linked entries (sale/purchase/casting/plating/return) are corrected
+ *     by editing or soft-deleting the parent transaction, NOT here.
+ *   - Cannot change `partyId` — to move a payment between parties, soft-
+ *     delete it and create a new one. Keeps the audit lineage clean.
+ *   - Role-gated via the same `rolesAllowedForParty` intersection used by
+ *     create + soft-delete.
+ *
+ * Wrapped in `prisma.$transaction` for consistency with the rest of the
+ * ledger write surface (atomicity over the single update + updatedBy
+ * stamp; the wrap also future-proofs us against splitting the action
+ * later).
+ */
+export async function updateLedgerPayment(
+  input: UpdateLedgerPaymentInput,
+): Promise<LedgerActionResult> {
+  const parsed = updateLedgerPaymentSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+  const data = parsed.data;
+
+  // Load the entry first so we can determine which roles may edit it
+  // (driven by the owning party's role flags) and so we can enforce the
+  // MANUAL_PAYMENT-only constraint.
+  const entry = await prisma.ledgerEntry.findUnique({
+    where: { id: data.id, deletedAt: null },
+    select: {
+      id: true,
+      entryType: true,
+      party: {
+        select: {
+          id: true,
+          isCustomer: true,
+          isSupplier: true,
+          isCastingVendor: true,
+          isPlatingVendor: true,
+        },
+      },
+    },
+  });
+  if (!entry) {
+    return { ok: false, errors: { message: "Ledger entry not found" } };
+  }
+  if (entry.entryType !== "MANUAL_PAYMENT") {
+    return {
+      ok: false,
+      errors: {
+        message:
+          "Cannot edit a TRANSACTION_LINKED entry directly. Edit the parent transaction instead.",
+      },
+    };
+  }
+
+  const allowed = rolesAllowedForParty(entry.party);
+  if (allowed.length === 0) {
+    return {
+      ok: false,
+      errors: { message: "Party has no role flags." },
+    };
+  }
+  const session = await requireRole(allowed);
+
+  const amountPaise = BigInt(Math.round(data.amount * 100));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.ledgerEntry.update({
+      where: { id: entry.id },
+      data: {
+        date: data.date,
+        amount: amountPaise,
+        description: data.description,
+        updatedById: session.user.id,
+      },
+    });
   });
 
   revalidatePath("/payables");

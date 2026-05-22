@@ -62,7 +62,10 @@ export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
               )}
               <span>{purchase.partyName}</span>
             </span>
-            <TransactionStatusChip status={purchase.status} />
+            {/* Phase 21a.1: walk-in only. */}
+            {purchase.partyId === null && (
+              <TransactionStatusChip status={purchase.status} />
+            )}
           </ResponsiveDialogTitle>
         </ResponsiveDialogHeader>
 

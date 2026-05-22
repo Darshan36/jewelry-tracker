@@ -161,7 +161,19 @@ export function PurchasesTable({ purchases }: Props) {
       accessorKey: "status",
       header: "Status",
       enableSorting: false,
-      cell: ({ row }) => <TransactionStatusChip status={row.original.status} />,
+      // Phase 21a.1: walk-in only.
+      cell: ({ row }) =>
+        row.original.partyId === null ? (
+          <TransactionStatusChip status={row.original.status} />
+        ) : (
+          <span
+            className="text-[10px] text-on-surface-variant"
+            data-testid="ledger-tracked-hint"
+            title="Payment tracked on this supplier's ledger"
+          >
+            on ledger
+          </span>
+        ),
     },
     {
       id: "quickActions",
@@ -609,7 +621,9 @@ function PurchaseMobileCard({
             </div>
           )}
         </MobileCardTitle>
-        <TransactionStatusChip status={purchase.status} />
+        {purchase.partyId === null && (
+          <TransactionStatusChip status={purchase.status} />
+        )}
       </MobileCardHeader>
 
       <div className="flex items-center gap-2 text-sm text-on-surface-variant">

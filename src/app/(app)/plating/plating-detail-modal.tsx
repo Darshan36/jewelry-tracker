@@ -80,7 +80,10 @@ export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
               )}
               <span>{entry.partyName}</span>
             </span>
-            <TransactionStatusChip status={entry.status} />
+            {/* Phase 21a.1: walk-in only. */}
+            {entry.partyId === null && (
+              <TransactionStatusChip status={entry.status} />
+            )}
           </ResponsiveDialogTitle>
         </ResponsiveDialogHeader>
 

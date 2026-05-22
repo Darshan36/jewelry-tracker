@@ -33,9 +33,23 @@ import {
 } from "@/components/form-controls";
 import { todayIsoIST } from "@/lib/format";
 
-import { createLedgerPayment } from "@/app/(app)/parties/ledger-actions";
+import {
+  createLedgerPayment,
+  updateLedgerPayment,
+} from "@/app/(app)/parties/ledger-actions";
 
 export type PartyLedgerPaymentDirection = "payable" | "receivable";
+
+/**
+ * When provided, the modal runs in EDIT mode: prefills from the given
+ * entry and submits via `updateLedgerPayment`. Absent → CREATE mode.
+ */
+export type PartyLedgerPaymentEditTarget = {
+  id: string;
+  amountPaise: number;
+  date: Date;
+  description: string | null;
+};
 
 export type PartyLedgerPaymentModalProps = {
   open: boolean;
@@ -49,7 +63,17 @@ export type PartyLedgerPaymentModalProps = {
   };
   /** Optional default amount in paise — used to pre-fill from a "pay full balance" caller. */
   defaultAmountPaise?: number;
+  /** Phase 21a.1 — when set, modal runs in edit mode. */
+  editEntry?: PartyLedgerPaymentEditTarget;
 };
+
+function dateToInputValue(d: Date): string {
+  // Format Date → "YYYY-MM-DD" in IST. Mirrors the convention in
+  // src/lib/format.ts but applied here to a single Date (the stored
+  // ledger entry date is midnight UTC representing an IST day).
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+}
 
 export function PartyLedgerPaymentModal({
   open,
@@ -58,8 +82,10 @@ export function PartyLedgerPaymentModal({
   direction,
   party,
   defaultAmountPaise,
+  editEntry,
 }: PartyLedgerPaymentModalProps) {
   const router = useRouter();
+  const isEdit = !!editEntry;
   const [date, setDate] = useState<string>(todayIsoIST());
   const [amount, setAmount] = useState<string>("");
   const [description, setDescription] = useState<string>("");
@@ -67,19 +93,26 @@ export function PartyLedgerPaymentModal({
   const [topError, setTopError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Reset state each time the modal opens.
+  // Reset state each time the modal opens — prefill from `editEntry` in
+  // edit mode, from `defaultAmountPaise` in create mode.
   useEffect(() => {
     if (!open) return;
-    setDate(todayIsoIST());
-    setAmount(
-      defaultAmountPaise && defaultAmountPaise > 0
-        ? (defaultAmountPaise / 100).toFixed(2)
-        : "",
-    );
-    setDescription("");
+    if (editEntry) {
+      setDate(dateToInputValue(editEntry.date));
+      setAmount((editEntry.amountPaise / 100).toFixed(2));
+      setDescription(editEntry.description ?? "");
+    } else {
+      setDate(todayIsoIST());
+      setAmount(
+        defaultAmountPaise && defaultAmountPaise > 0
+          ? (defaultAmountPaise / 100).toFixed(2)
+          : "",
+      );
+      setDescription("");
+    }
     setFieldErrors({});
     setTopError(null);
-  }, [open, defaultAmountPaise]);
+  }, [open, defaultAmountPaise, editEntry]);
 
   const amountNum = Number(amount);
   const canSave =
@@ -91,12 +124,19 @@ export function PartyLedgerPaymentModal({
     setTopError(null);
     setFieldErrors({});
 
-    const result = await createLedgerPayment({
-      partyId: party.id,
-      date: new Date(date),
-      amount: amountNum,
-      description: description.trim() || null,
-    });
+    const result = editEntry
+      ? await updateLedgerPayment({
+          id: editEntry.id,
+          date: new Date(date),
+          amount: amountNum,
+          description: description.trim() || null,
+        })
+      : await createLedgerPayment({
+          partyId: party.id,
+          date: new Date(date),
+          amount: amountNum,
+          description: description.trim() || null,
+        });
 
     setSaving(false);
 
@@ -117,9 +157,16 @@ export function PartyLedgerPaymentModal({
     onClose();
   }
 
-  const directionLabel =
-    direction === "payable" ? `Pay ${party.name}` : `Receive from ${party.name}`;
-  const buttonLabel = direction === "payable" ? "Record payment" : "Record receipt";
+  const directionLabel = isEdit
+    ? `Edit payment — ${party.name}`
+    : direction === "payable"
+      ? `Pay ${party.name}`
+      : `Receive from ${party.name}`;
+  const buttonLabel = isEdit
+    ? "Save changes"
+    : direction === "payable"
+      ? "Record payment"
+      : "Record receipt";
 
   return (
     <ResponsiveDialog open={open} onOpenChange={(o) => !o && onClose()}>
