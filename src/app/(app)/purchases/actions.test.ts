@@ -455,6 +455,33 @@ describe("softDeletePurchase", () => {
     expect(call.data.deletedAt).toBeInstanceOf(Date);
   });
 
+  // Phase 21a cascade fix — walk-in purchase soft-delete cascades to
+  // PurchasePayment + PurchaseReturn children. See sales mirror.
+  it("CASCADE — walk-in soft-delete propagates to active PurchasePayment + PurchaseReturn children", async () => {
+    vi.mocked(prisma.purchase.update).mockResolvedValue(
+      makePurchase({ id: "walk-pu-1", partyId: null, deletedAt: new Date() }),
+    );
+
+    await softDeletePurchase("walk-pu-1");
+
+    expect(prisma.purchasePayment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { purchaseId: "walk-pu-1", deletedAt: null },
+      }),
+    );
+    expect(
+      vi.mocked(prisma.purchasePayment.updateMany).mock.calls[0][0].data.deletedAt,
+    ).toBeInstanceOf(Date);
+    expect(prisma.purchaseReturn.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { purchaseId: "walk-pu-1", deletedAt: null },
+      }),
+    );
+    expect(
+      vi.mocked(prisma.purchaseReturn.updateMany).mock.calls[0][0].data.deletedAt,
+    ).toBeInstanceOf(Date);
+  });
+
   it("propagates auth failure", async () => {
     vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 

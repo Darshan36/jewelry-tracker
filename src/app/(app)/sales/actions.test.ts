@@ -515,6 +515,36 @@ describe("softDeleteSale", () => {
     expect(call.data.deletedAt).toBeInstanceOf(Date);
   });
 
+  // Phase 21a cascade fix: soft-deleting a (walk-in) sale must also
+  // soft-cascade its active SalePayment + SaleReturn children inside
+  // the same atomic transaction. Closes the orphan-payment bug class
+  // surfaced in the prod baseline diagnostic.
+  it("CASCADE — walk-in soft-delete propagates to active SalePayment + SaleReturn children", async () => {
+    vi.mocked(prisma.sale.update).mockResolvedValue(
+      makeSale({ id: "walk-1", partyId: null, deletedAt: new Date() }),
+    );
+
+    await softDeleteSale("walk-1");
+
+    // SalePayment children cascaded
+    expect(prisma.salePayment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { saleId: "walk-1", deletedAt: null },
+      }),
+    );
+    const payCall = vi.mocked(prisma.salePayment.updateMany).mock.calls[0][0];
+    expect(payCall.data.deletedAt).toBeInstanceOf(Date);
+
+    // SaleReturn children cascaded
+    expect(prisma.saleReturn.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { saleId: "walk-1", deletedAt: null },
+      }),
+    );
+    const retCall = vi.mocked(prisma.saleReturn.updateMany).mock.calls[0][0];
+    expect(retCall.data.deletedAt).toBeInstanceOf(Date);
+  });
+
   it("propagates auth failure", async () => {
     vi.mocked(requireRole).mockRejectedValueOnce(new Error("Unauthorized"));
 

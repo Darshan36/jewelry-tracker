@@ -275,13 +275,35 @@ export async function updateSale(id: string, input: SaleInput) {
 export async function softDeleteSale(id: string) {
   const session = await requireRole(["ADMIN"]);
 
-  // Phase 21a: parent soft-delete + ledger entry soft-delete inside one
-  // atomic transaction. Walk-in sales (partyId IS NULL) have no
-  // ledger entry — the helper's updateMany no-ops cleanly.
+  // Phase 21a + cascade fix: parent soft-delete + ledger entry soft-
+  // delete + cascade-soft-delete of *Payment / *Return children, all
+  // inside one atomic transaction.
+  //
+  // Why cascade SalePayment/SaleReturn explicitly: the schema-side FK
+  // is `onDelete: Cascade`, but that fires only on a hard DELETE.
+  // Soft-delete is just an UPDATE, so children would otherwise stay
+  // ACTIVE while their parent is soft-deleted — exactly the orphan-
+  // payment bug we cleaned up in the Phase 21a pre-deploy diagnostic.
+  //
+  // After Phase 21a, party-linked sales no longer create SalePayment
+  // rows (the createSalePayment action gates them away), so this
+  // updateMany is a no-op for party-linked rows. The cascade matters
+  // for walk-in sales (partyId IS NULL), which still use *Payment
+  // rails. Same shape mirrored across purchases / casting / plating
+  // (Casting/Plating have no *Return table).
   await prisma.$transaction(async (tx) => {
+    const deletedAt = new Date();
     await tx.sale.update({
       where: { id, deletedAt: null },
-      data: { deletedAt: new Date() },
+      data: { deletedAt },
+    });
+    await tx.salePayment.updateMany({
+      where: { saleId: id, deletedAt: null },
+      data: { deletedAt },
+    });
+    await tx.saleReturn.updateMany({
+      where: { saleId: id, deletedAt: null },
+      data: { deletedAt },
     });
     await softDeleteTransactionLedgerEntry(tx, {
       sourceType: "SALE",

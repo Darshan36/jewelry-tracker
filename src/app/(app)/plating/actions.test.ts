@@ -441,6 +441,25 @@ describe("softDeletePlatingEntry", () => {
     expect(call.data.deletedAt).toBeInstanceOf(Date);
     expect(revalidatePath).toHaveBeenCalledWith("/plating");
   });
+
+  // Phase 21a cascade fix — Plating mirrors Casting: only PlatingPayment
+  // cascade (no *Return table).
+  it("CASCADE — walk-in soft-delete propagates to active PlatingPayment children", async () => {
+    vi.mocked(prisma.platingEntry.update).mockResolvedValue(
+      makeEntry({ deletedAt: new Date() }),
+    );
+
+    await softDeletePlatingEntry("walk-pe-1");
+
+    expect(prisma.platingPayment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { platingEntryId: "walk-pe-1", deletedAt: null },
+      }),
+    );
+    expect(
+      vi.mocked(prisma.platingPayment.updateMany).mock.calls[0][0].data.deletedAt,
+    ).toBeInstanceOf(Date);
+  });
 });
 
 // =====================================================================

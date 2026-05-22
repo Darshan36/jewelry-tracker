@@ -441,6 +441,25 @@ describe("softDeleteCastingEntry", () => {
     expect(call.data.deletedAt).toBeInstanceOf(Date);
     expect(revalidatePath).toHaveBeenCalledWith("/casting");
   });
+
+  // Phase 21a cascade fix — Casting has no *Return table, only
+  // *Payment children to cascade.
+  it("CASCADE — walk-in soft-delete propagates to active CastingPayment children", async () => {
+    vi.mocked(prisma.castingEntry.update).mockResolvedValue(
+      makeEntry({ deletedAt: new Date() }),
+    );
+
+    await softDeleteCastingEntry("walk-ce-1");
+
+    expect(prisma.castingPayment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { castingEntryId: "walk-ce-1", deletedAt: null },
+      }),
+    );
+    expect(
+      vi.mocked(prisma.castingPayment.updateMany).mock.calls[0][0].data.deletedAt,
+    ).toBeInstanceOf(Date);
+  });
 });
 
 // =====================================================================

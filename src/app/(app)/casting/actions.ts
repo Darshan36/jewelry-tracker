@@ -280,10 +280,19 @@ export async function updateCastingEntry(id: string, input: CastingEntryInput) {
 export async function softDeleteCastingEntry(id: string) {
   const session = await requireRole([...CASTING_ROLES]);
 
+  // See softDeleteSale for the cascade rationale. Casting/Plating
+  // have no *Return table (outsourced services don't have a returnable-
+  // goods workflow per the Phase 9 decision), so only *Payment children
+  // need cascading.
   await prisma.$transaction(async (tx) => {
+    const deletedAt = new Date();
     await tx.castingEntry.update({
       where: { id, deletedAt: null },
-      data: { deletedAt: new Date() },
+      data: { deletedAt },
+    });
+    await tx.castingPayment.updateMany({
+      where: { castingEntryId: id, deletedAt: null },
+      data: { deletedAt },
     });
     await softDeleteTransactionLedgerEntry(tx, {
       sourceType: "CASTING",

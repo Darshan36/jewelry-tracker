@@ -250,10 +250,21 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
 export async function softDeletePurchase(id: string) {
   const session = await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
+  // See softDeleteSale for the cascade rationale — same bug class,
+  // same fix, mirrored across all four transactional entities.
   await prisma.$transaction(async (tx) => {
+    const deletedAt = new Date();
     await tx.purchase.update({
       where: { id, deletedAt: null },
-      data: { deletedAt: new Date() },
+      data: { deletedAt },
+    });
+    await tx.purchasePayment.updateMany({
+      where: { purchaseId: id, deletedAt: null },
+      data: { deletedAt },
+    });
+    await tx.purchaseReturn.updateMany({
+      where: { purchaseId: id, deletedAt: null },
+      data: { deletedAt },
     });
     await softDeleteTransactionLedgerEntry(tx, {
       sourceType: "PURCHASE",
