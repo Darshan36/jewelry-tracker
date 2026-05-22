@@ -21,7 +21,7 @@
 // adaptation in Phase 11 straightforward.
 
 import Link from "next/link";
-import { Link as LinkIcon } from "lucide-react";
+import { ArrowRight, Link as LinkIcon } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -152,8 +152,16 @@ export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
             <LabeledField label="Notes" value={purchase.notes} multiline />
           )}
 
-          {/* Payments history (read-only) */}
-          <ReadOnlyPaymentsList payments={purchase.payments} paidAmount={purchase.paidAmount} />
+          {/* Phase 21a: party-linked purchases reconcile on the
+              party ledger; walk-ins keep their per-bill list. */}
+          {purchase.partyId !== null ? (
+            <PartyLedgerPointer partyId={purchase.partyId} />
+          ) : (
+            <ReadOnlyPaymentsList
+              payments={purchase.payments}
+              paidAmount={purchase.paidAmount}
+            />
+          )}
 
           {/* Returns history (read-only) */}
           {purchase.returns.length > 0 && (
@@ -257,6 +265,24 @@ function ReadOnlyPaymentsList({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PartyLedgerPointer({ partyId }: { partyId: string }) {
+  // Phase 21a — party-linked purchases reconcile on the party ledger.
+  return (
+    <div>
+      <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+        Payments
+      </p>
+      <Link
+        href={`/payables/${partyId}`}
+        className="inline-flex items-center gap-1.5 text-sm text-on-surface hover:underline"
+      >
+        <span>Tracked on this supplier&apos;s ledger</span>
+        <ArrowRight className="size-3.5" />
+      </Link>
     </div>
   );
 }

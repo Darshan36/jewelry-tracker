@@ -47,6 +47,10 @@ model User {
 
   shopSettingsUpdated ShopSettings[] @relation("ShopSettingsUpdatedBy")
 
+  ledgerEntriesCreated LedgerEntry[] @relation("LedgerEntryCreatedBy")
+  ledgerEntriesUpdated LedgerEntry[] @relation("LedgerEntryUpdatedBy")
+  ledgerEntriesDeleted LedgerEntry[] @relation("LedgerEntryDeletedBy")
+
   @@map("users")
 }
 
@@ -135,6 +139,7 @@ model Party {
   purchases      Purchase[]
   castingEntries CastingEntry[]
   platingEntries PlatingEntry[]
+  ledgerEntries  LedgerEntry[]
 
   @@index([phone])
   @@index([name])
@@ -506,4 +511,78 @@ model PlatingPayment {
   @@index([platingEntryId, type])
   @@index([deletedAt])
   @@map("plating_payments")
+}
+
+// Phase 21a — pure party ledger (khata).
+//
+// Replaces the bill-wise *Payment model for party-linked transactions.
+// Every transaction whose parent has a partyId NOT NULL writes a
+// TRANSACTION_LINKED INCREASE entry against the party (and DECREASE
+// for SALE_RETURN/PURCHASE_RETURN). Payments to/from the party are
+// MANUAL_PAYMENT DECREASE entries with no sourceType — they reconcile
+// against the full party balance, not per-bill.
+//
+// Walk-in transactions (partyId IS NULL) do NOT write ledger rows —
+// they stay on the legacy *Payment rails for the duration of 21a.
+// See CLAUDE.md §4 (forthcoming) and KNOWN_GAPS.md Phase 21a decision
+// lineage for full rationale and the 21c drop-tables follow-up.
+//
+// Balance math is role-agnostic at the data layer: Σ(INCREASE) −
+// Σ(DECREASE), raw signed (no clamp — negative = party has credit
+// balance). UI labels flip per party role and per scope (see
+// outstanding-balances.ts for the scoped-vs-ADMIN role-scoping rule).
+enum LedgerDirection {
+  INCREASE
+  DECREASE
+}
+
+enum LedgerEntryType {
+  TRANSACTION_LINKED
+  MANUAL_PAYMENT
+}
+
+enum LedgerSourceType {
+  SALE
+  PURCHASE
+  CASTING
+  PLATING
+  SALE_RETURN
+  PURCHASE_RETURN
+}
+
+model LedgerEntry {
+  id          String            @id @default(cuid())
+  partyId     String
+  party       Party             @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  date        DateTime
+  direction   LedgerDirection
+  amount      BigInt
+  description String?
+  entryType   LedgerEntryType
+  sourceType  LedgerSourceType?
+  sourceId    String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+  deletedById String?
+
+  createdBy User? @relation("LedgerEntryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("LedgerEntryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy User? @relation("LedgerEntryDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  // Partial unique index `(sourceType, sourceId) WHERE deletedAt IS NULL`
+  // is declared as a raw SQL `CREATE UNIQUE INDEX … WHERE …` inside the
+  // migration. Prisma's `@@unique` is absolute (no WHERE clause), which
+  // would block the soft-delete-and-recreate behaviour the party-change
+  // transitions require in updateTransactionLedgerEntry. The plain
+  // `@@index` below covers query planning.
+  @@index([partyId, date])
+  @@index([partyId, deletedAt])
+  @@index([sourceType, sourceId])
+  @@index([entryType])
+  @@index([deletedAt])
+  @@map("ledger_entries")
 }

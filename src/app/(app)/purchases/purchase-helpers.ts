@@ -107,7 +107,11 @@ export function serializePurchase(
   const payments = rawPayments ?? [];
   const returns = rawReturns ?? [];
 
-  const paidAmountBigInt = netPaidAmountBigInt(payments);
+  // Phase 21a: status loses payment-meaning for party-linked purchases
+  // (see sale-helpers.ts for the full rationale). Walk-in purchases
+  // (purchase.partyId IS NULL) keep the per-bill *Payment derivation.
+  const isWalkIn = purchase.partyId === null;
+  const paidAmountBigInt = isWalkIn ? netPaidAmountBigInt(payments) : 0n;
   const returnTotalBigInt_ = returnTotalBigInt(returns);
 
   const activePayments = payments.filter((p) => p.deletedAt === null);
@@ -125,7 +129,7 @@ export function serializePurchase(
       paidAmount: paidAmountBigInt,
       returnTotal: returnTotalBigInt_,
     }),
-    payments: activePayments.map(serializePurchasePayment),
+    payments: isWalkIn ? activePayments.map(serializePurchasePayment) : [],
     returns: activeReturns.map(serializePurchaseReturn),
     photoCount: options?.photoCount ?? 0,
   };

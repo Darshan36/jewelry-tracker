@@ -1,6 +1,10 @@
 "use server";
 
 import { requireRole } from "@/lib/auth-guards";
+import {
+  softDeleteReturnLedgerEntry,
+  writeReturnLedgerEntry,
+} from "@/lib/ledger";
 import { prisma } from "@/lib/prisma";
 import { revalidatePurchaseViews } from "@/lib/revalidate-transaction-views";
 
@@ -20,7 +24,7 @@ function formatPaiseAsRupees(paise: bigint): string {
 }
 
 export async function createPurchaseReturn(input: PurchaseReturnInput) {
-  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
+  const session = await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = purchaseReturnInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -54,8 +58,6 @@ export async function createPurchaseReturn(input: PurchaseReturnInput) {
     (sum, r) => sum + r.refundAmount,
     0n,
   );
-  // Phase 7: total purchasable qty is the sum across line items, not a
-  // single `Purchase.qty` column (which was removed).
   const totalLineItemQty = purchase.lineItems.reduce(
     (sum, li) => sum + li.qty,
     0,
@@ -86,14 +88,27 @@ export async function createPurchaseReturn(input: PurchaseReturnInput) {
     };
   }
 
-  const created = await prisma.purchaseReturn.create({
-    data: {
-      purchaseId: data.purchaseId,
-      date: data.date,
-      qtyReturned: data.qtyReturned,
-      refundAmount: refundPaise,
-      note: data.note,
-    },
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.purchaseReturn.create({
+      data: {
+        purchaseId: data.purchaseId,
+        date: data.date,
+        qtyReturned: data.qtyReturned,
+        refundAmount: refundPaise,
+        note: data.note,
+      },
+    });
+    if (purchase.partyId !== null) {
+      await writeReturnLedgerEntry(tx, {
+        partyId: purchase.partyId,
+        date: row.date,
+        sourceType: "PURCHASE_RETURN",
+        sourceId: row.id,
+        amount: row.refundAmount,
+        userId: session.user.id,
+      });
+    }
+    return row;
   });
 
   revalidatePurchaseViews();
@@ -101,11 +116,18 @@ export async function createPurchaseReturn(input: PurchaseReturnInput) {
 }
 
 export async function softDeletePurchaseReturn(id: string) {
-  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
+  const session = await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
-  await prisma.purchaseReturn.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    await tx.purchaseReturn.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await softDeleteReturnLedgerEntry(tx, {
+      sourceType: "PURCHASE_RETURN",
+      sourceId: id,
+      userId: session.user.id,
+    });
   });
 
   revalidatePurchaseViews();

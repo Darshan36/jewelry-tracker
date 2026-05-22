@@ -144,6 +144,18 @@ beforeEach(() => {
   vi.mocked(requireRole).mockReset();
   vi.mocked(requireRole).mockResolvedValue(fakeSession);
   vi.mocked(revalidatePath).mockClear();
+  // Phase 21a: updateSale + softDeleteSale pre-fetch the existing
+  // sale's partyId. Default the auto-mock to "walk-in" so existing
+  // tests that don't care about partyId transitions keep passing.
+  // Tests that DO care about transitions can override per-test via
+  // vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce(...).
+  vi.mocked(prisma.sale.findUnique).mockResolvedValue({
+    partyId: null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+  // Same: walk-in→party transition's payment-migration helper calls
+  // tx.salePayment.findMany. Default to no walk-in payments.
+  vi.mocked(prisma.salePayment.findMany).mockResolvedValue([]);
 });
 
 describe("createSale", () => {
@@ -430,6 +442,50 @@ describe("updateSale", () => {
     await expect(updateSale("sale-abc", validInput())).rejects.toThrow(
       "Unauthorized",
     );
+  });
+
+  // Phase 21a Gate 2: atomicity rollback at the action layer.
+  // When the ledger write inside the prisma.$transaction throws, the
+  // whole transaction (including the parent sale mutation) must roll
+  // back — the action propagates the error rather than returning
+  // a partially-applied success.
+  it("ATOMICITY — ledger.create throw inside $transaction propagates and rolls back parent", async () => {
+    // Override the default $transaction mock to re-throw a callback's
+    // error (the shared mock just returns the callback's resolved
+    // value; we need it to surface throws as the real Prisma would).
+    vi.mocked(prisma.$transaction).mockImplementationOnce(async (arg) => {
+      if (typeof arg === "function") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (arg as (tx: typeof prisma) => Promise<unknown>)(prisma as any);
+      }
+      throw new Error("unexpected $transaction args in test");
+    });
+
+    // Party-linked update path so the ledger write is invoked.
+    vi.mocked(prisma.sale.findUnique).mockResolvedValueOnce({
+      partyId: "pre-existing-party",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    vi.mocked(prisma.party.findUnique).mockResolvedValueOnce(
+      makeParty({ id: "pre-existing-party" }),
+    );
+    vi.mocked(prisma.saleLineItem.deleteMany).mockResolvedValue({ count: 0 });
+    vi.mocked(prisma.sale.update).mockResolvedValueOnce(
+      makeSale({ id: "sale-abc", partyId: "pre-existing-party", total: 50000n }),
+    );
+    // Make the ledger write throw → simulates a DB-side ledger insert error.
+    vi.mocked(prisma.ledgerEntry.create).mockRejectedValueOnce(
+      new Error("ledger insert failed (deadlock / constraint)"),
+    );
+
+    // Action should reject — the $transaction rollback semantics mean
+    // the parent sale.update is "undone" at the DB level. The test
+    // mock doesn't simulate row-level rollback (no real DB) but the
+    // important assertion is: the action does NOT return ok=true,
+    // it propagates the error.
+    await expect(
+      updateSale("sale-abc", validInput({ partyId: "pre-existing-party" })),
+    ).rejects.toThrow(/ledger insert failed/);
   });
 });
 

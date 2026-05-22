@@ -55,6 +55,18 @@ export async function createCastingPayment(input: CastingPaymentInput) {
     };
   }
 
+  // Phase 21a gate: party-linked casting entries use the party ledger.
+  if (entry.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        castingEntryId: [
+          "Party-linked casting entries record payments on the party ledger. Use /payables instead.",
+        ],
+      },
+    };
+  }
+
   const netPaid = entry.payments.reduce(
     (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
     0n,
@@ -118,6 +130,27 @@ export async function createCastingPayment(input: CastingPaymentInput) {
 
 export async function softDeleteCastingPayment(id: string) {
   await requireRole([...CASTING_ROLES]);
+
+  const existing = await prisma.castingPayment.findUnique({
+    where: { id, deletedAt: null },
+    select: {
+      castingEntryId: true,
+      castingEntry: { select: { partyId: true } },
+    },
+  });
+  if (!existing) {
+    return { ok: false as const, errors: { id: ["Payment not found"] } };
+  }
+  if (existing.castingEntry.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        id: [
+          "Party-linked casting entries record payments on the party ledger. Soft-delete the LedgerEntry instead.",
+        ],
+      },
+    };
+  }
 
   const payment = await prisma.castingPayment.update({
     where: { id, deletedAt: null },

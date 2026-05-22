@@ -72,6 +72,18 @@ export async function createPurchasePayment(input: PurchasePaymentInput) {
     };
   }
 
+  // Phase 21a gate: party-linked purchases use the party ledger.
+  if (purchase.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        purchaseId: [
+          "Party-linked purchases record payments on the party ledger. Use /payables instead.",
+        ],
+      },
+    };
+  }
+
   const netPaid = computeNetPaid(purchase.payments);
   const returnTotal = computeReturnTotal(purchase.returns);
   const effectiveTotal = purchase.total - returnTotal;
@@ -122,6 +134,24 @@ export async function createPurchasePayment(input: PurchasePaymentInput) {
 
 export async function softDeletePurchasePayment(id: string) {
   await requireRole(["ADMIN", "PURCHASE_DEPT"]);
+
+  const existing = await prisma.purchasePayment.findUnique({
+    where: { id, deletedAt: null },
+    select: { purchase: { select: { partyId: true } } },
+  });
+  if (!existing) {
+    return { ok: false as const, errors: { id: ["Payment not found"] } };
+  }
+  if (existing.purchase.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        id: [
+          "Party-linked purchases record payments on the party ledger. Soft-delete the LedgerEntry instead.",
+        ],
+      },
+    };
+  }
 
   await prisma.purchasePayment.update({
     where: { id, deletedAt: null },

@@ -55,6 +55,18 @@ export async function createPlatingPayment(input: PlatingPaymentInput) {
     };
   }
 
+  // Phase 21a gate: party-linked plating entries use the party ledger.
+  if (entry.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        platingEntryId: [
+          "Party-linked plating entries record payments on the party ledger. Use /payables instead.",
+        ],
+      },
+    };
+  }
+
   const netPaid = entry.payments.reduce(
     (sum, p) => (p.type === "PAYMENT" ? sum + p.amount : sum - p.amount),
     0n,
@@ -118,6 +130,27 @@ export async function createPlatingPayment(input: PlatingPaymentInput) {
 
 export async function softDeletePlatingPayment(id: string) {
   await requireRole([...PLATING_ROLES]);
+
+  const existing = await prisma.platingPayment.findUnique({
+    where: { id, deletedAt: null },
+    select: {
+      platingEntryId: true,
+      platingEntry: { select: { partyId: true } },
+    },
+  });
+  if (!existing) {
+    return { ok: false as const, errors: { id: ["Payment not found"] } };
+  }
+  if (existing.platingEntry.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        id: [
+          "Party-linked plating entries record payments on the party ledger. Soft-delete the LedgerEntry instead.",
+        ],
+      },
+    };
+  }
 
   const payment = await prisma.platingPayment.update({
     where: { id, deletedAt: null },

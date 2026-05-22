@@ -98,6 +98,16 @@ function returnTotalBigInt(returns: SaleReturn[]): bigint {
 // page query and the action returns both pass them via Prisma `include`).
 // Payments and returns are optional — present on the page query, absent
 // on the action's immediately-after-create return.
+//
+// Phase 21a: status loses payment-meaning for PARTY-LINKED sales.
+// `paidAmount` passes 0n to computeTransactionStatus when sale.partyId
+// is non-null, so status reflects only returns (effectively 'pending'
+// unless fully returned). The party ledger is the source of truth for
+// party-linked balances; the per-sale status chip is informational at
+// best and will be reworked in 21c.
+//
+// For walk-in sales (sale.partyId IS NULL), status continues to derive
+// from per-bill *Payment + *Return children as in Phase 17b.
 export function serializeSale(
   input: Sale & {
     lineItems?: SaleLineItem[];
@@ -116,7 +126,8 @@ export function serializeSale(
   const payments = rawPayments ?? [];
   const returns = rawReturns ?? [];
 
-  const paidAmountBigInt = netPaidAmountBigInt(payments);
+  const isWalkIn = sale.partyId === null;
+  const paidAmountBigInt = isWalkIn ? netPaidAmountBigInt(payments) : 0n;
   const returnTotalBigInt_ = returnTotalBigInt(returns);
 
   const activePayments = payments.filter((p) => p.deletedAt === null);
@@ -134,7 +145,7 @@ export function serializeSale(
       paidAmount: paidAmountBigInt,
       returnTotal: returnTotalBigInt_,
     }),
-    payments: activePayments.map(serializeSalePayment),
+    payments: isWalkIn ? activePayments.map(serializeSalePayment) : [],
     returns: activeReturns.map(serializeSaleReturn),
     photoCount: options?.photoCount ?? 0,
   };

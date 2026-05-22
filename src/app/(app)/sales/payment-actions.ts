@@ -66,6 +66,21 @@ export async function createSalePayment(input: SalePaymentInput) {
     };
   }
 
+  // Phase 21a gate: party-linked sales use the party ledger instead of
+  // per-bill *Payment rows. Block this action; the UI for party-linked
+  // rows has the per-row "Pay" button hidden anyway, so this is a
+  // defense-in-depth check (handles direct fetch + test-only callers).
+  if (sale.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        saleId: [
+          "Party-linked sales record payments on the party ledger. Use /receivables instead.",
+        ],
+      },
+    };
+  }
+
   const netPaid = computeNetPaid(sale.payments);
   const returnTotal = computeReturnTotal(sale.returns);
   const effectiveTotal = sale.total - returnTotal;
@@ -117,6 +132,26 @@ export async function createSalePayment(input: SalePaymentInput) {
 
 export async function softDeleteSalePayment(id: string) {
   await requireRole(["ADMIN"]);
+
+  // Phase 21a gate: only walk-in *Payment rows can be soft-deleted via
+  // this action (party-linked sales no longer use *Payment).
+  const existing = await prisma.salePayment.findUnique({
+    where: { id, deletedAt: null },
+    select: { sale: { select: { partyId: true } } },
+  });
+  if (!existing) {
+    return { ok: false as const, errors: { id: ["Payment not found"] } };
+  }
+  if (existing.sale.partyId !== null) {
+    return {
+      ok: false as const,
+      errors: {
+        id: [
+          "Party-linked sales record payments on the party ledger. Soft-delete the LedgerEntry instead.",
+        ],
+      },
+    };
+  }
 
   await prisma.salePayment.update({
     where: { id, deletedAt: null },

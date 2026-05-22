@@ -1,7 +1,7 @@
 "use client";
 
-// Receivables list — customer-rollup rows plus walk-in sale rows.
-// Mirrors PayablesTable shape (see comments there for the rationale).
+// Phase 21a — Receivables list, ledger-driven.
+// Mirrors PayablesTable shape. ADMIN-only access.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -13,14 +13,12 @@ import type {
   PartyReceivableRollup,
   WalkInReceivable,
 } from "@/lib/outstanding-balances";
-import { PartyPaymentModal } from "@/components/action-modals/party-payment-modal";
-import type { PartyPaymentTransaction } from "@/components/action-modals/party-payment-modal";
+import { PartyLedgerPaymentModal } from "@/components/action-modals/party-ledger-payment-modal";
 import {
   PaymentActionModal,
   type PaymentSaveData,
   type PaymentSaveResult,
 } from "@/components/action-modals/payment-action-modal";
-import { getPartyTransactionsForReceivable } from "../payables/client-helpers";
 import { createSalePayment } from "@/app/(app)/sales/payment-actions";
 
 type Props = {
@@ -47,16 +45,14 @@ export function ReceivablesTable({ rollups, walkIns }: Props) {
   const [receiving, setReceiving] = useState<PartyReceivableRollup | null>(
     null,
   );
-  const [transactions, setTransactions] = useState<PartyPaymentTransaction[]>(
-    [],
-  );
   const [walkInReceiving, setWalkInReceiving] =
     useState<WalkInReceivable | null>(null);
 
   const filteredRollups = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rollups.filter((r) => {
-      if (missingOnly && !r.hasMissingAttachment) return false;
+      // Phase 21a: rollups no longer carry hasMissingAttachment.
+      if (missingOnly) return false;
       if (!q) return true;
       return (
         r.party.name.toLowerCase().includes(q) ||
@@ -80,12 +76,6 @@ export function ReceivablesTable({ rollups, walkIns }: Props) {
   const totalVisible = filteredRollups.length + filteredWalkIns.length;
   const totalRows = rollups.length + walkIns.length;
 
-  async function openReceiveModal(rollup: PartyReceivableRollup) {
-    const txns = await getPartyTransactionsForReceivable(rollup.party.id);
-    setTransactions(txns);
-    setReceiving(rollup);
-  }
-
   return (
     <>
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
@@ -99,14 +89,17 @@ export function ReceivablesTable({ rollups, walkIns }: Props) {
             className="w-full bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none pl-9 pr-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm text-on-surface px-3 py-2 border border-outline-variant bg-surface-container-low cursor-pointer hover:bg-surface-container transition-colors">
+        <label
+          className="flex items-center gap-2 text-sm text-on-surface px-3 py-2 border border-outline-variant bg-surface-container-low cursor-pointer hover:bg-surface-container transition-colors"
+          title="Filters walk-in rows only. Party rollups no longer surface per-transaction attachment state in 21a."
+        >
           <input
             type="checkbox"
             checked={missingOnly}
             onChange={(e) => setMissingOnly(e.target.checked)}
             className="size-4 accent-primary"
           />
-          <span>Missing attachments only</span>
+          <span>Missing attachments only (walk-ins)</span>
         </label>
       </div>
 
@@ -137,51 +130,57 @@ export function ReceivablesTable({ rollups, walkIns }: Props) {
               </tr>
             </thead>
             <tbody>
-              {filteredRollups.map((r, idx) => (
-                <tr
-                  key={`party-${r.party.id}`}
-                  data-testid="receivable-rollup-row"
-                  className={`${idx % 2 === 0 ? "bg-surface-container-low" : "bg-surface-container"} hover:bg-surface-container-high border-b border-outline-variant last:border-b-0`}
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/receivables/${r.party.id}`}
-                      className="text-on-surface hover:underline flex items-center gap-2"
-                    >
-                      <span>{r.party.name}</span>
-                      {r.hasMissingAttachment && (
-                        <span
-                          data-testid="missing-attachment-badge"
-                          title="Missing bill attachment"
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-error/10 text-error border border-error/30"
-                        >
-                          <Paperclip className="size-3" />
-                          Missing
-                        </span>
+              {filteredRollups.map((r, idx) => {
+                const isCredit = r.totalOutstanding < 0;
+                return (
+                  <tr
+                    key={`party-${r.party.id}`}
+                    data-testid="receivable-rollup-row"
+                    className={`${idx % 2 === 0 ? "bg-surface-container-low" : "bg-surface-container"} hover:bg-surface-container-high border-b border-outline-variant last:border-b-0`}
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/receivables/${r.party.id}`}
+                        className="text-on-surface hover:underline flex items-center gap-2 flex-wrap"
+                      >
+                        <span>{r.party.name}</span>
+                        {isCredit && (
+                          <span
+                            data-testid="credit-badge"
+                            className="inline-flex items-center px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-secondary-container text-on-secondary-container border border-secondary/30"
+                          >
+                            Credit
+                          </span>
+                        )}
+                      </Link>
+                      {r.party.phone && (
+                        <div className="text-xs text-on-surface-variant tabular-nums mt-0.5">
+                          {r.party.phone}
+                        </div>
                       )}
-                    </Link>
-                    {r.party.phone && (
-                      <div className="text-xs text-on-surface-variant tabular-nums mt-0.5">
-                        {r.party.phone}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
-                    {formatCurrency(r.totalOutstanding)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openReceiveModal(r)}
-                      aria-label={`Receive payment from ${r.party.name}`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wider font-display bg-primary text-on-primary hover:bg-primary/90 transition-colors"
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-right tabular-nums font-mono ${
+                        isCredit ? "text-secondary" : "text-on-surface"
+                      }`}
                     >
-                      <DollarSign className="size-3.5" />
-                      Receive
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {isCredit ? "−" : ""}
+                      {formatCurrency(Math.abs(r.totalOutstanding))}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setReceiving(r)}
+                        aria-label={`Receive payment from ${r.party.name}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wider font-display bg-primary text-on-primary hover:bg-primary/90 transition-colors"
+                      >
+                        <DollarSign className="size-3.5" />
+                        Receive
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {filteredWalkIns.map((r, idx) => {
                 const stripeIdx = filteredRollups.length + idx;
@@ -241,13 +240,21 @@ export function ReceivablesTable({ rollups, walkIns }: Props) {
       )}
 
       {receiving && (
-        <PartyPaymentModal
+        <PartyLedgerPaymentModal
           open={receiving !== null}
           onClose={() => setReceiving(null)}
           onSaved={() => router.refresh()}
           direction="receivable"
-          party={receiving.party}
-          transactions={transactions}
+          party={{
+            id: receiving.party.id,
+            name: receiving.party.name,
+            phone: receiving.party.phone,
+          }}
+          defaultAmountPaise={
+            receiving.totalOutstanding > 0
+              ? receiving.totalOutstanding
+              : undefined
+          }
         />
       )}
 

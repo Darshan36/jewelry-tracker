@@ -187,7 +187,14 @@ describe("createCastingPayment — REFUND handling", () => {
 });
 
 describe("softDeleteCastingPayment", () => {
-  it("sets deletedAt and returns the parent castingEntryId", async () => {
+  it("sets deletedAt and returns the parent castingEntryId (walk-in only)", async () => {
+    // Phase 21a: softDelete pre-fetches the payment + parent's
+    // partyId to enforce the walk-in-only gate.
+    vi.mocked(prisma.castingPayment.findUnique).mockResolvedValue({
+      castingEntryId: "entry-1",
+      castingEntry: { partyId: null },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
     vi.mocked(prisma.castingPayment.update).mockResolvedValue({
       id: "payment-1",
       castingEntryId: "entry-1",

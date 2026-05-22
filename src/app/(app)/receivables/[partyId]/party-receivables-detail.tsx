@@ -1,133 +1,159 @@
 "use client";
 
+// Phase 21a — party-receivables ledger statement view.
+//
+// Mirror of party-payables-detail.tsx. ADMIN-only access; no scope
+// footnote (ADMIN always sees the true net balance, including
+// MANUAL_PAYMENT entries against this party).
+
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { DollarSign, Paperclip } from "lucide-react";
+import { DollarSign } from "lucide-react";
 
 import { formatCurrency, formatDate } from "@/lib/format";
-import type { SaleWithOutstanding } from "@/lib/outstanding-balances";
 import type { Party } from "@/generated/prisma";
+import type { PartyLedgerEntryForClient } from "@/lib/outstanding-balances";
 
-import { PartyPaymentModal } from "@/components/action-modals/party-payment-modal";
-import type { PartyPaymentTransaction } from "@/components/action-modals/party-payment-modal";
+import { PartyLedgerPaymentModal } from "@/components/action-modals/party-ledger-payment-modal";
 
 type Props = {
   party: Party;
-  sales: SaleWithOutstanding[];
   totalOutstanding: number;
+  entries: PartyLedgerEntryForClient[];
 };
 
-export function PartyReceivablesDetail({ party, sales, totalOutstanding }: Props) {
-  const router = useRouter();
+export function PartyReceivablesDetail({
+  party,
+  totalOutstanding,
+  entries,
+}: Props) {
   const [receiving, setReceiving] = useState(false);
 
-  const transactions: PartyPaymentTransaction[] = sales.map((s) => ({
-    entityType: "SALE",
-    entityId: s.id,
-    date: s.date,
-    label: `Sale · ${s.partyName ?? "Walk-in"}`,
-    total: Number(s.total),
-    outstanding: s.outstanding,
-    hasAttachment: s.hasAttachment,
-  }));
+  const isCredit = totalOutstanding < 0;
+  const balanceLabel = isCredit ? "Credit balance" : "Outstanding";
+  const displayAmount = Math.abs(totalOutstanding);
 
   return (
     <>
       <div className="border border-outline-variant bg-surface-container-low p-4 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wider text-on-surface-variant mb-1">
-            Total outstanding
+            {balanceLabel}
           </div>
-          <div className="text-2xl md:text-3xl font-display tabular-nums text-on-surface">
-            {formatCurrency(totalOutstanding)}
+          <div
+            className={`text-2xl md:text-3xl font-display tabular-nums ${
+              isCredit ? "text-secondary" : "text-on-surface"
+            }`}
+            data-testid="party-balance"
+            data-signed={totalOutstanding}
+          >
+            {formatCurrency(displayAmount)}
           </div>
         </div>
         <button
           type="button"
           onClick={() => setReceiving(true)}
-          disabled={transactions.length === 0}
-          className="h-11 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+          className="h-11 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+          data-testid="add-payment-button"
         >
           <DollarSign className="size-4" />
           <span>Receive Payment</span>
         </button>
       </div>
 
-      {transactions.length === 0 && (
+      {entries.length === 0 ? (
         <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
           <p className="text-on-surface-variant text-sm">
-            No outstanding sales for this customer.
+            No ledger activity for this customer yet.
           </p>
         </div>
-      )}
-
-      {transactions.length > 0 && (
-        <div className="border border-outline-variant bg-surface-container-low overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high">
-              <tr>
-                <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Date
-                </th>
-                <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Total
-                </th>
-                <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Outstanding
-                </th>
-                <th className="text-center text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-24">
-                  Bill
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((t, idx) => (
-                <tr
-                  key={t.entityId}
-                  className={`${idx % 2 === 0 ? "bg-surface-container-low" : "bg-surface-container"} border-b border-outline-variant last:border-b-0`}
-                >
-                  <td className="px-4 py-3 tabular-nums text-on-surface-variant">
-                    {formatDate(t.date)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
-                    {formatCurrency(t.total)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
-                    {formatCurrency(t.outstanding)}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {t.hasAttachment ? (
-                      <Paperclip
-                        className="size-4 inline text-on-surface-variant"
-                        aria-label="Attachment present"
-                      />
-                    ) : (
-                      <span
-                        data-testid="missing-attachment-badge"
-                        title="Missing bill attachment"
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-error/10 text-error border border-error/30"
-                      >
-                        Missing
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      ) : (
+        <LedgerStatement entries={entries} />
       )}
 
       {receiving && (
-        <PartyPaymentModal
+        <PartyLedgerPaymentModal
           open={receiving}
           onClose={() => setReceiving(false)}
-          onSaved={() => router.refresh()}
+          onSaved={() => setReceiving(false)}
           direction="receivable"
-          party={party}
-          transactions={transactions}
+          party={{ id: party.id, name: party.name, phone: party.phone }}
         />
       )}
     </>
+  );
+}
+
+function LedgerStatement({
+  entries,
+}: {
+  entries: PartyLedgerEntryForClient[];
+}) {
+  return (
+    <div className="border border-outline-variant bg-surface-container-low overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-surface-container-high">
+          <tr>
+            <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-32">
+              Date
+            </th>
+            <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
+              Description
+            </th>
+            <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-28">
+              Increase
+            </th>
+            <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-28">
+              Decrease
+            </th>
+            <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-32">
+              Balance
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e, idx) => (
+            <tr
+              key={e.id}
+              className={`${
+                idx % 2 === 0
+                  ? "bg-surface-container-low"
+                  : "bg-surface-container"
+              } border-b border-outline-variant last:border-b-0`}
+            >
+              <td className="px-4 py-3 tabular-nums text-on-surface-variant">
+                {formatDate(e.date)}
+              </td>
+              <td className="px-4 py-3 text-on-surface">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span>{e.description ?? "—"}</span>
+                  {e.entryType === "MANUAL_PAYMENT" && (
+                    <span
+                      className="inline-flex items-center px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-secondary-container text-on-secondary-container border border-secondary/30"
+                      data-testid="manual-payment-tag"
+                    >
+                      Payment
+                    </span>
+                  )}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
+                {e.direction === "INCREASE" ? formatCurrency(e.amount) : ""}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
+                {e.direction === "DECREASE" ? formatCurrency(e.amount) : ""}
+              </td>
+              <td
+                className={`px-4 py-3 text-right tabular-nums font-mono ${
+                  e.runningBalance < 0 ? "text-secondary" : "text-on-surface"
+                }`}
+              >
+                {e.runningBalance < 0 ? "−" : ""}
+                {formatCurrency(Math.abs(e.runningBalance))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

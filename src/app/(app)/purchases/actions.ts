@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth-guards";
+import {
+  softDeleteTransactionLedgerEntry,
+  updateTransactionLedgerEntry,
+  writeTransactionLedgerEntry,
+} from "@/lib/ledger";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 import { revalidatePurchaseViews } from "@/lib/revalidate-transaction-views";
@@ -132,7 +137,7 @@ async function buildPurchaseData(
 }
 
 export async function createPurchase(input: PurchaseInput) {
-  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
+  const session = await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = purchaseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -153,6 +158,17 @@ export async function createPurchase(input: PurchaseInput) {
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
+    if (created.partyId !== null) {
+      await writeTransactionLedgerEntry(tx, {
+        partyId: created.partyId,
+        date: created.date,
+        sourceType: "PURCHASE",
+        sourceId: created.id,
+        amount: created.total,
+        lineItemCount: lineItemCreates.length,
+        userId: session.user.id,
+      });
+    }
     return {
       ok: true as const,
       purchase: created,
@@ -170,7 +186,7 @@ export async function createPurchase(input: PurchaseInput) {
 }
 
 export async function updatePurchase(id: string, input: PurchaseInput) {
-  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
+  const session = await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
   const parsed = purchaseInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -181,6 +197,18 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.purchase.findUnique({
+      where: { id, deletedAt: null },
+      select: { partyId: true },
+    });
+    if (!existing) {
+      return {
+        ok: false as const,
+        errors: { partyId: ["Purchase not found"] },
+      };
+    }
+    const oldPartyId = existing.partyId;
+
     const built = await buildPurchaseData(tx, parsed.data);
     if (!built.ok) return built;
     const { lineItemCreates, ...purchaseData } = built.data;
@@ -192,6 +220,16 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
         lineItems: { create: lineItemCreates },
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
+    });
+    await updateTransactionLedgerEntry(tx, {
+      sourceType: "PURCHASE",
+      sourceId: updated.id,
+      oldPartyId,
+      newPartyId: updated.partyId,
+      newDate: updated.date,
+      newAmount: updated.total,
+      newLineItemCount: lineItemCreates.length,
+      userId: session.user.id,
     });
     return {
       ok: true as const,
@@ -210,11 +248,18 @@ export async function updatePurchase(id: string, input: PurchaseInput) {
 }
 
 export async function softDeletePurchase(id: string) {
-  await requireRole(["ADMIN", "PURCHASE_DEPT"]);
+  const session = await requireRole(["ADMIN", "PURCHASE_DEPT"]);
 
-  await prisma.purchase.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    await tx.purchase.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await softDeleteTransactionLedgerEntry(tx, {
+      sourceType: "PURCHASE",
+      sourceId: id,
+      userId: session.user.id,
+    });
   });
   revalidatePurchaseViews();
   return { ok: true as const };

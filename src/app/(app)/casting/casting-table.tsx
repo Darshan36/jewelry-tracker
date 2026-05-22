@@ -160,7 +160,12 @@ export function CastingTable({ entries }: Props) {
       enableSorting: false,
       cell: ({ row }) => (
         <QuickActions
-          onPay={() => setPaymentRowId(row.original.id)}
+          // Phase 21a: per-row Pay hidden for party-linked casting entries.
+          onPay={
+            row.original.partyId === null
+              ? () => setPaymentRowId(row.original.id)
+              : undefined
+          }
           onBill={() => setBillRowId(row.original.id)}
         />
       ),
@@ -299,7 +304,11 @@ export function CastingTable({ entries }: Props) {
                   key={row.id}
                   entry={row.original}
                   onCardClick={() => setViewingId(row.original.id)}
-                  onPay={() => setPaymentRowId(row.original.id)}
+                  onPay={
+                    row.original.partyId === null
+                      ? () => setPaymentRowId(row.original.id)
+                      : undefined
+                  }
                   onBill={() => setBillRowId(row.original.id)}
                 />
               ))}
@@ -405,7 +414,8 @@ function QuickActions({
   onPay,
   onBill,
 }: {
-  onPay: () => void;
+  /** Undefined for party-linked casting entries. */
+  onPay: (() => void) | undefined;
   onBill: () => void;
 }) {
   return (
@@ -413,15 +423,17 @@ function QuickActions({
       className="flex items-center gap-1"
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
-        onClick={onPay}
-        aria-label="Add payment"
-        title="Add payment"
-        className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
-      >
-        <DollarSign className="size-4" />
-      </button>
+      {onPay && (
+        <button
+          type="button"
+          onClick={onPay}
+          aria-label="Add payment"
+          title="Add payment"
+          className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+        >
+          <DollarSign className="size-4" />
+        </button>
+      )}
       <button
         type="button"
         onClick={onBill}
@@ -513,7 +525,8 @@ function CastingMobileCard({
 }: {
   entry: CastingEntryForClient;
   onCardClick: () => void;
-  onPay: () => void;
+  /** Undefined for party-linked casting entries. */
+  onPay: (() => void) | undefined;
   onBill: () => void;
 }) {
   const firstLine = entry.lineItems[0];
@@ -567,15 +580,17 @@ function CastingMobileCard({
       </div>
 
       <MobileCardActions>
-        <button
-          type="button"
-          onClick={onPay}
-          aria-label="Add payment"
-          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
-        >
-          <DollarSign className="size-4" />
-          <span>Pay</span>
-        </button>
+        {onPay && (
+          <button
+            type="button"
+            onClick={onPay}
+            aria-label="Add payment"
+            className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-3 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+          >
+            <DollarSign className="size-4" />
+            <span>Pay</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={onBill}

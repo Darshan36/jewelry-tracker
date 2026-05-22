@@ -21,7 +21,7 @@
 // adaptation in Phase 11 straightforward.
 
 import Link from "next/link";
-import { Link as LinkIcon, Printer } from "lucide-react";
+import { ArrowRight, Link as LinkIcon, Printer } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -152,8 +152,19 @@ export function SaleDetailModal({ open, onOpenChange, sale }: Props) {
             <LabeledField label="Notes" value={sale.notes} multiline />
           )}
 
-          {/* Payments history (read-only) */}
-          <ReadOnlyPaymentsList payments={sale.payments} paidAmount={sale.paidAmount} />
+          {/* Phase 21a: payments display is conditional.
+              Party-linked sales reconcile on the party ledger; show a
+              pointer there. Walk-in sales keep their per-bill payments
+              list. Returns history continues to render below for both
+              kinds. */}
+          {sale.partyId !== null ? (
+            <PartyLedgerPointer partyId={sale.partyId} />
+          ) : (
+            <ReadOnlyPaymentsList
+              payments={sale.payments}
+              paidAmount={sale.paidAmount}
+            />
+          )}
 
           {/* Returns history (read-only) */}
           {sale.returns.length > 0 && (
@@ -272,6 +283,27 @@ function ReadOnlyPaymentsList({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PartyLedgerPointer({ partyId }: { partyId: string }) {
+  // Phase 21a — replaces the per-bill payments list for party-linked
+  // sales. The party ledger is the source of truth; this surfaces a
+  // link to /receivables/[partyId] where the chronological statement
+  // lives.
+  return (
+    <div>
+      <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+        Payments
+      </p>
+      <Link
+        href={`/receivables/${partyId}`}
+        className="inline-flex items-center gap-1.5 text-sm text-on-surface hover:underline"
+      >
+        <span>Tracked on this customer&apos;s ledger</span>
+        <ArrowRight className="size-3.5" />
+      </Link>
     </div>
   );
 }

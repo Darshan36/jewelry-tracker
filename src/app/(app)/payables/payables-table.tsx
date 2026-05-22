@@ -1,15 +1,25 @@
 "use client";
 
-// Payables list — party-rollup rows plus walk-in transaction rows.
+// Phase 21a — Payables list, ledger-driven.
 //
 // Two row kinds, one table:
 //   - Rollup row (kind: 'party') — one per master Party, "Pay" opens
-//     the PartyPaymentModal for bulk allocation across that party's
-//     in-scope outstanding transactions.
+//     the PartyLedgerPaymentModal (single party-level payment, no
+//     per-bill allocation).
 //   - Walk-in row (kind: 'walk-in') — one per transaction whose
 //     `partyId IS NULL`. Each row carries its own entity-type chip
 //     (Casting / Plating / Purchase) and "Pay" opens the per-entity
-//     PaymentActionModal (no bulk allocation — there is no party).
+//     PaymentActionModal. Walk-ins stay on the legacy *Payment rails
+//     in 21a.
+//
+// Phase 21a changes vs Phase 17b:
+//   - Bulk-allocation modal replaced by single-payment modal.
+//   - Missing-attachment badge dropped from rollup rows (the ledger
+//     doesn't link to attachments per-row; the affordance was per-
+//     transaction). Walk-in rows retain the badge — they still
+//     aggregate per-bill.
+//   - Rollup outstanding may be negative for parties with credit
+//     balance; display absolute value with a "Credit" tag.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -22,9 +32,7 @@ import type {
   PayableScope,
   WalkInPayable,
 } from "@/lib/outstanding-balances";
-import { getPartyTransactionsForPayment } from "./client-helpers";
-import { PartyPaymentModal } from "@/components/action-modals/party-payment-modal";
-import type { PartyPaymentTransaction } from "@/components/action-modals/party-payment-modal";
+import { PartyLedgerPaymentModal } from "@/components/action-modals/party-ledger-payment-modal";
 import {
   PaymentActionModal,
   type PaymentEntityType,
@@ -41,9 +49,6 @@ type Props = {
   scope: PayableScope;
 };
 
-// Display string for the entity-type chip on a walk-in row. Kept here
-// (rather than on the type) so the chip wording can evolve without
-// touching the data layer.
 function chipLabel(kind: WalkInPayable["kind"]): string {
   switch (kind) {
     case "PURCHASE":
@@ -66,8 +71,6 @@ function payEntityType(kind: WalkInPayable["kind"]): PaymentEntityType {
   }
 }
 
-// Closes over the walk-in row and dispatches to the right
-// per-entity payment action.
 function buildOnSave(row: WalkInPayable) {
   return async (data: PaymentSaveData): Promise<PaymentSaveResult> => {
     switch (row.kind) {
@@ -99,20 +102,19 @@ function buildOnSave(row: WalkInPayable) {
   };
 }
 
-export function PayablesTable({ rollups, walkIns, scope }: Props) {
+export function PayablesTable({ rollups, walkIns, scope: _scope }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [missingOnly, setMissingOnly] = useState(false);
   const [paying, setPaying] = useState<PartyPayableRollup | null>(null);
-  const [payingTransactions, setPayingTransactions] = useState<
-    PartyPaymentTransaction[]
-  >([]);
   const [walkInPaying, setWalkInPaying] = useState<WalkInPayable | null>(null);
 
   const filteredRollups = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rollups.filter((r) => {
-      if (missingOnly && !r.hasMissingAttachment) return false;
+      // Phase 21a: rollups no longer carry hasMissingAttachment.
+      // missingOnly filter only applies to walk-in rows.
+      if (missingOnly) return false;
       if (!q) return true;
       const name = r.party.name.toLowerCase();
       const phone = (r.party.phone ?? "").toLowerCase();
@@ -134,15 +136,6 @@ export function PayablesTable({ rollups, walkIns, scope }: Props) {
   const totalVisible = filteredRollups.length + filteredWalkIns.length;
   const totalRows = rollups.length + walkIns.length;
 
-  async function openPayModal(rollup: PartyPayableRollup) {
-    const transactions = await getPartyTransactionsForPayment(
-      rollup.party.id,
-      scope,
-    );
-    setPayingTransactions(transactions);
-    setPaying(rollup);
-  }
-
   return (
     <>
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
@@ -156,14 +149,17 @@ export function PayablesTable({ rollups, walkIns, scope }: Props) {
             className="w-full bg-surface-container-low border border-outline-variant focus:border-secondary focus:outline-none pl-9 pr-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 transition-colors"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm text-on-surface px-3 py-2 border border-outline-variant bg-surface-container-low cursor-pointer hover:bg-surface-container transition-colors">
+        <label
+          className="flex items-center gap-2 text-sm text-on-surface px-3 py-2 border border-outline-variant bg-surface-container-low cursor-pointer hover:bg-surface-container transition-colors"
+          title="Filters walk-in rows only. Party rollups no longer surface per-transaction attachment state in 21a."
+        >
           <input
             type="checkbox"
             checked={missingOnly}
             onChange={(e) => setMissingOnly(e.target.checked)}
             className="size-4 accent-primary"
           />
-          <span>Missing attachments only</span>
+          <span>Missing attachments only (walk-ins)</span>
         </label>
       </div>
 
@@ -194,55 +190,59 @@ export function PayablesTable({ rollups, walkIns, scope }: Props) {
               </tr>
             </thead>
             <tbody>
-              {filteredRollups.map((r, idx) => (
-                <tr
-                  key={`party-${r.party.id}`}
-                  data-testid="payable-rollup-row"
-                  className={`${idx % 2 === 0 ? "bg-surface-container-low" : "bg-surface-container"} hover:bg-surface-container-high border-b border-outline-variant last:border-b-0`}
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/payables/${r.party.id}`}
-                      className="text-on-surface hover:underline flex items-center gap-2"
-                    >
-                      <span>{r.party.name}</span>
-                      {r.hasMissingAttachment && (
-                        <span
-                          data-testid="missing-attachment-badge"
-                          title="Missing bill attachment"
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-error/10 text-error border border-error/30"
-                        >
-                          <Paperclip className="size-3" />
-                          Missing
-                        </span>
+              {filteredRollups.map((r, idx) => {
+                const isCredit = r.totalOutstanding < 0;
+                return (
+                  <tr
+                    key={`party-${r.party.id}`}
+                    data-testid="payable-rollup-row"
+                    className={`${idx % 2 === 0 ? "bg-surface-container-low" : "bg-surface-container"} hover:bg-surface-container-high border-b border-outline-variant last:border-b-0`}
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/payables/${r.party.id}`}
+                        className="text-on-surface hover:underline flex items-center gap-2 flex-wrap"
+                      >
+                        <span>{r.party.name}</span>
+                        {isCredit && (
+                          <span
+                            data-testid="credit-badge"
+                            className="inline-flex items-center px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-secondary-container text-on-secondary-container border border-secondary/30"
+                          >
+                            Credit
+                          </span>
+                        )}
+                      </Link>
+                      {r.party.phone && (
+                        <div className="text-xs text-on-surface-variant tabular-nums mt-0.5">
+                          {r.party.phone}
+                        </div>
                       )}
-                    </Link>
-                    {r.party.phone && (
-                      <div className="text-xs text-on-surface-variant tabular-nums mt-0.5">
-                        {r.party.phone}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
-                    {formatCurrency(r.totalOutstanding)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openPayModal(r)}
-                      aria-label={`Pay ${r.party.name}`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wider font-display bg-primary text-on-primary hover:bg-primary/90 transition-colors"
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-right tabular-nums font-mono ${
+                        isCredit ? "text-secondary" : "text-on-surface"
+                      }`}
                     >
-                      <DollarSign className="size-3.5" />
-                      Pay
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {isCredit ? "−" : ""}
+                      {formatCurrency(Math.abs(r.totalOutstanding))}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setPaying(r)}
+                        aria-label={`Pay ${r.party.name}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wider font-display bg-primary text-on-primary hover:bg-primary/90 transition-colors"
+                      >
+                        <DollarSign className="size-3.5" />
+                        Pay
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {filteredWalkIns.map((r, idx) => {
-                // Continue the zebra stripe across both row groups so
-                // the boundary doesn't double up the same shade.
                 const stripeIdx = filteredRollups.length + idx;
                 return (
                   <tr
@@ -301,13 +301,26 @@ export function PayablesTable({ rollups, walkIns, scope }: Props) {
       )}
 
       {paying && (
-        <PartyPaymentModal
+        <PartyLedgerPaymentModal
           open={paying !== null}
           onClose={() => setPaying(null)}
           onSaved={() => router.refresh()}
           direction="payable"
-          party={paying.party}
-          transactions={payingTransactions}
+          party={{
+            id: paying.party.id,
+            name: paying.party.name,
+            phone: paying.party.phone,
+          }}
+          defaultAmountPaise={
+            // Pre-fill with the displayed outstanding when it's a debit
+            // balance (>0). For credit balances, leave the field empty —
+            // the user is doing something unusual ("pay extra to the
+            // party for the future") and shouldn't be defaulted into the
+            // wrong number.
+            paying.totalOutstanding > 0
+              ? paying.totalOutstanding
+              : undefined
+          }
         />
       )}
 

@@ -119,6 +119,13 @@ beforeEach(() => {
   vi.mocked(requireRole).mockReset();
   vi.mocked(requireRole).mockResolvedValue(sessionFor("ADMIN"));
   vi.mocked(revalidatePath).mockClear();
+  // Phase 21a: updateX/softDeleteX pre-fetch existing.partyId — default
+  // walk-in so existing tests pass.
+  vi.mocked(prisma.platingEntry.findUnique).mockResolvedValue({
+    partyId: null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+  vi.mocked(prisma.platingPayment.findMany).mockResolvedValue([]);
 });
 
 // =====================================================================

@@ -28,7 +28,6 @@ export default async function PartyPayablesPage({ params }: Props) {
   const detail = await getPayablesForParty(partyId, scope);
   if (!detail) notFound();
 
-  // Pass through to the client component for the interactive Pay button.
   return (
     <div className="p-4 md:p-10">
       <header className="mb-6 pb-4 md:mb-10 md:pb-6 border-b border-outline-variant">
@@ -49,10 +48,9 @@ export default async function PartyPayablesPage({ params }: Props) {
 
       <PartyPayablesDetail
         party={detail.party}
-        purchases={detail.purchases}
-        castingEntries={detail.castingEntries}
-        platingEntries={detail.platingEntries}
         totalOutstanding={detail.totalOutstanding}
+        showScopeFootnote={detail.showScopeFootnote}
+        entries={detail.entries}
         scope={scope}
       />
     </div>

@@ -400,7 +400,18 @@ describe("createSalePayment", () => {
 });
 
 describe("softDeleteSalePayment", () => {
+  // Phase 21a: softDelete now pre-fetches the payment row + its parent
+  // sale's partyId to enforce the walk-in-only gate. Tests mock the
+  // findUnique step accordingly.
+  function mockWalkInParent() {
+    vi.mocked(prisma.salePayment.findUnique).mockResolvedValue({
+      sale: { partyId: null },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
   it("happy path — Prisma update with where.deletedAt:null + data.deletedAt:<Date>", async () => {
+    mockWalkInParent();
     vi.mocked(prisma.salePayment.update).mockResolvedValue(
       makePaymentRow({ deletedAt: new Date() }),
     );
@@ -417,6 +428,7 @@ describe("softDeleteSalePayment", () => {
   });
 
   it("deletedAt set on update is a Date instance", async () => {
+    mockWalkInParent();
     vi.mocked(prisma.salePayment.update).mockResolvedValue(makePaymentRow());
 
     await softDeleteSalePayment("cuid-pmt-1");
@@ -432,6 +444,17 @@ describe("softDeleteSalePayment", () => {
       "Unauthorized",
     );
 
+    expect(prisma.salePayment.update).not.toHaveBeenCalled();
+  });
+
+  it("Phase 21a — rejects soft-delete for party-linked sale's payment", async () => {
+    vi.mocked(prisma.salePayment.findUnique).mockResolvedValue({
+      sale: { partyId: "party-123" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    const result = await softDeleteSalePayment("cuid-pmt-1");
+    expect(result.ok).toBe(false);
     expect(prisma.salePayment.update).not.toHaveBeenCalled();
   });
 });
@@ -478,6 +501,10 @@ describe.each(SALE_PAYMENT_ROLE_MATRIX)("softDeleteSalePayment role access — %
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.salePayment.findUnique).mockResolvedValue({
+        sale: { partyId: null },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
       vi.mocked(prisma.salePayment.update).mockResolvedValue(
         makePaymentRow({ deletedAt: new Date() }),
       );

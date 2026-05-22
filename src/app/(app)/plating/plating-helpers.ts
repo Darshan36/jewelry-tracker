@@ -100,7 +100,10 @@ export function serializePlatingEntry(
   const lineItems = rawLineItems ?? [];
   const payments = rawPayments ?? [];
 
-  const paidAmountBigInt = netPaidAmountBigInt(payments);
+  // Phase 21a: status loses payment-meaning for party-linked plating
+  // entries. Walk-ins keep the per-bill derivation.
+  const isWalkIn = entry.partyId === null;
+  const paidAmountBigInt = isWalkIn ? netPaidAmountBigInt(payments) : 0n;
   const activePayments = payments.filter((p) => p.deletedAt === null);
 
   return {
@@ -113,7 +116,7 @@ export function serializePlatingEntry(
       total: entry.total,
       paidAmount: paidAmountBigInt,
     }),
-    payments: activePayments.map(serializePlatingPayment),
+    payments: isWalkIn ? activePayments.map(serializePlatingPayment) : [],
     party: party ?? null,
     bill: attachment ?? null,
   };

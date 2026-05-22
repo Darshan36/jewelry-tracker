@@ -171,7 +171,14 @@ export function SalesTable({ sales }: Props) {
       cell: ({ row }) => (
         <QuickActions
           saleId={row.original.id}
-          onPay={() => setPaymentRowId(row.original.id)}
+          // Phase 21a: per-row "Pay" hidden for party-linked sales —
+          // payment is recorded on the party ledger via /receivables.
+          // Walk-in sales keep the inline Pay button.
+          onPay={
+            row.original.partyId === null
+              ? () => setPaymentRowId(row.original.id)
+              : undefined
+          }
           onBill={() => setBillRowId(row.original.id)}
           onReturn={() => setReturnRowId(row.original.id)}
         />
@@ -311,7 +318,11 @@ export function SalesTable({ sales }: Props) {
                   key={row.id}
                   sale={row.original}
                   onCardClick={() => setViewingSaleId(row.original.id)}
-                  onPay={() => setPaymentRowId(row.original.id)}
+                  onPay={
+                    row.original.partyId === null
+                      ? () => setPaymentRowId(row.original.id)
+                      : undefined
+                  }
                   onBill={() => setBillRowId(row.original.id)}
                   onReturn={() => setReturnRowId(row.original.id)}
                 />
@@ -455,7 +466,8 @@ function QuickActions({
   onReturn,
 }: {
   saleId: string;
-  onPay: () => void;
+  /** Undefined for party-linked sales — see comment in column cell. */
+  onPay: (() => void) | undefined;
   onBill: () => void;
   onReturn: () => void;
 }) {
@@ -464,15 +476,17 @@ function QuickActions({
       className="flex items-center gap-1"
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
-        onClick={onPay}
-        aria-label="Add payment"
-        title="Add payment"
-        className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
-      >
-        <DollarSign className="size-4" />
-      </button>
+      {onPay && (
+        <button
+          type="button"
+          onClick={onPay}
+          aria-label="Add payment"
+          title="Add payment"
+          className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+        >
+          <DollarSign className="size-4" />
+        </button>
+      )}
       <button
         type="button"
         onClick={onBill}
@@ -590,7 +604,8 @@ function SaleMobileCard({
 }: {
   sale: SaleForClient;
   onCardClick: () => void;
-  onPay: () => void;
+  /** Undefined for party-linked sales — payment moves to the party ledger. */
+  onPay: (() => void) | undefined;
   onBill: () => void;
   onReturn: () => void;
 }) {
@@ -644,18 +659,20 @@ function SaleMobileCard({
       </div>
 
       <MobileCardActions>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPay();
-          }}
-          aria-label="Add payment"
-          className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
-        >
-          <DollarSign className="size-4" />
-          <span>Pay</span>
-        </button>
+        {onPay && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPay();
+            }}
+            aria-label="Add payment"
+            className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors"
+          >
+            <DollarSign className="size-4" />
+            <span>Pay</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={(e) => {

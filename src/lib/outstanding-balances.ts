@@ -1,23 +1,37 @@
-// Outstanding balance + party-rollup helpers (Phase 17b).
+// Outstanding balance + party-rollup helpers.
 //
-// Pure functions over already-loaded transaction shapes (no Prisma
-// access in `computeOutstanding`), plus DB-querying aggregators
-// (`listPayables`, `listReceivables`, `getPayablesForParty`,
-// `getReceivablesForParty`) that consolidate per-party rollups across
-// the three payable sources (Purchase, CastingEntry, PlatingEntry) and
-// the one receivable source (Sale).
+// Phase 21a — REWRITTEN to read from the LedgerEntry table for
+// party-linked balances. Bill-wise `*Payment` rows are no longer
+// consulted for party balances (they remain alive only for walk-in
+// transactions; see listWalkInPayables / listWalkInReceivables at the
+// bottom of this file, unchanged from Phase 17b).
 //
-// Currency stays as `bigint` paise throughout the aggregation; only the
-// page-level renderers convert to Number for display.
+// Scope-vs-ADMIN model (locked at Phase 21a checkpoint 0 point 3a):
+//   - ADMIN scope ('all'): party balance = Σ(INCREASE) − Σ(DECREASE)
+//     across ALL non-deleted entries (every sourceType + MANUAL_PAYMENT).
+//     Raw signed, NO clamp — negative = party credit balance.
+//   - PURCHASE_DEPT scope ('purchase'): "outstanding by activity" —
+//     SUM filtered to sourceType IN ('PURCHASE', 'PURCHASE_RETURN').
+//     Excludes MANUAL_PAYMENT (which has sourceType IS NULL).
+//   - CASTING_PLATING_MGMT scope ('casting_plating'): filtered to
+//     sourceType IN ('CASTING', 'PLATING'). Excludes MANUAL_PAYMENT.
+//   - Receivables: ADMIN-only; same as ADMIN payables but filtered to
+//     sourceType IN ('SALE', 'SALE_RETURN') + MANUAL_PAYMENT.
 //
-// Performance: each aggregator runs ONE Prisma query with `include` for
-// the related transactions + their payments + returns (Sales/Purchases
-// only). No N+1 loops.
+// `computeOutstanding` (the bill-wise pure helper) is RETAINED for
+// walk-in transactions only — those rows still aggregate per-bill via
+// their *Payment + *Return children.
 
 import { prisma } from "@/lib/prisma";
-import type { PaymentType, Party, Sale, Purchase, CastingEntry, PlatingEntry } from "@/generated/prisma";
+import type {
+  LedgerSourceType,
+  Party,
+  PaymentType,
+} from "@/generated/prisma";
 
-// --- Per-transaction outstanding -----------------------------------
+import { computePartyBalance, computeScopedBalance } from "@/lib/ledger";
+
+// --- Walk-in per-transaction outstanding (unchanged from Phase 17b) ---
 
 type PaymentLike = {
   amount: bigint;
@@ -31,17 +45,14 @@ type ReturnLike = {
 };
 
 /**
- * Outstanding balance for a single transaction in BigInt paise.
+ * Per-transaction outstanding for WALK-IN rows only. Party-linked
+ * transactions no longer have per-bill outstanding under Phase 21a;
+ * their math lives entirely on the LedgerEntry table.
  *
- * For Sales/Purchases: `total − netPaid − returnTotal` where
- * netPaid = SUM(PAYMENT.amount) − SUM(REFUND.amount), filtered to
- * non-deleted, and returnTotal = SUM(refundAmount) over non-deleted.
- *
- * For CastingEntry/PlatingEntry: no returns; outstanding is just
- * `total − netPaid` (omit `returns` from the input shape).
- *
- * Returns a non-negative BigInt — overpaid (refund_due) cases clamp to 0
- * because "outstanding" is the amount STILL OWED, never negative.
+ * Clamped non-negative — walk-ins keep the legacy clamp behaviour
+ * because their UI presents the value as "Outstanding ₹X" with no
+ * credit-balance semantics. (Party rollups, in contrast, expose
+ * negative balances as credit.)
  */
 export function computeOutstanding(input: {
   total: bigint;
@@ -65,62 +76,70 @@ export function computeOutstanding(input: {
 
 export type PayableScope = "purchase" | "casting_plating" | "all";
 
+/**
+ * Payables-side source types per scope. ADMIN ('all') sees every
+ * payables source — PURCHASE / PURCHASE_RETURN / CASTING / PLATING —
+ * but NOT SALE / SALE_RETURN (those are receivables). MANUAL_PAYMENT
+ * has sourceType IS NULL and is included in the ADMIN balance calc
+ * via `computePartyBalance` (which sees everything); scoped roles
+ * intentionally exclude MANUAL_PAYMENT (see computeScopedBalance).
+ */
+const PAYABLE_SCOPE_SOURCES: Record<PayableScope, LedgerSourceType[]> = {
+  purchase: ["PURCHASE", "PURCHASE_RETURN"],
+  casting_plating: ["CASTING", "PLATING"],
+  all: ["PURCHASE", "PURCHASE_RETURN", "CASTING", "PLATING"],
+};
+
+const RECEIVABLE_SOURCES: LedgerSourceType[] = ["SALE", "SALE_RETURN"];
+
 export type PartyPayableRollup = {
   party: Party;
-  totalOutstanding: number; // paise as Number for JSON safety
+  /**
+   * Outstanding (paise as Number for JSON safety). Raw signed; negative
+   * means the party has credit balance. UI must label sign.
+   *
+   * For ADMIN scope ('all'): full party balance including MANUAL_PAYMENT.
+   * For scoped roles: activity-slice balance (matching `<source>Outstanding`
+   * fields summed below) — excludes MANUAL_PAYMENT.
+   */
+  totalOutstanding: number;
+  /**
+   * Per-source activity-slice subtotals. Each is the raw signed sum of
+   * TRANSACTION_LINKED entries for the matching sourceType — never
+   * includes MANUAL_PAYMENT. Used by the ADMIN dashboard for the
+   * per-source cards (Purchase / Casting / Plating Payables).
+   */
   purchaseOutstanding: number;
   castingOutstanding: number;
   platingOutstanding: number;
-  /** True if ANY transaction in scope is missing its bill attachment. */
-  hasMissingAttachment: boolean;
+  /**
+   * True when the scoped view's `totalOutstanding` is the activity-
+   * only number (excludes MANUAL_PAYMENT) AND the party has at least
+   * one MANUAL_PAYMENT entry on file. UI shows the footnote
+   * "Showing purchase activity only. Payments to this party are
+   * tracked on the full account." (or casting/plating variant) when
+   * this is true. ADMIN scope always sets this to false (admin sees
+   * true net).
+   */
+  showScopeFootnote: boolean;
 };
 
 export type PartyReceivableRollup = {
   party: Party;
   totalOutstanding: number;
-  /** True if ANY outstanding sale is missing its bill attachment. */
-  hasMissingAttachment: boolean;
 };
 
-export type PurchaseWithOutstanding = Purchase & {
-  outstanding: number; // paise
-  hasAttachment: boolean;
-};
-
-export type CastingEntryWithOutstanding = CastingEntry & {
-  outstanding: number;
-  hasAttachment: boolean;
-};
-
-export type PlatingEntryWithOutstanding = PlatingEntry & {
-  outstanding: number;
-  hasAttachment: boolean;
-};
-
-export type SaleWithOutstanding = Sale & {
-  outstanding: number;
-  hasAttachment: boolean;
-};
-
-// Walk-in rows — transactions with partyId IS NULL. These do not roll
-// up under any Party row (listPayables / listReceivables iterate the
-// Party table), so they need their own surfaced list. Each row is a
-// single transaction; "Pay" on a walk-in opens the per-entity
-// PaymentActionModal (no bulk allocation — there is no party to
-// allocate across).
-//
-// `kind` lets the table render entity-specific chips (Casting /
-// Plating / Purchase / Sale) and dispatch the Pay button to the right
-// `create*Payment` server action.
+// Walk-in row shapes — unchanged from Phase 17b. Walk-in transactions
+// (partyId IS NULL) stay on the bill-wise *Payment rails in 21a.
 export type WalkInPayable = {
   kind: "PURCHASE" | "CASTING" | "PLATING";
   id: string;
   partyName: string;
   partyPhone: string | null;
   date: Date;
-  total: number; // paise as Number
-  paidAmount: number; // net paise (PAYMENT − REFUND)
-  outstanding: number; // paise, clamped non-negative
+  total: number;
+  paidAmount: number;
+  outstanding: number;
   hasAttachment: boolean;
 };
 
@@ -136,449 +155,327 @@ export type WalkInReceivable = {
   hasAttachment: boolean;
 };
 
-// --- Aggregators -----------------------------------------------------
+// --- Party rollup aggregators (ledger-driven) ------------------------
 
 /**
- * Build a Prisma `where` clause that includes only parties that have
- * at least one in-scope transaction with outstanding > 0. Doing this in
- * the WHERE clause avoids loading parties whose transactions are all
- * fully paid.
- *
- * Note: we can't filter "outstanding > 0" purely at the SQL layer here
- * because outstanding involves aggregation across child rows. Instead,
- * we filter for parties that have ANY non-deleted transaction in scope,
- * then filter in JS after computing outstandings. Acceptable at the
- * ~100-transactions/month scale; if the table grows large we can move
- * to a materialised view or a denormalised `outstandingPaise` column.
+ * Whether a party has at least one MANUAL_PAYMENT entry. Used to drive
+ * the scope-footnote flag for multi-role parties under scoped views.
+ * Pure function over already-loaded entries.
  */
-function whereForScope(scope: PayableScope) {
-  const parts: Record<string, unknown>[] = [];
-  if (scope === "purchase" || scope === "all") {
-    parts.push({ purchases: { some: { deletedAt: null } } });
-  }
-  if (scope === "casting_plating" || scope === "all") {
-    parts.push({ castingEntries: { some: { deletedAt: null } } });
-    parts.push({ platingEntries: { some: { deletedAt: null } } });
-  }
-  return parts.length === 1 ? parts[0] : { OR: parts };
+function hasManualPayment(
+  entries: { entryType: "TRANSACTION_LINKED" | "MANUAL_PAYMENT"; deletedAt: Date | null }[],
+): boolean {
+  return entries.some(
+    (e) => e.entryType === "MANUAL_PAYMENT" && e.deletedAt === null,
+  );
 }
 
-/**
- * List parties with outstanding payables, scoped by transaction type.
- *
- * Returns rollups sorted by totalOutstanding desc. Only parties with
- * at least one outstanding rupee in scope are included.
- */
 export async function listPayables(
   scope: PayableScope,
 ): Promise<PartyPayableRollup[]> {
-  const includePurchase = scope === "purchase" || scope === "all";
-  const includeCasting = scope === "casting_plating" || scope === "all";
-  const includePlating = scope === "casting_plating" || scope === "all";
+  // Bulk-fetch every Party that has any non-deleted ledger entry whose
+  // sourceType matches the scope (or any MANUAL_PAYMENT for ADMIN scope).
+  // We compute outstanding per-party in memory after fetching.
+  const allowedSources = PAYABLE_SCOPE_SOURCES[scope];
 
-  // Always include all relations — conditional `include: false` produces
-  // a type where the relation key is missing, which complicates the
-  // downstream type narrowing. The cost of loading unused relations at
-  // ~100-transactions/month is negligible.
+  // The "parties of interest" set: any party with at least one
+  // non-deleted TRANSACTION_LINKED INCREASE entry from a payables-side
+  // source in scope. Returns/MANUAL_PAYMENT don't qualify a party for
+  // payables on their own — there has to be a purchase/casting/plating
+  // INCREASE somewhere.
+  const incomingSources = allowedSources.filter(
+    (s) => !s.endsWith("_RETURN"),
+  );
+  const partyIds = await prisma.ledgerEntry
+    .findMany({
+      where: {
+        deletedAt: null,
+        direction: "INCREASE",
+        sourceType: { in: incomingSources },
+      },
+      select: { partyId: true },
+      distinct: ["partyId"],
+    })
+    .then((rows) => rows.map((r) => r.partyId));
+
+  if (partyIds.length === 0) return [];
+
   const parties = await prisma.party.findMany({
-    where: {
-      deletedAt: null,
-      ...whereForScope(scope),
-    },
+    where: { id: { in: partyIds }, deletedAt: null },
     include: {
-      purchases: {
-        where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          returns: { where: { deletedAt: null } },
-        },
-      },
-      castingEntries: {
-        where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          attachment: true,
-        },
-      },
-      platingEntries: {
-        where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          attachment: true,
-        },
-      },
+      ledgerEntries: { where: { deletedAt: null } },
     },
   });
 
-  // Phase 17b: pre-fetch all bill attachments for purchases in this party
-  // set in one query (vs. N+1 lookups). Sales/Purchases attach via
-  // discriminator, not FK, so we group by attachedToId.
-  let purchaseAttachmentSet = new Set<string>();
-  if (includePurchase) {
-    const purchaseIds = parties.flatMap((p) => p.purchases.map((pu) => pu.id));
-    if (purchaseIds.length > 0) {
-      const attachments = await prisma.attachment.findMany({
-        where: {
-          attachedToType: "PURCHASE",
-          attachedToId: { in: purchaseIds },
-          status: "READY",
-          deletedAt: null,
-        },
-        select: { attachedToId: true },
-      });
-      purchaseAttachmentSet = new Set(
-        attachments
-          .map((a) => a.attachedToId)
-          .filter((id): id is string => id !== null),
-      );
-    }
-  }
-
   const rollups: PartyPayableRollup[] = [];
   for (const party of parties) {
-    let purchaseOut = 0n;
-    let castingOut = 0n;
-    let platingOut = 0n;
-    let missing = false;
+    const entries = party.ledgerEntries;
 
-    if (includePurchase) {
-      for (const p of party.purchases) {
-        const out = computeOutstanding({
-          total: p.total,
-          payments: p.payments,
-          returns: p.returns,
-        });
-        if (out > 0n) {
-          purchaseOut += out;
-          if (!purchaseAttachmentSet.has(p.id)) missing = true;
-        }
-      }
-    }
-    if (includeCasting) {
-      for (const e of party.castingEntries) {
-        const out = computeOutstanding({
-          total: e.total,
-          payments: e.payments,
-        });
-        if (out > 0n) {
-          castingOut += out;
-          if (!e.attachment || e.attachment.status !== "READY") missing = true;
-        }
-      }
-    }
-    if (includePlating) {
-      for (const e of party.platingEntries) {
-        const out = computeOutstanding({
-          total: e.total,
-          payments: e.payments,
-        });
-        if (out > 0n) {
-          platingOut += out;
-          if (!e.attachment || e.attachment.status !== "READY") missing = true;
-        }
-      }
+    let balance: bigint;
+    let showFootnote = false;
+
+    if (scope === "all") {
+      // ADMIN — true net balance, includes MANUAL_PAYMENT.
+      balance = computePartyBalance(entries);
+    } else {
+      // Scoped role — "outstanding by activity".
+      balance = computeScopedBalance(entries, allowedSources);
+      showFootnote = hasManualPayment(entries);
     }
 
-    const total = purchaseOut + castingOut + platingOut;
-    if (total === 0n) continue; // skip parties with no actual outstanding
+    // Per-source activity-slice subtotals — always computed, regardless
+    // of scope, so the ADMIN dashboard has them ready. These are
+    // activity-only (TRANSACTION_LINKED slice per source); they sum to
+    // less than `totalOutstanding` when ADMIN-scope MANUAL_PAYMENT
+    // entries exist.
+    const purchaseOut = computeScopedBalance(entries, [
+      "PURCHASE",
+      "PURCHASE_RETURN",
+    ]);
+    const castingOut = computeScopedBalance(entries, ["CASTING"]);
+    const platingOut = computeScopedBalance(entries, ["PLATING"]);
+
+    // Don't show parties whose balance has settled (== 0). Negative
+    // (credit) balances ARE shown so admins can see who has prepaid
+    // money sitting against no transaction. Scoped views may show
+    // a positive activity balance even if the true net is zero —
+    // that's the documented asymmetry.
+    if (balance === 0n) continue;
 
     rollups.push({
-      // Strip the included relations from the Party object — the client
-      // shape just needs the master record. Re-fetch transactions
-      // separately via getPayablesForParty when needed.
       party: stripPartyRelations(party),
-      totalOutstanding: Number(total),
+      totalOutstanding: Number(balance),
       purchaseOutstanding: Number(purchaseOut),
       castingOutstanding: Number(castingOut),
       platingOutstanding: Number(platingOut),
-      hasMissingAttachment: missing,
+      showScopeFootnote: showFootnote,
     });
   }
 
-  rollups.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+  // Sort by absolute outstanding desc — biggest unsettled balances
+  // first, regardless of sign.
+  rollups.sort((a, b) => Math.abs(b.totalOutstanding) - Math.abs(a.totalOutstanding));
   return rollups;
 }
 
 export async function listReceivables(): Promise<PartyReceivableRollup[]> {
-  const parties = await prisma.party.findMany({
-    where: {
-      deletedAt: null,
-      sales: { some: { deletedAt: null } },
-    },
-    include: {
-      sales: {
-        where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          returns: { where: { deletedAt: null } },
-        },
+  // Receivables = parties with INCREASE entries from SALE source.
+  const partyIds = await prisma.ledgerEntry
+    .findMany({
+      where: {
+        deletedAt: null,
+        direction: "INCREASE",
+        sourceType: { in: ["SALE"] },
       },
+      select: { partyId: true },
+      distinct: ["partyId"],
+    })
+    .then((rows) => rows.map((r) => r.partyId));
+
+  if (partyIds.length === 0) return [];
+
+  const parties = await prisma.party.findMany({
+    where: { id: { in: partyIds }, deletedAt: null },
+    include: {
+      ledgerEntries: { where: { deletedAt: null } },
     },
   });
 
-  // Same single-query bulk fetch for sale attachments.
-  const saleIds = parties.flatMap((p) => p.sales.map((s) => s.id));
-  let saleAttachmentSet = new Set<string>();
-  if (saleIds.length > 0) {
-    const attachments = await prisma.attachment.findMany({
-      where: {
-        attachedToType: "SALE",
-        attachedToId: { in: saleIds },
-        status: "READY",
-        deletedAt: null,
-      },
-      select: { attachedToId: true },
-    });
-    saleAttachmentSet = new Set(
-      attachments
-        .map((a) => a.attachedToId)
-        .filter((id): id is string => id !== null),
-    );
-  }
-
   const rollups: PartyReceivableRollup[] = [];
   for (const party of parties) {
-    let total = 0n;
-    let missing = false;
-    for (const s of party.sales) {
-      const out = computeOutstanding({
-        total: s.total,
-        payments: s.payments,
-        returns: s.returns,
-      });
-      if (out > 0n) {
-        total += out;
-        if (!saleAttachmentSet.has(s.id)) missing = true;
-      }
-    }
-    if (total === 0n) continue;
+    // Receivables is ADMIN-only — true net balance using only the
+    // receivables-side sources + MANUAL_PAYMENT. We compute via the
+    // scoped helper (since the receivables side is sales + sale-returns
+    // only) plus the MANUAL_PAYMENT impact: a customer who paid against
+    // their sales has a DECREASE MANUAL_PAYMENT that reduces what they
+    // owe. Practical implementation: total receivables balance =
+    // SUM(SALE INCREASE) − SUM(SALE_RETURN DECREASE) − SUM(MANUAL_PAYMENT
+    // DECREASE) (the latter applied if the party is a customer, since
+    // a customer's manual payment IS receivables reconciliation).
+    //
+    // Multi-role caveat: a party that is both customer AND supplier
+    // with MANUAL_PAYMENT entries will see their full party balance —
+    // an admin reconciling receivables knows to take the party-level
+    // perspective. The ADMIN-only access matrix and small workshop
+    // scale mean this works in practice without scope-tagging on
+    // MANUAL_PAYMENT.
+    const balance = computePartyBalance(
+      party.ledgerEntries.filter(
+        (e) =>
+          e.entryType === "MANUAL_PAYMENT" ||
+          (e.sourceType !== null && RECEIVABLE_SOURCES.includes(e.sourceType)),
+      ),
+    );
+    if (balance === 0n) continue;
     rollups.push({
       party: stripPartyRelations(party),
-      totalOutstanding: Number(total),
-      hasMissingAttachment: missing,
+      totalOutstanding: Number(balance),
     });
   }
 
-  rollups.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+  rollups.sort((a, b) => Math.abs(b.totalOutstanding) - Math.abs(a.totalOutstanding));
   return rollups;
 }
 
+// --- Per-party detail (ledger statement source data) -----------------
+
 /**
- * Detailed party-level payables view for the /payables/[partyId] page.
+ * Detailed per-party payables — used by /payables/[partyId].
  *
- * Returns the Party + per-source arrays of transactions with each one's
- * outstanding balance + hasAttachment flag attached. Sources are
- * filtered by scope so PURCHASE_DEPT users don't accidentally see
- * casting/plating data.
+ * Returns the Party, the total outstanding (signed), the scope footnote
+ * flag, and the chronological ledger entries with running balance. The
+ * page renders the statement via the LedgerEntry rows directly — no
+ * per-transaction outstanding breakdown since payments aren't allocated
+ * to specific bills anymore.
  */
 export async function getPayablesForParty(
   partyId: string,
   scope: PayableScope,
 ): Promise<{
   party: Party;
-  purchases: PurchaseWithOutstanding[];
-  castingEntries: CastingEntryWithOutstanding[];
-  platingEntries: PlatingEntryWithOutstanding[];
   totalOutstanding: number;
+  showScopeFootnote: boolean;
+  entries: PartyLedgerEntryForClient[];
 } | null> {
-  const includePurchase = scope === "purchase" || scope === "all";
-  const includeCasting = scope === "casting_plating" || scope === "all";
-  const includePlating = scope === "casting_plating" || scope === "all";
-
   const party = await prisma.party.findUnique({
     where: { id: partyId, deletedAt: null },
     include: {
-      purchases: {
+      ledgerEntries: {
         where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          returns: { where: { deletedAt: null } },
-        },
-        orderBy: { date: "desc" },
-      },
-      castingEntries: {
-        where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          attachment: true,
-        },
-        orderBy: { date: "desc" },
-      },
-      platingEntries: {
-        where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          attachment: true,
-        },
-        orderBy: { date: "desc" },
+        orderBy: [{ date: "asc" }, { createdAt: "asc" }],
       },
     },
   });
   if (!party) return null;
 
-  // Bulk attachment lookup for purchases.
-  let purchaseAttachmentSet = new Set<string>();
-  if (includePurchase && party.purchases.length > 0) {
-    const attachments = await prisma.attachment.findMany({
-      where: {
-        attachedToType: "PURCHASE",
-        attachedToId: { in: party.purchases.map((p) => p.id) },
-        status: "READY",
-        deletedAt: null,
-      },
-      select: { attachedToId: true },
-    });
-    purchaseAttachmentSet = new Set(
-      attachments
-        .map((a) => a.attachedToId)
-        .filter((id): id is string => id !== null),
+  const allowedSources = PAYABLE_SCOPE_SOURCES[scope];
+
+  let balance: bigint;
+  let entriesForClient: PartyLedgerEntryForClient[];
+  let showFootnote = false;
+
+  if (scope === "all") {
+    balance = computePartyBalance(party.ledgerEntries);
+    entriesForClient = projectAllEntries(party.ledgerEntries);
+  } else {
+    balance = computeScopedBalance(party.ledgerEntries, allowedSources);
+    showFootnote = hasManualPayment(party.ledgerEntries);
+    // Scoped views: include only the entries that contribute to the
+    // scoped balance — i.e., TRANSACTION_LINKED rows whose sourceType
+    // is in scope. MANUAL_PAYMENT entries are NOT shown to scoped
+    // roles (they reconcile against the full account and aren't part
+    // of the activity view).
+    entriesForClient = projectAllEntries(
+      party.ledgerEntries.filter(
+        (e) => e.sourceType !== null && allowedSources.includes(e.sourceType),
+      ),
     );
   }
 
-  const purchases: PurchaseWithOutstanding[] = includePurchase
-    ? party.purchases.map((p) => ({
-        ...stripChildRelations(p),
-        outstanding: Number(
-          computeOutstanding({
-            total: p.total,
-            payments: p.payments,
-            returns: p.returns,
-          }),
-        ),
-        hasAttachment: purchaseAttachmentSet.has(p.id),
-      }))
-    : [];
-
-  const castingEntries: CastingEntryWithOutstanding[] = includeCasting
-    ? party.castingEntries.map((e) => ({
-        ...stripChildRelations(e),
-        outstanding: Number(
-          computeOutstanding({ total: e.total, payments: e.payments }),
-        ),
-        hasAttachment:
-          e.attachment !== null && e.attachment.status === "READY",
-      }))
-    : [];
-
-  const platingEntries: PlatingEntryWithOutstanding[] = includePlating
-    ? party.platingEntries.map((e) => ({
-        ...stripChildRelations(e),
-        outstanding: Number(
-          computeOutstanding({ total: e.total, payments: e.payments }),
-        ),
-        hasAttachment:
-          e.attachment !== null && e.attachment.status === "READY",
-      }))
-    : [];
-
-  const totalOutstanding =
-    purchases.reduce((sum, p) => sum + p.outstanding, 0) +
-    castingEntries.reduce((sum, e) => sum + e.outstanding, 0) +
-    platingEntries.reduce((sum, e) => sum + e.outstanding, 0);
-
   return {
     party: stripPartyRelations(party),
-    purchases: purchases.filter((p) => p.outstanding > 0),
-    castingEntries: castingEntries.filter((e) => e.outstanding > 0),
-    platingEntries: platingEntries.filter((e) => e.outstanding > 0),
-    totalOutstanding,
+    totalOutstanding: Number(balance),
+    showScopeFootnote: showFootnote,
+    entries: entriesForClient,
   };
 }
 
 export async function getReceivablesForParty(partyId: string): Promise<{
   party: Party;
-  sales: SaleWithOutstanding[];
   totalOutstanding: number;
+  entries: PartyLedgerEntryForClient[];
 } | null> {
   const party = await prisma.party.findUnique({
     where: { id: partyId, deletedAt: null },
     include: {
-      sales: {
+      ledgerEntries: {
         where: { deletedAt: null },
-        include: {
-          payments: { where: { deletedAt: null } },
-          returns: { where: { deletedAt: null } },
-        },
-        orderBy: { date: "desc" },
+        orderBy: [{ date: "asc" }, { createdAt: "asc" }],
       },
     },
   });
   if (!party) return null;
 
-  let saleAttachmentSet = new Set<string>();
-  if (party.sales.length > 0) {
-    const attachments = await prisma.attachment.findMany({
-      where: {
-        attachedToType: "SALE",
-        attachedToId: { in: party.sales.map((s) => s.id) },
-        status: "READY",
-        deletedAt: null,
-      },
-      select: { attachedToId: true },
-    });
-    saleAttachmentSet = new Set(
-      attachments
-        .map((a) => a.attachedToId)
-        .filter((id): id is string => id !== null),
-    );
-  }
-
-  const sales: SaleWithOutstanding[] = party.sales.map((s) => ({
-    ...stripChildRelations(s),
-    outstanding: Number(
-      computeOutstanding({
-        total: s.total,
-        payments: s.payments,
-        returns: s.returns,
-      }),
-    ),
-    hasAttachment: saleAttachmentSet.has(s.id),
-  }));
-
-  const totalOutstanding = sales.reduce((sum, s) => sum + s.outstanding, 0);
+  // ADMIN-only — true net using receivables-side TRANSACTION_LINKED
+  // entries + MANUAL_PAYMENT. See listReceivables for the multi-role
+  // caveat.
+  const relevant = party.ledgerEntries.filter(
+    (e) =>
+      e.entryType === "MANUAL_PAYMENT" ||
+      (e.sourceType !== null && RECEIVABLE_SOURCES.includes(e.sourceType)),
+  );
+  const balance = computePartyBalance(relevant);
 
   return {
     party: stripPartyRelations(party),
-    sales: sales.filter((s) => s.outstanding > 0),
-    totalOutstanding,
+    totalOutstanding: Number(balance),
+    entries: projectAllEntries(relevant),
   };
+}
+
+// --- Client-shape projection (chronological + running balance) -------
+
+export type PartyLedgerEntryForClient = {
+  id: string;
+  date: Date;
+  direction: "INCREASE" | "DECREASE";
+  amount: number;
+  description: string | null;
+  entryType: "TRANSACTION_LINKED" | "MANUAL_PAYMENT";
+  sourceType: LedgerSourceType | null;
+  sourceId: string | null;
+  /** Running balance after this entry, raw signed (paise). */
+  runningBalance: number;
+};
+
+function projectAllEntries(
+  entries: {
+    id: string;
+    date: Date;
+    direction: "INCREASE" | "DECREASE";
+    amount: bigint;
+    description: string | null;
+    entryType: "TRANSACTION_LINKED" | "MANUAL_PAYMENT";
+    sourceType: LedgerSourceType | null;
+    sourceId: string | null;
+    deletedAt: Date | null;
+  }[],
+): PartyLedgerEntryForClient[] {
+  // Entries should arrive already filtered to deletedAt === null and
+  // sorted chronologically; both invariants are caller-side.
+  let running = 0n;
+  const out: PartyLedgerEntryForClient[] = [];
+  for (const e of entries) {
+    if (e.direction === "INCREASE") running += e.amount;
+    else running -= e.amount;
+    out.push({
+      id: e.id,
+      date: e.date,
+      direction: e.direction,
+      amount: Number(e.amount),
+      description: e.description,
+      entryType: e.entryType,
+      sourceType: e.sourceType,
+      sourceId: e.sourceId,
+      runningBalance: Number(running),
+    });
+  }
+  return out;
 }
 
 // --- Helpers ---------------------------------------------------------
 
-// Prisma include-objects come back with relation arrays that we don't
-// want to ship to the client. Strip them down to the bare Party shape.
 function stripPartyRelations<T extends Party>(party: T): Party {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { ...partyOnly } = party;
-  // Cast: the spread includes the relation keys (purchases, etc) but
-  // TypeScript types them as Party fields only if they were declared on
-  // the schema. We just return the party-as-Party — its relation fields
-  // are dropped by the consumer-side type contract.
   return partyOnly as Party;
 }
 
-function stripChildRelations<T extends object>(row: T): T {
-  // For transaction rows (Purchase/CastingEntry/etc.), we want to keep
-  // the row data but drop the relations (payments, returns, attachment)
-  // — these are aggregated into a single `outstanding` number and a
-  // `hasAttachment` bool on the result type.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const r = row as any;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { payments, returns, attachment, ...rest } = r;
-  return rest as T;
-}
-
-// --- Walk-in aggregators --------------------------------------------
+// --- Walk-in aggregators (unchanged from Phase 17b) ------------------
 //
-// These cover the gap where a transaction is created as a walk-in
-// (no phone → no Party FK is set, the row carries only a partyName/
-// partyPhone snapshot). Party-rollup aggregators above iterate the
-// Party table and never see these rows. Surfacing them here lets
-// /payables, /receivables, and the dashboard payables/receivables
-// cards include EVERY outstanding rupee, regardless of whether the
-// counterparty has a master Party record.
+// Walk-in transactions (partyId IS NULL) stay on the bill-wise rails
+// in 21a. The functions below mirror their Phase 17b shape exactly —
+// they read from the *Payment + *Return child tables, not the ledger.
 
 function netPaid(payments: PaymentLike[]): bigint {
   return payments
@@ -595,17 +492,6 @@ function returnTotalOf(returns: ReturnLike[]): bigint {
     .reduce((sum, r) => sum + r.refundAmount, 0n);
 }
 
-/**
- * List walk-in payables (purchases, casting entries, plating entries
- * with `partyId IS NULL`) that still have an outstanding balance.
- *
- * Scope mirrors `listPayables`:
- *   - "purchase" → walk-in purchases only.
- *   - "casting_plating" → walk-in casting + plating.
- *   - "all" → all three.
- *
- * Sorted by outstanding amount, descending.
- */
 export async function listWalkInPayables(
   scope: PayableScope,
 ): Promise<WalkInPayable[]> {
@@ -646,8 +532,6 @@ export async function listWalkInPayables(
       : Promise.resolve([]),
   ]);
 
-  // Bulk attachment lookup for purchases — discriminator pattern (no FK
-  // column on Purchase). Single round-trip vs. N+1.
   let purchaseAttachmentSet = new Set<string>();
   if (purchases.length > 0) {
     const attachments = await prisma.attachment.findMany({
@@ -730,7 +614,6 @@ export async function listWalkInPayables(
   return rows;
 }
 
-/** List walk-in receivables — sales with `partyId IS NULL` and outstanding > 0. */
 export async function listWalkInReceivables(): Promise<WalkInReceivable[]> {
   const sales = await prisma.sale.findMany({
     where: { deletedAt: null, partyId: null },

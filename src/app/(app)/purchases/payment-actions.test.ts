@@ -373,7 +373,17 @@ describe("createPurchasePayment", () => {
 });
 
 describe("softDeletePurchasePayment", () => {
+  // Phase 21a: softDelete pre-fetches the payment + parent's partyId
+  // to enforce the walk-in-only gate.
+  function mockWalkInParent() {
+    vi.mocked(prisma.purchasePayment.findUnique).mockResolvedValue({
+      purchase: { partyId: null },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
   it("happy path — Prisma update with where.deletedAt:null + data.deletedAt:<Date>", async () => {
+    mockWalkInParent();
     vi.mocked(prisma.purchasePayment.update).mockResolvedValue(
       makePaymentRow({ deletedAt: new Date() }),
     );
@@ -390,6 +400,7 @@ describe("softDeletePurchasePayment", () => {
   });
 
   it("deletedAt set on update is a Date instance", async () => {
+    mockWalkInParent();
     vi.mocked(prisma.purchasePayment.update).mockResolvedValue(makePaymentRow());
 
     await softDeletePurchasePayment("cuid-pmt-1");
@@ -453,6 +464,10 @@ describe.each(PURCHASE_PAYMENT_ROLE_MATRIX)("softDeletePurchasePayment role acce
   it(allowed ? `allows ${role}` : `denies ${role} (Forbidden)`, async () => {
     if (allowed) {
       vi.mocked(requireRole).mockResolvedValueOnce(sessionFor(role));
+      vi.mocked(prisma.purchasePayment.findUnique).mockResolvedValue({
+        purchase: { partyId: null },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
       vi.mocked(prisma.purchasePayment.update).mockResolvedValue(
         makePaymentRow({ deletedAt: new Date() }),
       );

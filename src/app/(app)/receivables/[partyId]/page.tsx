@@ -41,8 +41,8 @@ export default async function PartyReceivablesPage({ params }: Props) {
 
       <PartyReceivablesDetail
         party={detail.party}
-        sales={detail.sales}
         totalOutstanding={detail.totalOutstanding}
+        entries={detail.entries}
       />
     </div>
   );

@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth-guards";
+import {
+  softDeleteTransactionLedgerEntry,
+  updateTransactionLedgerEntry,
+  writeTransactionLedgerEntry,
+} from "@/lib/ledger";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 import { revalidateSaleViews } from "@/lib/revalidate-transaction-views";
@@ -148,7 +153,7 @@ async function buildSaleData(
 }
 
 export async function createSale(input: SaleInput) {
-  await requireRole(["ADMIN"]);
+  const session = await requireRole(["ADMIN"]);
 
   const parsed = saleInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -169,6 +174,19 @@ export async function createSale(input: SaleInput) {
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
     });
+    // Phase 21a: write the party-ledger TRANSACTION_LINKED INCREASE
+    // entry inside the same prisma.$transaction. No-op for walk-ins.
+    if (created.partyId !== null) {
+      await writeTransactionLedgerEntry(tx, {
+        partyId: created.partyId,
+        date: created.date,
+        sourceType: "SALE",
+        sourceId: created.id,
+        amount: created.total,
+        lineItemCount: lineItemCreates.length,
+        userId: session.user.id,
+      });
+    }
     return {
       ok: true as const,
       sale: created,
@@ -186,7 +204,7 @@ export async function createSale(input: SaleInput) {
 }
 
 export async function updateSale(id: string, input: SaleInput) {
-  await requireRole(["ADMIN"]);
+  const session = await requireRole(["ADMIN"]);
 
   const parsed = saleInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -197,6 +215,21 @@ export async function updateSale(id: string, input: SaleInput) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // Phase 21a: read the existing sale's partyId BEFORE the update so
+    // updateTransactionLedgerEntry can dispatch the right transition
+    // case (walk-in→party / party→same / party→other / party→walk-in).
+    const existing = await tx.sale.findUnique({
+      where: { id, deletedAt: null },
+      select: { partyId: true },
+    });
+    if (!existing) {
+      return {
+        ok: false as const,
+        errors: { partyId: ["Sale not found"] },
+      };
+    }
+    const oldPartyId = existing.partyId;
+
     const built = await buildSaleData(tx, parsed.data);
     if (!built.ok) return built;
     const { lineItemCreates, ...saleData } = built.data;
@@ -211,6 +244,17 @@ export async function updateSale(id: string, input: SaleInput) {
         lineItems: { create: lineItemCreates },
       },
       include: { lineItems: { orderBy: { createdAt: "asc" } } },
+    });
+    // Phase 21a: dispatch ledger update inside the SAME transaction.
+    await updateTransactionLedgerEntry(tx, {
+      sourceType: "SALE",
+      sourceId: updated.id,
+      oldPartyId,
+      newPartyId: updated.partyId,
+      newDate: updated.date,
+      newAmount: updated.total,
+      newLineItemCount: lineItemCreates.length,
+      userId: session.user.id,
     });
     return {
       ok: true as const,
@@ -229,11 +273,21 @@ export async function updateSale(id: string, input: SaleInput) {
 }
 
 export async function softDeleteSale(id: string) {
-  await requireRole(["ADMIN"]);
+  const session = await requireRole(["ADMIN"]);
 
-  await prisma.sale.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  // Phase 21a: parent soft-delete + ledger entry soft-delete inside one
+  // atomic transaction. Walk-in sales (partyId IS NULL) have no
+  // ledger entry — the helper's updateMany no-ops cleanly.
+  await prisma.$transaction(async (tx) => {
+    await tx.sale.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await softDeleteTransactionLedgerEntry(tx, {
+      sourceType: "SALE",
+      sourceId: id,
+      userId: session.user.id,
+    });
   });
   revalidateSaleViews();
   return { ok: true as const };

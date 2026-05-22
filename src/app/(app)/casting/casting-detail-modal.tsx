@@ -21,7 +21,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ExternalLink, Link as LinkIcon, Loader2 } from "lucide-react";
+import { ArrowRight, ExternalLink, Link as LinkIcon, Loader2 } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -189,11 +189,16 @@ export function CastingDetailModal({ open, onOpenChange, entry }: Props) {
             )}
           </div>
 
-          {/* Payments history (read-only) */}
-          <ReadOnlyPaymentsList
-            payments={entry.payments}
-            paidAmount={entry.paidAmount}
-          />
+          {/* Phase 21a: party-linked casting entries reconcile on the
+              party ledger; walk-ins keep their per-bill list. */}
+          {entry.partyId !== null ? (
+            <PartyLedgerPointer partyId={entry.partyId} />
+          ) : (
+            <ReadOnlyPaymentsList
+              payments={entry.payments}
+              paidAmount={entry.paidAmount}
+            />
+          )}
         </div>
 
         <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-end">
@@ -207,6 +212,24 @@ export function CastingDetailModal({ open, onOpenChange, entry }: Props) {
         </div>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
+  );
+}
+
+function PartyLedgerPointer({ partyId }: { partyId: string }) {
+  // Phase 21a — party-linked casting entries reconcile on the party ledger.
+  return (
+    <div>
+      <p className="font-display text-xs uppercase tracking-wider text-on-surface-variant mb-2">
+        Payments
+      </p>
+      <Link
+        href={`/payables/${partyId}`}
+        className="inline-flex items-center gap-1.5 text-sm text-on-surface hover:underline"
+      >
+        <span>Tracked on this vendor&apos;s ledger</span>
+        <ArrowRight className="size-3.5" />
+      </Link>
+    </div>
   );
 }
 

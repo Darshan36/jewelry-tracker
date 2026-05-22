@@ -1,181 +1,189 @@
 "use client";
 
+// Phase 21a — party-payables ledger statement view.
+//
+// Replaces the Phase 17b transaction-allocation table. The page now
+// renders a chronological LedgerEntry stream with a running balance
+// + one "Add payment" button (single party-level payment, no bulk
+// allocation). The Phase 17b modal is gone — this page uses
+// PartyLedgerPaymentModal instead.
+
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { DollarSign, Paperclip } from "lucide-react";
+import { DollarSign } from "lucide-react";
 
 import { formatCurrency, formatDate } from "@/lib/format";
-import type {
-  CastingEntryWithOutstanding,
-  PayableScope,
-  PlatingEntryWithOutstanding,
-  PurchaseWithOutstanding,
-} from "@/lib/outstanding-balances";
 import type { Party } from "@/generated/prisma";
+import type {
+  PartyLedgerEntryForClient,
+  PayableScope,
+} from "@/lib/outstanding-balances";
 
-import { PartyPaymentModal } from "@/components/action-modals/party-payment-modal";
-import type { PartyPaymentTransaction } from "@/components/action-modals/party-payment-modal";
+import { PartyLedgerPaymentModal } from "@/components/action-modals/party-ledger-payment-modal";
 
 type Props = {
   party: Party;
-  purchases: PurchaseWithOutstanding[];
-  castingEntries: CastingEntryWithOutstanding[];
-  platingEntries: PlatingEntryWithOutstanding[];
   totalOutstanding: number;
+  showScopeFootnote: boolean;
+  entries: PartyLedgerEntryForClient[];
   scope: PayableScope;
+};
+
+const SCOPE_FOOTNOTE: Record<PayableScope, string> = {
+  purchase:
+    "Showing purchase activity only. Payments to this party are tracked on the full account.",
+  casting_plating:
+    "Showing casting and plating activity only. Payments to this party are tracked on the full account.",
+  // ADMIN sees full ledger including MANUAL_PAYMENT — no footnote.
+  all: "",
 };
 
 export function PartyPayablesDetail({
   party,
-  purchases,
-  castingEntries,
-  platingEntries,
   totalOutstanding,
+  showScopeFootnote,
+  entries,
+  scope,
 }: Props) {
-  const router = useRouter();
   const [paying, setPaying] = useState(false);
 
-  // Flatten all outstanding transactions into the shape PartyPaymentModal
-  // accepts. The modal owns the row state (selection + amount edit).
-  const transactions: PartyPaymentTransaction[] = [
-    ...purchases.map<PartyPaymentTransaction>((p) => ({
-      entityType: "PURCHASE",
-      entityId: p.id,
-      date: p.date,
-      label: `Purchase · ${p.partyName ?? "Walk-in"}`,
-      total: Number(p.total),
-      outstanding: p.outstanding,
-      hasAttachment: p.hasAttachment,
-    })),
-    ...castingEntries.map<PartyPaymentTransaction>((e) => ({
-      entityType: "CASTING_ENTRY",
-      entityId: e.id,
-      date: e.date,
-      label: `Casting · ${e.partyName ?? "Walk-in"}`,
-      total: Number(e.total),
-      outstanding: e.outstanding,
-      hasAttachment: e.hasAttachment,
-    })),
-    ...platingEntries.map<PartyPaymentTransaction>((e) => ({
-      entityType: "PLATING_ENTRY",
-      entityId: e.id,
-      date: e.date,
-      label: `Plating · ${e.partyName ?? "Walk-in"}`,
-      total: Number(e.total),
-      outstanding: e.outstanding,
-      hasAttachment: e.hasAttachment,
-    })),
-  ];
+  // The "outstanding" label is sign-aware:
+  //   - positive → "Outstanding ₹X" (shop owes party)
+  //   - negative → "Credit balance ₹X" (party prepaid; we owe them back)
+  //   - zero (filtered out at the list level; defensive here)
+  const isCredit = totalOutstanding < 0;
+  const balanceLabel = isCredit ? "Credit balance" : "Outstanding";
+  const displayAmount = Math.abs(totalOutstanding);
 
   return (
     <>
       <div className="border border-outline-variant bg-surface-container-low p-4 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wider text-on-surface-variant mb-1">
-            Total outstanding
+            {balanceLabel}
           </div>
-          <div className="text-2xl md:text-3xl font-display tabular-nums text-on-surface">
-            {formatCurrency(totalOutstanding)}
+          <div
+            className={`text-2xl md:text-3xl font-display tabular-nums ${
+              isCredit ? "text-secondary" : "text-on-surface"
+            }`}
+            data-testid="party-balance"
+            data-signed={totalOutstanding}
+          >
+            {formatCurrency(displayAmount)}
           </div>
+          {showScopeFootnote && scope !== "all" && (
+            <p
+              data-testid="scope-footnote"
+              className="mt-2 text-xs text-on-surface-variant max-w-md"
+            >
+              {SCOPE_FOOTNOTE[scope]}
+            </p>
+          )}
         </div>
         <button
           type="button"
           onClick={() => setPaying(true)}
-          disabled={transactions.length === 0}
-          className="h-11 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+          className="h-11 px-4 bg-primary text-on-primary font-display text-sm font-medium uppercase tracking-wider hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+          data-testid="add-payment-button"
         >
           <DollarSign className="size-4" />
-          <span>Pay {party.name}</span>
+          <span>Add payment</span>
         </button>
       </div>
 
-      {transactions.length === 0 && (
+      {entries.length === 0 ? (
         <div className="border border-outline-variant bg-surface-container-low p-12 text-center">
           <p className="text-on-surface-variant text-sm">
-            No outstanding transactions for this party.
+            No ledger activity for this party in scope yet.
           </p>
         </div>
-      )}
-
-      {transactions.length > 0 && (
-        <div className="border border-outline-variant bg-surface-container-low overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high">
-              <tr>
-                <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Date
-                </th>
-                <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Type
-                </th>
-                <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Total
-                </th>
-                <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
-                  Outstanding
-                </th>
-                <th className="text-center text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-24">
-                  Bill
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((t, idx) => (
-                <tr
-                  key={`${t.entityType}-${t.entityId}`}
-                  className={`${idx % 2 === 0 ? "bg-surface-container-low" : "bg-surface-container"} border-b border-outline-variant last:border-b-0`}
-                >
-                  <td className="px-4 py-3 tabular-nums text-on-surface-variant">
-                    {formatDate(t.date)}
-                  </td>
-                  <td className="px-4 py-3 text-on-surface">
-                    {t.entityType === "PURCHASE"
-                      ? "Purchase"
-                      : t.entityType === "CASTING_ENTRY"
-                        ? "Casting"
-                        : t.entityType === "PLATING_ENTRY"
-                          ? "Plating"
-                          : "Sale"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
-                    {formatCurrency(t.total)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
-                    {formatCurrency(t.outstanding)}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {t.hasAttachment ? (
-                      <Paperclip
-                        className="size-4 inline text-on-surface-variant"
-                        aria-label="Attachment present"
-                      />
-                    ) : (
-                      <span
-                        data-testid="missing-attachment-badge"
-                        title="Missing bill attachment"
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-error/10 text-error border border-error/30"
-                      >
-                        Missing
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      ) : (
+        <LedgerStatement entries={entries} />
       )}
 
       {paying && (
-        <PartyPaymentModal
+        <PartyLedgerPaymentModal
           open={paying}
           onClose={() => setPaying(false)}
-          onSaved={() => router.refresh()}
+          onSaved={() => setPaying(false)}
           direction="payable"
-          party={party}
-          transactions={transactions}
+          party={{ id: party.id, name: party.name, phone: party.phone }}
         />
       )}
     </>
+  );
+}
+
+function LedgerStatement({
+  entries,
+}: {
+  entries: PartyLedgerEntryForClient[];
+}) {
+  return (
+    <div className="border border-outline-variant bg-surface-container-low overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-surface-container-high">
+          <tr>
+            <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-32">
+              Date
+            </th>
+            <th className="text-left text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3">
+              Description
+            </th>
+            <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-28">
+              Increase
+            </th>
+            <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-28">
+              Decrease
+            </th>
+            <th className="text-right text-xs uppercase tracking-wider text-on-surface-variant font-medium px-4 py-3 w-32">
+              Balance
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e, idx) => (
+            <tr
+              key={e.id}
+              className={`${
+                idx % 2 === 0
+                  ? "bg-surface-container-low"
+                  : "bg-surface-container"
+              } border-b border-outline-variant last:border-b-0`}
+            >
+              <td className="px-4 py-3 tabular-nums text-on-surface-variant">
+                {formatDate(e.date)}
+              </td>
+              <td className="px-4 py-3 text-on-surface">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span>{e.description ?? "—"}</span>
+                  {e.entryType === "MANUAL_PAYMENT" && (
+                    <span
+                      className="inline-flex items-center px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-secondary-container text-on-secondary-container border border-secondary/30"
+                      data-testid="manual-payment-tag"
+                    >
+                      Payment
+                    </span>
+                  )}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
+                {e.direction === "INCREASE" ? formatCurrency(e.amount) : ""}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums font-mono text-on-surface">
+                {e.direction === "DECREASE" ? formatCurrency(e.amount) : ""}
+              </td>
+              <td
+                className={`px-4 py-3 text-right tabular-nums font-mono ${
+                  e.runningBalance < 0 ? "text-secondary" : "text-on-surface"
+                }`}
+              >
+                {e.runningBalance < 0 ? "−" : ""}
+                {formatCurrency(Math.abs(e.runningBalance))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -20,12 +20,16 @@ import { PayablesTable } from "./payables-table";
 //
 // Two row sources are merged into the page:
 //   1. Party rollups (listPayables) — one row per master Party,
-//      aggregated across all their in-scope outstanding transactions.
-//      "Pay" opens the PartyPaymentModal for bulk allocation.
+//      with their full ledger balance (raw signed; negative = credit).
+//      "Pay" opens the PartyLedgerPaymentModal (single party-level
+//      payment; no per-bill allocation). Phase 21a — was bulk-allocation
+//      via PartyPaymentModal in 17b.
 //   2. Walk-in rows (listWalkInPayables) — one row per transaction
 //      whose `partyId IS NULL` (typically created from a /new form
 //      with no phone). Each row is a single transaction; "Pay" opens
 //      the per-entity PaymentActionModal (no party to allocate across).
+//      Walk-ins remain on the *Payment rails through 21a; they migrate
+//      to the ledger in 21c.
 
 export default async function PayablesPage() {
   const session = await auth();

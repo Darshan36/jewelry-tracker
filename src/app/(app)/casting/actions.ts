@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { Decimal } from "decimal.js";
 
 import { requireRole } from "@/lib/auth-guards";
+import {
+  softDeleteTransactionLedgerEntry,
+  updateTransactionLedgerEntry,
+  writeTransactionLedgerEntry,
+} from "@/lib/ledger";
 import { assertPartyHasRole } from "@/lib/party-roles";
 import { prisma } from "@/lib/prisma";
 import { revalidateCastingViews } from "@/lib/revalidate-transaction-views";
@@ -150,7 +155,7 @@ async function buildCastingData(
 }
 
 export async function createCastingEntry(input: CastingEntryInput) {
-  await requireRole([...CASTING_ROLES]);
+  const session = await requireRole([...CASTING_ROLES]);
 
   const parsed = castingEntryInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -179,6 +184,17 @@ export async function createCastingEntry(input: CastingEntryInput) {
         attachment: true,
       },
     });
+    if (created.partyId !== null) {
+      await writeTransactionLedgerEntry(tx, {
+        partyId: created.partyId,
+        date: created.date,
+        sourceType: "CASTING",
+        sourceId: created.id,
+        amount: created.total,
+        lineItemCount: lineItemCreates.length,
+        userId: session.user.id,
+      });
+    }
     return {
       ok: true as const,
       entry: created,
@@ -194,7 +210,7 @@ export async function createCastingEntry(input: CastingEntryInput) {
 }
 
 export async function updateCastingEntry(id: string, input: CastingEntryInput) {
-  await requireRole([...CASTING_ROLES]);
+  const session = await requireRole([...CASTING_ROLES]);
 
   const parsed = castingEntryInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -202,6 +218,18 @@ export async function updateCastingEntry(id: string, input: CastingEntryInput) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.castingEntry.findUnique({
+      where: { id, deletedAt: null },
+      select: { partyId: true },
+    });
+    if (!existing) {
+      return {
+        ok: false as const,
+        errors: { partyId: ["Casting entry not found"] },
+      };
+    }
+    const oldPartyId = existing.partyId;
+
     const built = await buildCastingData(tx, parsed.data);
     if (!built.ok) return built;
     const { lineItemCreates, ...entryData } = built.data;
@@ -225,6 +253,16 @@ export async function updateCastingEntry(id: string, input: CastingEntryInput) {
         attachment: true,
       },
     });
+    await updateTransactionLedgerEntry(tx, {
+      sourceType: "CASTING",
+      sourceId: updated.id,
+      oldPartyId,
+      newPartyId: updated.partyId,
+      newDate: updated.date,
+      newAmount: updated.total,
+      newLineItemCount: lineItemCreates.length,
+      userId: session.user.id,
+    });
     return {
       ok: true as const,
       entry: updated,
@@ -240,11 +278,18 @@ export async function updateCastingEntry(id: string, input: CastingEntryInput) {
 }
 
 export async function softDeleteCastingEntry(id: string) {
-  await requireRole([...CASTING_ROLES]);
+  const session = await requireRole([...CASTING_ROLES]);
 
-  await prisma.castingEntry.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    await tx.castingEntry.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await softDeleteTransactionLedgerEntry(tx, {
+      sourceType: "CASTING",
+      sourceId: id,
+      userId: session.user.id,
+    });
   });
   revalidateCastingViews();
   return { ok: true as const };

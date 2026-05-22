@@ -187,7 +187,14 @@ describe("createPlatingPayment — REFUND handling", () => {
 });
 
 describe("softDeletePlatingPayment", () => {
-  it("sets deletedAt and returns the parent platingEntryId", async () => {
+  it("sets deletedAt and returns the parent platingEntryId (walk-in only)", async () => {
+    // Phase 21a: softDelete pre-fetches the payment + parent's
+    // partyId to enforce the walk-in-only gate.
+    vi.mocked(prisma.platingPayment.findUnique).mockResolvedValue({
+      platingEntryId: "entry-1",
+      platingEntry: { partyId: null },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
     vi.mocked(prisma.platingPayment.update).mockResolvedValue({
       id: "payment-1",
       platingEntryId: "entry-1",
