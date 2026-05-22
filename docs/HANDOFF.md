@@ -2,6 +2,8 @@
 
 Phase 4.5 handed the app from development to production. This doc is the operational reference: where things live, how to deploy, what to rotate, how to recover.
 
+For architecture and conventions, see [`../CLAUDE.md`](../CLAUDE.md) (lean working doc). Phase-by-phase milestone history and superseded designs live in [`CLAUDE_ARCHIVE.md`](./CLAUDE_ARCHIVE.md) — reference-only, not auto-loaded at phase start.
+
 ## 1. Production URLs
 
 | Surface | URL |
