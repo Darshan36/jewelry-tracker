@@ -357,13 +357,18 @@ export async function softDeleteEmployeePayment(id: string) {
 /**
  * Fetch the piece-entry + payment history for one employee. Returns
  * arrays of plain JS objects (BigInt → Number) ready to render.
- * Used by the EmployeeDetailModal Pieces history + Payment history
- * sections.
+ * Used by the EmployeeDetailModal Pieces history + Payment history +
+ * Ledger entries sections.
+ *
+ * Phase 21b.1: also returns the karigar's MANUAL_PAYMENT ledger entries
+ * (direct advances / payments / adjustments). TRANSACTION_LINKED entries
+ * are NOT returned here — they mirror the piece/wage rows already
+ * surfaced in the other two sections.
  */
 export async function getEmployeeHistory(employeeId: string) {
   await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
-  const [pieceEntries, payments] = await Promise.all([
+  const [pieceEntries, payments, ledgerEntries] = await Promise.all([
     prisma.pieceEntry.findMany({
       where: { employeeId, deletedAt: null },
       orderBy: { date: "desc" },
@@ -372,6 +377,15 @@ export async function getEmployeeHistory(employeeId: string) {
     prisma.employeePayment.findMany({
       where: { employeeId, deletedAt: null },
       orderBy: { paidAt: "desc" },
+      take: 50,
+    }),
+    prisma.ledgerEntry.findMany({
+      where: {
+        employeeId,
+        deletedAt: null,
+        entryType: "MANUAL_PAYMENT",
+      },
+      orderBy: { date: "desc" },
       take: 50,
     }),
   ]);
@@ -393,6 +407,13 @@ export async function getEmployeeHistory(employeeId: string) {
       periodStart: p.periodStart.toISOString(),
       periodEnd: p.periodEnd.toISOString(),
       note: p.note,
+    })),
+    ledgerEntries: ledgerEntries.map((e) => ({
+      id: e.id,
+      date: e.date.toISOString(),
+      direction: e.direction,
+      amount: Number(e.amount),
+      description: e.description,
     })),
   };
 }

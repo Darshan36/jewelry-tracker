@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -11,8 +11,10 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/responsive-dialog";
 import { LabeledField } from "@/components/labeled-field";
+import { KarigarLedgerEntryModal } from "@/components/action-modals/karigar-ledger-entry-modal";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { getEmployeeHistory } from "@/app/(app)/labour/actions";
+import { softDeleteKarigarLedgerEntry } from "@/app/(app)/labour/karigar-ledger-actions";
 
 import { softDeleteEmployee } from "./actions";
 import { TypeChip } from "./type-chip";
@@ -44,6 +46,14 @@ type PaymentHistoryRow = {
   note: string | null;
 };
 
+type LedgerEntryRow = {
+  id: string;
+  date: string;
+  direction: "INCREASE" | "DECREASE";
+  amount: number;
+  description: string | null;
+};
+
 export function EmployeeDetailModal({
   open,
   onOpenChange,
@@ -56,11 +66,35 @@ export function EmployeeDetailModal({
 
   const [pieces, setPieces] = useState<PieceHistoryRow[]>([]);
   const [payments, setPayments] = useState<PaymentHistoryRow[]>([]);
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [editingLedger, setEditingLedger] = useState<LedgerEntryRow | null>(
+    null,
+  );
+  const [deletingLedgerId, setDeletingLedgerId] = useState<string | null>(null);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+
+  const reloadHistory = (employeeId: string) => {
+    setHistoryLoading(true);
+    return getEmployeeHistory(employeeId)
+      .then((result) => {
+        setPieces(result.pieceEntries);
+        setPayments(result.payments);
+        setLedgerEntries(result.ledgerEntries);
+      })
+      .catch(() => {
+        // Swallow — sections render "—" empty state if loading fails.
+      })
+      .finally(() => {
+        setHistoryLoading(false);
+      });
+  };
 
   useEffect(() => {
     if (!open) {
       setConfirmingDelete(false);
+      setEditingLedger(null);
+      setLedgerError(null);
       return;
     }
     if (!employee) return;
@@ -69,11 +103,14 @@ export function EmployeeDetailModal({
     setHistoryLoading(true);
     setPieces([]);
     setPayments([]);
+    setLedgerEntries([]);
+    setLedgerError(null);
     getEmployeeHistory(employee.id)
       .then((result) => {
         if (cancelled) return;
         setPieces(result.pieceEntries);
         setPayments(result.payments);
+        setLedgerEntries(result.ledgerEntries);
       })
       .catch(() => {
         if (cancelled) return;
@@ -87,6 +124,20 @@ export function EmployeeDetailModal({
       cancelled = true;
     };
   }, [open, employee?.id, employee]);
+
+  const handleDeleteLedger = async (entryId: string) => {
+    if (!employee) return;
+    setDeletingLedgerId(entryId);
+    setLedgerError(null);
+    const result = await softDeleteKarigarLedgerEntry(entryId);
+    setDeletingLedgerId(null);
+    if (!result.ok) {
+      setLedgerError(result.errors.message ?? "Delete failed");
+      return;
+    }
+    await reloadHistory(employee.id);
+    router.refresh();
+  };
 
   if (!employee) return null;
 
@@ -172,6 +223,99 @@ export function EmployeeDetailModal({
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Phase 21b.1 — karigar ledger entries (MANUAL_PAYMENT only).
+            Pieces and wage payments are surfaced via the other two
+            sections; this one shows the direct advances / payments /
+            adjustments and provides edit/delete on each. */}
+        {employee.type === "LABOUR" && (
+          <div className="mt-6" data-testid="karigar-ledger-history-section">
+            <h3 className="font-display text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+              Karigar ledger entries
+            </h3>
+            {historyLoading ? (
+              <div className="text-xs text-on-surface-variant py-3">Loading…</div>
+            ) : ledgerEntries.length === 0 ? (
+              <div className="text-xs text-on-surface-variant py-3">
+                No direct ledger entries yet.
+              </div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto border border-outline-variant bg-surface-container-low">
+                {ledgerEntries.map((entry, idx) => {
+                  const isDebit = entry.direction === "DECREASE";
+                  const prefix = isDebit ? "−" : "+";
+                  const amountClass = isDebit
+                    ? "text-secondary"
+                    : "text-on-surface";
+                  return (
+                    <div
+                      key={entry.id}
+                      data-testid="karigar-ledger-history-row"
+                      data-entry-id={entry.id}
+                      className={`grid grid-cols-[1fr_auto] gap-3 px-3 py-2 text-xs items-start ${
+                        idx % 2 === 0
+                          ? "bg-surface-container"
+                          : "bg-surface-container-low"
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <span className="text-on-surface">
+                            {formatDate(entry.date)}
+                          </span>
+                          <span
+                            className={`font-mono tabular-nums ${amountClass}`}
+                          >
+                            {prefix}
+                            {formatCurrency(entry.amount)}
+                          </span>
+                        </div>
+                        {entry.description && (
+                          <div className="mt-0.5 text-on-surface-variant truncate">
+                            {entry.description}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingLedger(entry)}
+                          aria-label="Edit ledger entry"
+                          className="h-8 w-8 inline-flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
+                          data-testid="edit-ledger-entry"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLedger(entry.id)}
+                          disabled={deletingLedgerId === entry.id}
+                          aria-label="Delete ledger entry"
+                          className="h-8 w-8 inline-flex items-center justify-center text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors disabled:opacity-50"
+                          data-testid="delete-ledger-entry"
+                        >
+                          {deletingLedgerId === entry.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {ledgerError && (
+              <div
+                className="mt-2 text-xs text-error"
+                data-testid="karigar-ledger-history-error"
+              >
+                {ledgerError}
               </div>
             )}
           </div>
@@ -265,6 +409,24 @@ export function EmployeeDetailModal({
           )}
         </div>
       </ResponsiveDialogContent>
+
+      {employee.type === "LABOUR" && editingLedger && (
+        <KarigarLedgerEntryModal
+          open={!!editingLedger}
+          onClose={() => setEditingLedger(null)}
+          onSaved={() => {
+            if (employee) reloadHistory(employee.id);
+          }}
+          employee={{ id: employee.id, name: employee.name }}
+          editEntry={{
+            id: editingLedger.id,
+            amountPaise: editingLedger.amount,
+            date: new Date(editingLedger.date),
+            direction: editingLedger.direction,
+            description: editingLedger.description ?? "",
+          }}
+        />
+      )}
     </ResponsiveDialog>
   );
 }

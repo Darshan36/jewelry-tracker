@@ -168,6 +168,21 @@ export type EmployeeWagesRollup = {
   earliestUnpaidDate: Date | null;
 };
 
+/**
+ * Phase 21b.1 — per-karigar balance row for the unified ledger section on
+ * /labour. Returns ALL active LABOUR employees (positive, zero, AND
+ * negative balance) so the "Record entry" button surface is available
+ * even before any pieces or wages exist on the karigar.
+ *
+ * `balance` is RAW SIGNED (paise): positive = shop owes karigar wages;
+ * negative = karigar holds an advance (credit balance — shop has
+ * prepaid against future work). Zero = caught up.
+ */
+export type KarigarBalanceRow = {
+  employee: SerializedEmployee;
+  balance: number; // paise, raw signed
+};
+
 export type MissingSalaryEmployee = {
   employee: SerializedEmployee;
   monthlySalary: number; // paise (must be non-null for FIXED to appear here)
@@ -322,6 +337,30 @@ export async function listEmployeesWithOutstandingWages(): Promise<
   }
   rollups.sort((a, b) => b.totalAmount - a.totalAmount);
   return rollups;
+}
+
+/**
+ * Phase 21b.1 — per-karigar balance for every active LABOUR employee.
+ * Used by /labour Section 2 ("Karigar ledger") so the user can record an
+ * advance / payment / adjustment on ANY karigar regardless of whether
+ * outstanding wages exist. Sorted alphabetically by name.
+ *
+ * Balance is RAW SIGNED — positive means shop owes wages, negative
+ * means karigar holds an advance.
+ */
+export async function listKarigarBalances(): Promise<KarigarBalanceRow[]> {
+  const employees = await prisma.employee.findMany({
+    where: { deletedAt: null, type: "LABOUR" },
+    include: {
+      ledgerEntries: { where: { deletedAt: null } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return employees.map((emp) => ({
+    employee: serializeEmployee(emp),
+    balance: Number(computeOwnerBalance(emp.ledgerEntries)),
+  }));
 }
 
 /**

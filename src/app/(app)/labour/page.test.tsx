@@ -8,7 +8,7 @@ vi.mock("@/lib/prisma");
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/labour-balances", () => ({
   listEmployeesMissingSalaryThisMonth: vi.fn(),
-  listEmployeesWithOutstandingWages: vi.fn(),
+  listKarigarBalances: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {
@@ -18,12 +18,14 @@ vi.mock("next/navigation", () => ({
 vi.mock("./labour-page-client", () => ({
   LabourPageClient: (props: {
     pendingSalaries: unknown[];
-    outstandingWages: unknown[];
+    karigarBalances: unknown[];
     labourEmployees: unknown[];
   }) => (
     <div data-testid="labour-page-client">
       <span data-testid="pending-count">{props.pendingSalaries.length}</span>
-      <span data-testid="outstanding-count">{props.outstandingWages.length}</span>
+      <span data-testid="karigar-balances-count">
+        {props.karigarBalances.length}
+      </span>
       <span data-testid="labour-emp-count">{props.labourEmployees.length}</span>
     </div>
   ),
@@ -34,7 +36,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import {
   listEmployeesMissingSalaryThisMonth,
-  listEmployeesWithOutstandingWages,
+  listKarigarBalances,
 } from "@/lib/labour-balances";
 
 import LabourPage from "./page";
@@ -56,7 +58,7 @@ function sessionFor(role: Role): Session {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(listEmployeesMissingSalaryThisMonth).mockResolvedValue([]);
-  vi.mocked(listEmployeesWithOutstandingWages).mockResolvedValue([]);
+  vi.mocked(listKarigarBalances).mockResolvedValue([]);
   vi.mocked(prisma.employee.findMany).mockResolvedValue([]);
 });
 
@@ -99,11 +101,11 @@ describe("LabourPage — data flow", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { employee: { id: "f1" }, monthlySalary: 1500000, currentMonth: "May 2026" } as any,
     ]);
-    vi.mocked(listEmployeesWithOutstandingWages).mockResolvedValue([
+    vi.mocked(listKarigarBalances).mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { employee: { id: "l1" }, totalAmount: 50000, totalPieces: 10, earliestUnpaidDate: new Date() } as any,
+      { employee: { id: "l1" }, balance: 50000 } as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { employee: { id: "l2" }, totalAmount: 20000, totalPieces: 4, earliestUnpaidDate: new Date() } as any,
+      { employee: { id: "l2" }, balance: -20000 } as any,
     ]);
     vi.mocked(prisma.employee.findMany).mockResolvedValue([
       {
@@ -147,7 +149,7 @@ describe("LabourPage — data flow", () => {
     const page = await LabourPage();
     render(page);
     expect(screen.getByTestId("pending-count").textContent).toBe("1");
-    expect(screen.getByTestId("outstanding-count").textContent).toBe("2");
+    expect(screen.getByTestId("karigar-balances-count").textContent).toBe("2");
     expect(screen.getByTestId("labour-emp-count").textContent).toBe("3");
   });
 });

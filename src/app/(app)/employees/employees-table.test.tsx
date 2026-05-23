@@ -17,11 +17,19 @@ vi.mock("./actions", () => ({
 // Phase 18: detail modal imports getEmployeeHistory from the labour
 // actions file, which transitively pulls in auth-guards → next-auth →
 // next/server. Mock the labour action to break that chain at test time.
+// Phase 21b.1: detail modal also imports softDeleteKarigarLedgerEntry —
+// same shape, same mock.
 vi.mock("@/app/(app)/labour/actions", () => ({
   getEmployeeHistory: vi.fn().mockResolvedValue({
     pieceEntries: [],
     payments: [],
+    ledgerEntries: [],
   }),
+}));
+vi.mock("@/app/(app)/labour/karigar-ledger-actions", () => ({
+  createKarigarLedgerEntry: vi.fn(),
+  updateKarigarLedgerEntry: vi.fn(),
+  softDeleteKarigarLedgerEntry: vi.fn(),
 }));
 
 import { EmployeesTable } from "./employees-table";

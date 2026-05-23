@@ -250,33 +250,15 @@ export function EmployeePaymentModal({
               onChange={(e) => setNote(e.target.value)}
               placeholder={
                 paymentType === "WAGE"
-                  ? 'e.g. "advance for next week", "weekly settlement"'
+                  ? 'e.g. "weekly settlement", "Diwali bonus"'
                   : undefined
               }
             />
-            {/* Phase 21b — quick-fill chip for "advance". An advance is
-                a WAGE payment recorded BEFORE the matching piece work,
-                producing a credit balance against the karigar's ledger
-                until the work catches up. The data model doesn't have
-                a separate "advance" enum — it's just a wage payment
-                with a descriptive note. This chip keeps the concept
-                explicit in the UI so the workshop owner can mark it
-                with one tap. */}
-            {paymentType === "WAGE" && (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="text-[10px] uppercase tracking-wider text-on-surface-variant">
-                  Quick tag:
-                </span>
-                <button
-                  type="button"
-                  data-testid="quick-note-advance"
-                  onClick={() => setNote("advance")}
-                  className="px-2 py-1 text-[10px] uppercase tracking-wider border border-outline-variant bg-surface-container-low text-on-surface hover:bg-surface-container-high transition-colors"
-                >
-                  Advance
-                </button>
-              </div>
-            )}
+            {/* Phase 21b.1 — the [Advance] quick-tag was removed.
+                Advances are now recorded via the direct karigar ledger
+                entry action (see KarigarLedgerEntryModal) which posts a
+                MANUAL_PAYMENT entry not tied to a wage period. WAGE
+                payments are reserved for settlement against work done. */}
             <FormError>{fieldErrors.note}</FormError>
           </div>
 

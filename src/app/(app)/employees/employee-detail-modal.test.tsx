@@ -10,6 +10,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("./actions", () => ({
   softDeleteEmployee: vi.fn(),
 }));
+vi.mock("@/app/(app)/labour/karigar-ledger-actions", () => ({
+  createKarigarLedgerEntry: vi.fn(),
+  updateKarigarLedgerEntry: vi.fn(),
+  softDeleteKarigarLedgerEntry: vi.fn(),
+}));
 vi.mock("@/app/(app)/labour/actions", () => ({
   getEmployeeHistory: vi.fn(),
 }));
@@ -41,6 +46,7 @@ beforeEach(() => {
   vi.mocked(getEmployeeHistory).mockResolvedValue({
     pieceEntries: [],
     payments: [],
+    ledgerEntries: [],
   });
 });
 
@@ -89,6 +95,7 @@ describe("EmployeeDetailModal — Pieces history (LABOUR only)", () => {
         },
       ],
       payments: [],
+      ledgerEntries: [],
     });
     render(
       <EmployeeDetailModal
@@ -117,6 +124,7 @@ describe("EmployeeDetailModal — Pieces history (LABOUR only)", () => {
         },
       ],
       payments: [],
+      ledgerEntries: [],
     });
     render(
       <EmployeeDetailModal
@@ -146,6 +154,7 @@ describe("EmployeeDetailModal — Pieces history (LABOUR only)", () => {
         },
       ],
       payments: [],
+      ledgerEntries: [],
     });
     render(
       <EmployeeDetailModal
@@ -205,6 +214,7 @@ describe("EmployeeDetailModal — Payment history (both types)", () => {
           note: null,
         },
       ],
+      ledgerEntries: [],
     });
     render(
       <EmployeeDetailModal
@@ -237,6 +247,7 @@ describe("EmployeeDetailModal — Payment history (both types)", () => {
           note: null,
         },
       ],
+      ledgerEntries: [],
     });
     render(
       <EmployeeDetailModal

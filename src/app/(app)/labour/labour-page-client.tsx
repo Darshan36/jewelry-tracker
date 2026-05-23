@@ -1,33 +1,32 @@
 "use client";
 
 // Phase 18 — /labour interactive shell.
+// Phase 21b.1 — replaced OutstandingWagesSection with KarigarLedgerSection
+//   and added KarigarLedgerEntryModal for direct ledger entries
+//   (advances / payments / adjustments). The Pay button still routes to
+//   the WAGE EmployeePaymentModal (settlement against work done).
 //
-// Composes three sections (PendingSalariesSection, OutstandingWagesSection,
-// BulkPieceEntrySection) plus the EmployeePaymentModal that's pulled
-// open by Pay buttons in sections 1 + 2.
-//
-// Modal state lives at the shell level so a single modal instance is
-// shared across both sections — only one Pay flow is open at a time.
+// Composes four sections (PendingSalariesSection, KarigarLedgerSection,
+// BulkPieceEntrySection — historically three; the karigar-ledger row
+// list replaces the outstanding-wages list). Two modals share state at
+// the shell level so a single instance of each is reused.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { EmployeePaymentModal } from "@/components/action-modals/employee-payment-modal";
-import {
-  endOfCurrentMonthIST,
-  startOfCurrentMonthIST,
-} from "@/lib/format";
+import { KarigarLedgerEntryModal } from "@/components/action-modals/karigar-ledger-entry-modal";
 
 import { PendingSalariesSection } from "./pending-salaries-section";
-import { OutstandingWagesSection } from "./outstanding-wages-section";
+import { KarigarLedgerSection } from "./karigar-ledger-section";
 import { BulkPieceEntrySection } from "./bulk-piece-entry-section";
 import type {
   MissingSalaryEmployee,
-  EmployeeWagesRollup,
+  KarigarBalanceRow,
 } from "@/lib/labour-balances";
 import type { EmployeeForClient } from "../employees/types";
 
-type ModalState =
+type PaymentModalState =
   | { open: false }
   | {
       open: true;
@@ -39,46 +38,79 @@ type ModalState =
       contextLabel: string;
     };
 
+type KarigarLedgerModalState =
+  | { open: false }
+  | {
+      open: true;
+      employee: { id: string; name: string };
+    };
+
 type Props = {
   pendingSalaries: MissingSalaryEmployee[];
-  outstandingWages: EmployeeWagesRollup[];
+  karigarBalances: KarigarBalanceRow[];
   labourEmployees: EmployeeForClient[];
 };
 
 export function LabourPageClient({
   pendingSalaries,
-  outstandingWages,
+  karigarBalances,
   labourEmployees,
 }: Props) {
   const router = useRouter();
-  const [modal, setModal] = useState<ModalState>({ open: false });
+  const [paymentModal, setPaymentModal] = useState<PaymentModalState>({
+    open: false,
+  });
+  const [ledgerModal, setLedgerModal] = useState<KarigarLedgerModalState>({
+    open: false,
+  });
 
   function openSalaryModal(row: MissingSalaryEmployee) {
-    setModal({
+    // periodStart stored as midnight-UTC of the IST month's first day;
+    // periodEnd stored as midnight-UTC of the last IST day (matches the
+    // monthly-reminder model).
+    const now = new Date();
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    const year = istNow.getUTCFullYear();
+    const month = istNow.getUTCMonth();
+    const periodStart = new Date(Date.UTC(year, month, 1));
+    const periodEnd = new Date(Date.UTC(year, month + 1, 0));
+    setPaymentModal({
       open: true,
       employee: { ...row.employee, type: "FIXED" },
       paymentType: "SALARY",
       defaultAmount: row.monthlySalary,
-      defaultPeriodStart: startOfCurrentMonthIST(),
-      // periodEnd stored as the day before next month's start so the
-      // half-open [start, end+1) range matches the inclusive period
-      // semantics labour-balances uses.
-      defaultPeriodEnd: new Date(endOfCurrentMonthIST().getTime() - 24 * 60 * 60 * 1000),
+      defaultPeriodStart: periodStart,
+      defaultPeriodEnd: periodEnd,
       contextLabel: row.currentMonth,
     });
   }
 
-  function openWageModal(row: EmployeeWagesRollup) {
-    const start = row.earliestUnpaidDate ?? new Date();
-    const end = new Date();
-    setModal({
+  function openWageModal(row: KarigarBalanceRow) {
+    // Wages: period defaults to "this month so far" — the workshop owner
+    // can override on the modal. Phase 21b moved coverage from period-
+    // overlap to ledger-derived; the period is now purely informational
+    // (audit trail, no longer drives outstanding calculation).
+    const now = new Date();
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    const year = istNow.getUTCFullYear();
+    const month = istNow.getUTCMonth();
+    const periodStart = new Date(Date.UTC(year, month, 1));
+    const periodEnd = now;
+    setPaymentModal({
       open: true,
       employee: { ...row.employee, type: "LABOUR" },
       paymentType: "WAGE",
-      defaultAmount: row.totalAmount,
-      defaultPeriodStart: start,
-      defaultPeriodEnd: end,
-      contextLabel: `${row.totalPieces} pieces · earliest unpaid ${start.toISOString().slice(0, 10)}`,
+      defaultAmount: row.balance > 0 ? row.balance : 0,
+      defaultPeriodStart: periodStart,
+      defaultPeriodEnd: periodEnd,
+      contextLabel: `Outstanding ${row.balance > 0 ? "" : "₹0"}`.trim(),
+    });
+  }
+
+  function openLedgerModal(row: KarigarBalanceRow) {
+    setLedgerModal({
+      open: true,
+      employee: { id: row.employee.id, name: row.employee.name },
     });
   }
 
@@ -88,26 +120,36 @@ export function LabourPageClient({
         rows={pendingSalaries}
         onPayClick={openSalaryModal}
       />
-      <OutstandingWagesSection
-        rows={outstandingWages}
+      <KarigarLedgerSection
+        rows={karigarBalances}
         onPayClick={openWageModal}
+        onRecordEntryClick={openLedgerModal}
       />
       <BulkPieceEntrySection
         employees={labourEmployees}
         onSaved={() => router.refresh()}
       />
 
-      {modal.open && (
+      {paymentModal.open && (
         <EmployeePaymentModal
-          open={modal.open}
-          onClose={() => setModal({ open: false })}
+          open={paymentModal.open}
+          onClose={() => setPaymentModal({ open: false })}
           onSaved={() => router.refresh()}
-          employee={modal.employee}
-          paymentType={modal.paymentType}
-          defaultAmount={modal.defaultAmount}
-          defaultPeriodStart={modal.defaultPeriodStart}
-          defaultPeriodEnd={modal.defaultPeriodEnd}
-          contextLabel={modal.contextLabel}
+          employee={paymentModal.employee}
+          paymentType={paymentModal.paymentType}
+          defaultAmount={paymentModal.defaultAmount}
+          defaultPeriodStart={paymentModal.defaultPeriodStart}
+          defaultPeriodEnd={paymentModal.defaultPeriodEnd}
+          contextLabel={paymentModal.contextLabel}
+        />
+      )}
+
+      {ledgerModal.open && (
+        <KarigarLedgerEntryModal
+          open={ledgerModal.open}
+          onClose={() => setLedgerModal({ open: false })}
+          onSaved={() => router.refresh()}
+          employee={ledgerModal.employee}
         />
       )}
     </div>

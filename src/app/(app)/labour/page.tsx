@@ -5,18 +5,22 @@ import { prisma } from "@/lib/prisma";
 import { canViewLabour } from "@/lib/role-access";
 import {
   listEmployeesMissingSalaryThisMonth,
-  listEmployeesWithOutstandingWages,
+  listKarigarBalances,
 } from "@/lib/labour-balances";
 
 import { LabourPageClient } from "./labour-page-client";
 import type { EmployeeForClient } from "../employees/types";
 
 // Phase 18 — /labour page.
+// Phase 21b.1 — Section 2 ("Outstanding wages") replaced by the unified
+// "Karigar ledger" surface that lists every active LABOUR karigar with
+// their signed balance + "Record entry" button for direct ledger
+// entries (advances / payments / adjustments).
 //
 // Three sections:
 //   1. Pending salaries (FIXED employees missing this month's payment)
-//   2. Outstanding wages (LABOUR employees with unpaid piece work)
-//   3. Bulk piece entry (all active LABOUR employees, fast daily entry)
+//   2. Karigar ledger (all active LABOUR with signed balance + buttons)
+//   3. Daily piece entry (all active LABOUR, fast bulk entry)
 //
 // Server component fetches all the data; the interactive bits live in
 // labour-page-client.tsx.
@@ -32,10 +36,10 @@ export default async function LabourPage() {
     redirect("/dashboard");
   }
 
-  const [pendingSalaries, outstandingWages, labourEmployees] = await Promise.all(
+  const [pendingSalaries, karigarBalances, labourEmployees] = await Promise.all(
     [
       listEmployeesMissingSalaryThisMonth(),
-      listEmployeesWithOutstandingWages(),
+      listKarigarBalances(),
       prisma.employee.findMany({
         where: { deletedAt: null, type: "LABOUR" },
         orderBy: { name: "asc" },
@@ -58,13 +62,13 @@ export default async function LabourPage() {
           Payroll
         </h1>
         <p className="text-on-surface-variant text-xs uppercase tracking-widest">
-          Daily piece entry · salaries · wages
+          Daily piece entry · salaries · wages · karigar ledger
         </p>
       </header>
 
       <LabourPageClient
         pendingSalaries={pendingSalaries}
-        outstandingWages={outstandingWages}
+        karigarBalances={karigarBalances}
         labourEmployees={labourEmployeesForClient}
       />
     </div>
