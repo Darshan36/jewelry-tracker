@@ -6,6 +6,7 @@ import {
   canManageUsers,
   canViewCompleted,
   canViewLabour,
+  canViewLedger,
   canViewPayables,
   canViewReceivables,
   canViewReports,
@@ -95,6 +96,21 @@ describe("canManageLabour — Phase 18", () => {
   });
   it("CASTING_PLATING_MGMT cannot manage", () => {
     expect(canManageLabour("CASTING_PLATING_MGMT")).toBe(false);
+  });
+});
+
+describe("canViewLedger — Phase 21c.1 (open to every role)", () => {
+  it("ADMIN can view", () => {
+    expect(canViewLedger("ADMIN")).toBe(true);
+  });
+  it("PURCHASE_DEPT can view", () => {
+    expect(canViewLedger("PURCHASE_DEPT")).toBe(true);
+  });
+  it("LABOUR_MGMT can view", () => {
+    expect(canViewLedger("LABOUR_MGMT")).toBe(true);
+  });
+  it("CASTING_PLATING_MGMT can view", () => {
+    expect(canViewLedger("CASTING_PLATING_MGMT")).toBe(true);
   });
 });
 

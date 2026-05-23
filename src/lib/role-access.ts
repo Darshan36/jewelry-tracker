@@ -100,6 +100,33 @@ export function canViewReports(role: Role): boolean {
   return role === "ADMIN";
 }
 
+// Phase 21c.1 — Unified ledger home.
+//
+// `/ledger` is visible to every authenticated role — each role sees a
+// role-scoped subset of the four summary boxes (receivables, purchase
+// payables, casting/plating payables, karigar wages) and the unified
+// owner list filtered to the owners they can act on. The box / owner
+// gating itself lives in `src/lib/ledger-home.ts` (`canRoleSeeBox`,
+// `visiblePartySources`); this helper is the URL-level gate equivalent
+// of the others above.
+//
+// Why "every role" instead of role-specific gating: every role has at
+// least one box that's relevant to them (LABOUR_MGMT sees the karigar
+// slice, scoped roles see their payables, ADMIN sees all four). Hiding
+// the route per-role would mean adding a sidebar-visibility branch for
+// no benefit — the page already empty-states cleanly when a role's
+// scope contains no rows.
+
+/** Whether a role can view the /ledger page (every role can). */
+export function canViewLedger(role: Role): boolean {
+  return (
+    role === "ADMIN" ||
+    role === "PURCHASE_DEPT" ||
+    role === "CASTING_PLATING_MGMT" ||
+    role === "LABOUR_MGMT"
+  );
+}
+
 // Phase 16 — User management UI.
 //
 // `/users` is ADMIN-only — only admins can list, create, edit, reset

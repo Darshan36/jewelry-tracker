@@ -31,6 +31,10 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   // /reports is preemptively gated for Phase 15 (still a sidebar placeholder).
   "/completed": ["ADMIN"],
   "/reports": ["ADMIN"],
+  // Phase 21c.1: Unified ledger home — every role sees a role-scoped
+  // slice (boxes + owner list). Per-box / per-owner gating lives in
+  // src/lib/ledger-home.ts; the URL is open to any authenticated user.
+  "/ledger": ["ADMIN", "PURCHASE_DEPT", "LABOUR_MGMT", "CASTING_PLATING_MGMT"],
   // Phase 16: User management UI — ADMIN-only.
   "/users": ["ADMIN"],
   // Phase 20: Shop settings (bill header config) — ADMIN-only.
