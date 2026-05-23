@@ -146,6 +146,26 @@ describe("softDeleteVendor", () => {
     expect(call.data.deletedAt).toBeInstanceOf(Date);
     expect(revalidatePath).toHaveBeenCalledWith("/vendors");
   });
+
+  // Phase 21c.2 cascade fix — see softDeleteCustomer test for rationale.
+  it("CASCADE — soft-delete propagates to active ledger entries (partyId match)", async () => {
+    vi.mocked(prisma.party.update).mockResolvedValue(
+      makeParty({ deletedAt: new Date() }),
+    );
+
+    await softDeleteVendor("party-3");
+
+    expect(prisma.ledgerEntry.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { partyId: "party-3", deletedAt: null },
+      }),
+    );
+    const call = vi.mocked(prisma.ledgerEntry.updateMany).mock.calls[0][0];
+    expect(call.data).toMatchObject({
+      deletedAt: expect.any(Date),
+      deletedById: expect.any(String),
+    });
+  });
 });
 
 // Vendor role matrix: ADMIN and CASTING_PLATING_MGMT allowed; others denied.

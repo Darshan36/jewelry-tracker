@@ -231,8 +231,10 @@ export async function softDeletePieceEntry(id: string) {
  *   - SALARY: employee must be FIXED. periodStart/periodEnd should be
  *     the calendar-month boundaries (the modal pre-fills them).
  *   - WAGE: employee must be LABOUR. periodStart/periodEnd is an
- *     arbitrary window — coverage uses period-overlap (see
- *     labour-balances.ts isPieceEntryCovered).
+ *     arbitrary informational window — coverage derives from the
+ *     ledger running balance (see computeOwnerBalance), NOT from
+ *     period overlap. The Phase 18 period-overlap helpers were
+ *     dropped in 21c.2.
  *
  * Validation:
  *   - Type must match employee type (no SALARY for LABOUR, no WAGE

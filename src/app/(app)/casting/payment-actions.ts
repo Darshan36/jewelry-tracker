@@ -55,7 +55,10 @@ export async function createCastingPayment(input: CastingPaymentInput) {
     };
   }
 
-  // Phase 21a gate: party-linked casting entries use the party ledger.
+  // Phase 21c.2 — CastingPayment is WALK-IN-ONLY since 21c. Party-
+  // linked casting entries record payments on the party ledger
+  // (Phase 21a). This guard is the load-bearing invariant. See the
+  // CastingPayment Prisma model comment.
   if (entry.partyId !== null) {
     return {
       ok: false as const,

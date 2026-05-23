@@ -1652,34 +1652,23 @@ test setup is:
 The canonical example is `src/components/photo-gallery.test.tsx`. Apply
 the same shape for any future multi-attachment feature.
 
-## Period-overlap test patterns (Phase 18)
+## Period-overlap test patterns (Phase 18 — historical, dropped in 21c.2)
 
-Phase 18's labour-balances logic uses period overlap to decide whether a
-`PieceEntry` is covered by a `WAGE`-type `EmployeePayment`. The check is
-inclusive on both ends: `payment.periodStart ≤ entry.date ≤ payment.periodEnd`.
+Phase 18's labour-balances logic used period overlap to decide whether a
+`PieceEntry` was covered by a `WAGE`-type `EmployeePayment` — the
+`isDateInPeriod` / `isPieceEntryCovered` / `computeOutstandingWages`
+helpers. Phase 21b moved the source of truth to the LedgerEntry table
+(`computeOwnerBalance(employee.ledgerEntries)`); Phase 21c.2 dropped the
+period-overlap helpers entirely (zero live callers).
 
-When testing helpers that consume payment periods (`isDateInPeriod`,
-`isPieceEntryCovered`, `computeOutstandingWages`), fixtures must cover
-every boundary class:
+The only remaining period-anchored helper is `isMonthSalaryPaid` for
+the FIXED-salary monthly-reminder model (uses `periodStart` falling in
+the current IST month, not period overlap). Test pattern for it is
+narrower than the original period-overlap matrix: cover (a) payment
+periodStart inside the month, (b) outside, (c) soft-deleted excluded,
+(d) wrong type (WAGE) excluded.
 
-- **Inside the period** — entry date strictly between start and end.
-- **Exactly at `periodStart`** — inclusive boundary, must be covered.
-- **Exactly at `periodEnd`** — inclusive boundary, must be covered.
-- **One millisecond before `periodStart`** — must NOT be covered. Use
-  `new Date(periodStart.getTime() - 1)` to be precise.
-- **One millisecond after `periodEnd`** — must NOT be covered. Use
-  `new Date(periodEnd.getTime() + 1)`.
-- **Multiple non-contiguous payments** — entry covered iff at least
-  ONE payment's period contains it. Test both the "covered by the
-  second payment" case and the "fall in the gap between two payments"
-  case.
-- **Wrong type** — a `SALARY`-type payment must NOT cover a piece entry
-  even if its period contains the entry's date. Coverage is type-scoped.
-- **Soft-deleted payments** — `deletedAt !== null` payments are excluded.
-- **Soft-deleted entries** — excluded from the unpaid set even if
-  uncovered.
-
-Reference: `src/lib/labour-balances.test.ts`.
+Reference: `src/lib/labour-balances.test.ts` (`isMonthSalaryPaid` describe).
 
 ## IST timezone test fixtures (Phase 18)
 

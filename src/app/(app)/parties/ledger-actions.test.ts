@@ -34,7 +34,7 @@ import {
   updateLedgerPayment,
 } from "./ledger-actions";
 
-import { computePartyBalance } from "@/lib/ledger";
+import { computeOwnerBalance } from "@/lib/ledger";
 
 type Role = "ADMIN" | "PURCHASE_DEPT" | "CASTING_PLATING_MGMT" | "LABOUR_MGMT";
 
@@ -398,7 +398,7 @@ describe("softDeleteLedgerEntry — Phase 21a.1 surfacing", () => {
 //
 // These tests pin the BUSINESS CONTRACT: editing or deleting a manual
 // payment must move the resulting party balance by exactly the amount
-// difference. They use computePartyBalance directly against a simulated
+// difference. They use computeOwnerBalance directly against a simulated
 // pre/post entry set (same pure helper that drives the UI).
 
 describe("Balance integrity — the screenshot scenario", () => {
@@ -413,7 +413,7 @@ describe("Balance integrity — the screenshot scenario", () => {
   }
 
   it("Sale ₹1,000 + Payment ₹10,000 = credit −₹9,000", () => {
-    const balance = computePartyBalance([
+    const balance = computeOwnerBalance([
       entry("INCREASE", 100_000n), // sale ₹1000
       entry("DECREASE", 1_000_000n), // payment ₹10000
     ]);
@@ -421,7 +421,7 @@ describe("Balance integrity — the screenshot scenario", () => {
   });
 
   it("After edit ₹10,000 → ₹1,000 — balance = 0", () => {
-    const balance = computePartyBalance([
+    const balance = computeOwnerBalance([
       entry("INCREASE", 100_000n),
       entry("DECREASE", 100_000n), // payment edited to ₹1000
     ]);
@@ -429,7 +429,7 @@ describe("Balance integrity — the screenshot scenario", () => {
   });
 
   it("After edit ₹10,000 → ₹500 — balance = +₹500", () => {
-    const balance = computePartyBalance([
+    const balance = computeOwnerBalance([
       entry("INCREASE", 100_000n),
       entry("DECREASE", 50_000n), // payment edited to ₹500
     ]);
@@ -437,8 +437,8 @@ describe("Balance integrity — the screenshot scenario", () => {
   });
 
   it("After delete payment — balance = +₹1,000 (full sale outstanding)", () => {
-    // Soft-deleted payment is excluded by computePartyBalance.
-    const balance = computePartyBalance([
+    // Soft-deleted payment is excluded by computeOwnerBalance.
+    const balance = computeOwnerBalance([
       entry("INCREASE", 100_000n),
       { direction: "DECREASE", amount: 1_000_000n, deletedAt: new Date() },
     ]);
@@ -446,11 +446,11 @@ describe("Balance integrity — the screenshot scenario", () => {
   });
 
   it("Edit from ₹10,000 → ₹1,000 moves the balance by exactly ₹9,000", () => {
-    const before = computePartyBalance([
+    const before = computeOwnerBalance([
       entry("INCREASE", 100_000n),
       entry("DECREASE", 1_000_000n),
     ]);
-    const after = computePartyBalance([
+    const after = computeOwnerBalance([
       entry("INCREASE", 100_000n),
       entry("DECREASE", 100_000n),
     ]);

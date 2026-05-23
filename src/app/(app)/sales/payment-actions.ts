@@ -66,10 +66,14 @@ export async function createSalePayment(input: SalePaymentInput) {
     };
   }
 
-  // Phase 21a gate: party-linked sales use the party ledger instead of
-  // per-bill *Payment rows. Block this action; the UI for party-linked
-  // rows has the per-row "Pay" button hidden anyway, so this is a
-  // defense-in-depth check (handles direct fetch + test-only callers).
+  // Phase 21c.2 — SalePayment is WALK-IN-ONLY since 21c. Party-linked
+  // sales record payments on the party ledger (Phase 21a). This guard
+  // is the load-bearing invariant — any code path that tries to create
+  // a SalePayment row for a party-linked sale would re-introduce the
+  // split-source-of-truth bug. The UI for party-linked rows hides the
+  // per-row "Pay" button (21a.1 chip-cleanup), so this is also defense-
+  // in-depth against direct-fetch + test-only callers. See the
+  // SalePayment Prisma model comment for the walk-in-only invariant.
   if (sale.partyId !== null) {
     return {
       ok: false as const,

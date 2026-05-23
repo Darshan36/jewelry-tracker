@@ -79,12 +79,23 @@ export async function updateVendor(id: string, input: VendorInput) {
 }
 
 export async function softDeleteVendor(id: string) {
-  await requireRole([...VENDOR_ROLES]);
+  const session = await requireRole([...VENDOR_ROLES]);
 
-  await prisma.party.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  // Phase 21c.2 cascade fix — see softDeleteCustomer header for the
+  // full rationale. Single Party table, single cascade shape.
+  await prisma.$transaction(async (tx) => {
+    const deletedAt = new Date();
+    await tx.party.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt },
+    });
+    await tx.ledgerEntry.updateMany({
+      where: { partyId: id, deletedAt: null },
+      data: { deletedAt, deletedById: session.user.id },
+    });
   });
   revalidatePath("/vendors");
+  revalidatePath("/ledger");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }

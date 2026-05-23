@@ -29,7 +29,7 @@ import type {
   PaymentType,
 } from "@/generated/prisma";
 
-import { computePartyBalance, computeScopedBalance } from "@/lib/ledger";
+import { computeOwnerBalance, computeScopedBalance } from "@/lib/ledger";
 
 // --- Walk-in per-transaction outstanding (unchanged from Phase 17b) ---
 
@@ -81,7 +81,7 @@ export type PayableScope = "purchase" | "casting_plating" | "all";
  * payables source — PURCHASE / PURCHASE_RETURN / CASTING / PLATING —
  * but NOT SALE / SALE_RETURN (those are receivables). MANUAL_PAYMENT
  * has sourceType IS NULL and is included in the ADMIN balance calc
- * via `computePartyBalance` (which sees everything); scoped roles
+ * via `computeOwnerBalance` (which sees everything); scoped roles
  * intentionally exclude MANUAL_PAYMENT (see computeScopedBalance).
  */
 const PAYABLE_SCOPE_SOURCES: Record<PayableScope, LedgerSourceType[]> = {
@@ -224,7 +224,7 @@ export async function listPayables(
 
     if (scope === "all") {
       // ADMIN — true net balance, includes MANUAL_PAYMENT.
-      balance = computePartyBalance(entries);
+      balance = computeOwnerBalance(entries);
     } else {
       // Scoped role — "outstanding by activity".
       balance = computeScopedBalance(entries, allowedSources);
@@ -313,7 +313,7 @@ export async function listReceivables(): Promise<PartyReceivableRollup[]> {
     // perspective. The ADMIN-only access matrix and small workshop
     // scale mean this works in practice without scope-tagging on
     // MANUAL_PAYMENT.
-    const balance = computePartyBalance(
+    const balance = computeOwnerBalance(
       party.ledgerEntries.filter(
         (e) =>
           e.entryType === "MANUAL_PAYMENT" ||
@@ -369,7 +369,7 @@ export async function getPayablesForParty(
   let showFootnote = false;
 
   if (scope === "all") {
-    balance = computePartyBalance(party.ledgerEntries);
+    balance = computeOwnerBalance(party.ledgerEntries);
     entriesForClient = projectAllEntries(party.ledgerEntries);
   } else {
     balance = computeScopedBalance(party.ledgerEntries, allowedSources);
@@ -418,7 +418,7 @@ export async function getReceivablesForParty(partyId: string): Promise<{
       e.entryType === "MANUAL_PAYMENT" ||
       (e.sourceType !== null && RECEIVABLE_SOURCES.includes(e.sourceType)),
   );
-  const balance = computePartyBalance(relevant);
+  const balance = computeOwnerBalance(relevant);
 
   return {
     party: stripPartyRelations(party),

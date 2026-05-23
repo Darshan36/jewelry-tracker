@@ -248,6 +248,30 @@ describe("softDeleteCustomer", () => {
 
     expect(prisma.party.update).not.toHaveBeenCalled();
   });
+
+  // Phase 21c.2 cascade fix: soft-deleting a party must also soft-
+  // delete its active ledger_entries. Without this, orphan entries
+  // leak into balance computations AND 404 the legacy
+  // /receivables/[id] route. The same cascade shape is asserted in
+  // suppliers + vendors tests because all three share the Party table.
+  it("CASCADE — soft-delete propagates to active ledger entries (partyId match)", async () => {
+    vi.mocked(prisma.party.update).mockResolvedValue(
+      makeParty({ deletedAt: new Date() }),
+    );
+
+    await softDeleteCustomer("party-1");
+
+    expect(prisma.ledgerEntry.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { partyId: "party-1", deletedAt: null },
+      }),
+    );
+    const call = vi.mocked(prisma.ledgerEntry.updateMany).mock.calls[0][0];
+    expect(call.data).toMatchObject({
+      deletedAt: expect.any(Date),
+      deletedById: expect.any(String),
+    });
+  });
 });
 
 // =====================================================================

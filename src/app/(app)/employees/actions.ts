@@ -59,12 +59,32 @@ export async function updateEmployee(id: string, input: EmployeeInput) {
 }
 
 export async function softDeleteEmployee(id: string) {
-  await requireRole(["ADMIN", "LABOUR_MGMT"]);
+  const session = await requireRole(["ADMIN", "LABOUR_MGMT"]);
 
-  await prisma.employee.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  // Phase 21c.2 cascade fix: soft-deleting an employee must also soft-
+  // delete their active ledger_entries (PIECE_ENTRY / WAGE_PAYMENT
+  // TRANSACTION_LINKED rows + MANUAL_PAYMENT karigar entries). Without
+  // this, ledger rows would remain ACTIVE while their owner employee
+  // is soft-deleted — silently corrupting the karigar box total
+  // (the row's amount would still sum into balances even though the
+  // employee shouldn't be visible).
+  //
+  // Mirrors the Phase 21a softDeleteSale cascade shape (commit 2bcf16e)
+  // applied to LedgerEntry instead of *Payment/*Return.
+  await prisma.$transaction(async (tx) => {
+    const deletedAt = new Date();
+    await tx.employee.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt },
+    });
+    await tx.ledgerEntry.updateMany({
+      where: { employeeId: id, deletedAt: null },
+      data: { deletedAt, deletedById: session.user.id },
+    });
   });
   revalidatePath("/employees");
+  revalidatePath("/labour");
+  revalidatePath("/ledger");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }

@@ -77,12 +77,32 @@ export async function updateCustomer(id: string, input: CustomerInput) {
 }
 
 export async function softDeleteCustomer(id: string) {
-  await requireRole(["ADMIN"]);
+  const session = await requireRole(["ADMIN"]);
 
-  await prisma.party.update({
-    where: { id, deletedAt: null },
-    data: { deletedAt: new Date() },
+  // Phase 21c.2 cascade fix: soft-deleting a party must also soft-
+  // delete its active ledger_entries. Pre-fix, an orphan ledger row
+  // (active entry whose parent party is soft-deleted) would silently
+  // leak into balance computations AND 404 the legacy /receivables/[id]
+  // route. Two such orphans were cleaned out of prod in 21c.2.
+  //
+  // Mirrors the Phase 21a softDeleteSale cascade shape (commit 2bcf16e)
+  // applied to LedgerEntry. Same shape across the three party-side
+  // soft-deletes (customers, suppliers, vendors) — a Party row may
+  // hold multiple role flags so the cascade is single regardless of
+  // which entry point soft-deletes it.
+  await prisma.$transaction(async (tx) => {
+    const deletedAt = new Date();
+    await tx.party.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt },
+    });
+    await tx.ledgerEntry.updateMany({
+      where: { partyId: id, deletedAt: null },
+      data: { deletedAt, deletedById: session.user.id },
+    });
   });
   revalidatePath("/customers");
+  revalidatePath("/ledger");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }

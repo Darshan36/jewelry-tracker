@@ -72,7 +72,10 @@ export async function createPurchasePayment(input: PurchasePaymentInput) {
     };
   }
 
-  // Phase 21a gate: party-linked purchases use the party ledger.
+  // Phase 21c.2 — PurchasePayment is WALK-IN-ONLY since 21c. Party-
+  // linked purchases record payments on the party ledger (Phase 21a).
+  // This guard is the load-bearing invariant. See the PurchasePayment
+  // Prisma model comment.
   if (purchase.partyId !== null) {
     return {
       ok: false as const,

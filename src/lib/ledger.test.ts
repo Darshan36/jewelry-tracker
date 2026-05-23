@@ -1,7 +1,7 @@
 // Phase 21a Gate 2 — ledger.ts unit tests.
 //
 // Coverage required by the build checkpoint:
-//   - computePartyBalance: raw signed (no clamp); credit-balance case
+//   - computeOwnerBalance: raw signed (no clamp); credit-balance case
 //   - computeScopedBalance: multi-role / scoped-filter math
 //   - describeTransactionLedgerEntry: pure description string builder
 //   - writeTransactionLedgerEntry: tx.ledgerEntry.create payload
@@ -21,7 +21,6 @@ import { prisma } from "@/lib/prisma";
 
 import {
   computeOwnerBalance,
-  computePartyBalance,
   computeScopedBalance,
   describePieceEntry,
   describeTransactionLedgerEntry,
@@ -215,17 +214,10 @@ describe("describeWagePayment (Phase 21b)", () => {
 });
 
 describe("computeOwnerBalance (Phase 21b rename — owner-agnostic)", () => {
-  it("computePartyBalance still works as a @deprecated alias", () => {
-    // The rename must not break existing party-side call sites. The
-    // alias re-export points at the same function (identity equality).
-    expect(computePartyBalance).toBe(computeOwnerBalance);
-    expect(
-      computePartyBalance([
-        { direction: "INCREASE", amount: 100n, deletedAt: null },
-        { direction: "DECREASE", amount: 30n, deletedAt: null },
-      ]),
-    ).toBe(70n);
-  });
+  // Phase 21c.2: the `computeOwnerBalance` @deprecated alias was
+  // dropped in 21c.2. All callers (5 in outstanding-balances.ts) were
+  // renamed to computeOwnerBalance. Tests below cover the unified
+  // helper directly.
 
   it("owner-agnostic: identical math on karigar-shape entries (employee owner) as on party entries", () => {
     // The helper takes LedgerEntryLike[] — direction + amount +
@@ -249,14 +241,16 @@ describe("computeOwnerBalance (Phase 21b rename — owner-agnostic)", () => {
   });
 });
 
-describe("computePartyBalance (raw signed, no clamp)", () => {
+describe("computeOwnerBalance (raw signed, no clamp)", () => {
+  // Phase 21c.2: was "computeOwnerBalance" pre-rename; same body,
+  // renamed in 21c.2 along with the alias drop.
   it("returns 0n for empty entries", () => {
-    expect(computePartyBalance([])).toBe(0n);
+    expect(computeOwnerBalance([])).toBe(0n);
   });
 
   it("sums INCREASE − DECREASE", () => {
     expect(
-      computePartyBalance([
+      computeOwnerBalance([
         { direction: "INCREASE", amount: 50000n, deletedAt: null },
         { direction: "DECREASE", amount: 20000n, deletedAt: null },
       ]),
@@ -265,7 +259,7 @@ describe("computePartyBalance (raw signed, no clamp)", () => {
 
   it("excludes soft-deleted entries", () => {
     expect(
-      computePartyBalance([
+      computeOwnerBalance([
         { direction: "INCREASE", amount: 50000n, deletedAt: null },
         { direction: "INCREASE", amount: 99999n, deletedAt: new Date() }, // ignored
         { direction: "DECREASE", amount: 10000n, deletedAt: null },
@@ -278,7 +272,7 @@ describe("computePartyBalance (raw signed, no clamp)", () => {
     // The whole point of the ledger model: negative balance is a legal,
     // representable state ("party has prepaid; we owe them back").
     // Raw signed math — NEVER clamp to 0.
-    const balance = computePartyBalance([
+    const balance = computeOwnerBalance([
       { direction: "INCREASE", amount: 800000n, deletedAt: null },
       { direction: "DECREASE", amount: 1000000n, deletedAt: null },
     ]);
@@ -288,7 +282,7 @@ describe("computePartyBalance (raw signed, no clamp)", () => {
 
   it("handles all-DECREASE (over-refunded transaction or pre-payment)", () => {
     expect(
-      computePartyBalance([
+      computeOwnerBalance([
         { direction: "DECREASE", amount: 50000n, deletedAt: null },
         { direction: "DECREASE", amount: 30000n, deletedAt: null },
       ]),
@@ -325,8 +319,8 @@ describe("computeScopedBalance (sourceType-filtered, excludes MANUAL_PAYMENT)", 
     expect(computeScopedBalance(entries, ["PURCHASE", "PURCHASE_RETURN"])).toBe(300000n);
     // CASTING_PLATING_MGMT scope: ₹4,000 — sees casting only
     expect(computeScopedBalance(entries, ["CASTING", "PLATING"])).toBe(400000n);
-    // ADMIN scope uses computePartyBalance instead (sees MANUAL_PAYMENT):
-    expect(computePartyBalance(entries)).toBe(400000n); // 300+400-100-200 = 400
+    // ADMIN scope uses computeOwnerBalance instead (sees MANUAL_PAYMENT):
+    expect(computeOwnerBalance(entries)).toBe(400000n); // 300+400-100-200 = 400
   });
 
   it("includes returns (SALE_RETURN / PURCHASE_RETURN) as DECREASE in scope", () => {

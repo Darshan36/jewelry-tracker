@@ -17,7 +17,7 @@
 //     soft-delete the linked entry atomically with the parent.
 //   - writeReturnLedgerEntry / softDeleteReturnLedgerEntry — the
 //     return-row equivalents (always DECREASE).
-//   - computePartyBalance — pure aggregation, RAW SIGNED, no clamp.
+//   - computeOwnerBalance — pure aggregation, RAW SIGNED, no clamp.
 //     Negative result means the party has credit balance.
 //   - listPartyLedger — chronological entries + running balance for
 //     the /payables/[partyId] and /receivables/[partyId] statement view.
@@ -642,7 +642,7 @@ type LedgerEntryLike = {
  * because the LedgerEntry shape already separated direction from
  * owner.
  *
- * Phase 21b: renamed from `computePartyBalance`. The old name is
+ * Phase 21b: renamed from `computeOwnerBalance`. The old name is
  * preserved as a `@deprecated` alias for one phase; drop the alias in
  * 21c when all call sites have moved.
  */
@@ -656,12 +656,10 @@ export function computeOwnerBalance(entries: LedgerEntryLike[]): bigint {
   return total;
 }
 
-/**
- * @deprecated Use `computeOwnerBalance` instead — owner-agnostic name.
- * Kept for one phase (drop in 21c) so existing party-side call sites
- * don't break during the rename.
- */
-export const computePartyBalance = computeOwnerBalance;
+// Phase 21c.2: `computeOwnerBalance` alias dropped. Use
+// `computeOwnerBalance` directly. The 21b → 21c.2 deprecation window
+// is now closed; all 5 call sites in outstanding-balances.ts were
+// renamed in 21c.2.
 
 /**
  * Scoped-balance computation — for /payables role-scoped views.
@@ -670,7 +668,7 @@ export const computePartyBalance = computeOwnerBalance;
  * MANUAL_PAYMENT (which has sourceType IS NULL and reconciles against
  * the full party balance, not per-activity).
  *
- * ADMIN view should use `computePartyBalance` (all entries, all sources)
+ * ADMIN view should use `computeOwnerBalance` (all entries, all sources)
  * — true net balance including MANUAL_PAYMENT.
  *
  * Scoped roles (PURCHASE_DEPT, CASTING_PLATING_MGMT) use this to see

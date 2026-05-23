@@ -1,18 +1,18 @@
-// Outstanding-wages and missing-salary helpers (Phase 18 → 21b).
+// Outstanding-wages and missing-salary helpers (Phase 18 → 21b → 21c.2).
 //
-// "Outstanding wages" model — PHASE 21b:
+// "Outstanding wages" model — PHASE 21b (current):
 //   A LABOUR employee's outstanding wages = the raw-signed balance of
 //   their LedgerEntry rows (PIECE_ENTRY INCREASE entries minus
 //   WAGE_PAYMENT DECREASE entries). Positive balance = shop owes
 //   karigar; negative balance = karigar holds an advance against
-//   future work. Source of truth is the ledger, NOT period overlap.
+//   future work. Source of truth is the ledger.
 //
-//   The Phase 18 period-overlap model (`isPieceEntryCovered`,
-//   `computeOutstandingWages`, `isDateInPeriod`) is preserved as
-//   `@deprecated` exports for one phase so external imports don't
-//   break during the cutover — drop in 21c.
+//   Phase 18 period-overlap helpers (`isPieceEntryCovered`,
+//   `computeOutstandingWages`, `isDateInPeriod`) were DROPPED in
+//   21c.2 — zero live callers (the 21b ledger-driven path
+//   replaced them across all surfaces).
 //
-// "Missing salary this month" model — UNCHANGED in 21b:
+// "Missing salary this month" model — UNCHANGED:
 //   For each FIXED employee, check if any non-deleted SALARY-type
 //   EmployeePayment exists with periodStart in the current IST month.
 //   FIXED-employee salary stays on the EmployeePayment rail; only the
@@ -34,102 +34,11 @@ import {
 
 // --- Pure helpers ----------------------------------------------------
 
-type PieceEntryLike = {
-  id: string;
-  date: Date;
-  totalAmount: bigint;
-  count: number;
-  deletedAt: Date | null;
-};
-
-type WagePaymentLike = {
-  type: "SALARY" | "WAGE";
-  periodStart: Date;
-  periodEnd: Date;
-  deletedAt: Date | null;
-};
-
 type SalaryPaymentLike = {
   type: "SALARY" | "WAGE";
   periodStart: Date;
   deletedAt: Date | null;
 };
-
-/**
- * @deprecated Phase 18 period-overlap helper. The ledger is now the
- * source of truth for outstanding wages (see `computeOwnerBalance`).
- * Kept for one phase so external imports don't break; drop in 21c.
- *
- * True iff the given moment falls within the half-open
- * [periodStart, periodEnd] inclusive range. The check is inclusive on
- * both ends — a payment for "May 1 to May 31" covers a piece entry
- * dated either May 1 OR May 31.
- */
-export function isDateInPeriod(
-  date: Date,
-  periodStart: Date,
-  periodEnd: Date,
-): boolean {
-  const t = date.getTime();
-  return t >= periodStart.getTime() && t <= periodEnd.getTime();
-}
-
-/**
- * @deprecated Phase 18 period-overlap coverage helper. Outstanding
- * wages now derive from the ledger; coverage is implicit in the
- * running balance. Kept for one phase; drop in 21c.
- *
- * True iff any non-deleted WAGE-type payment's period covers this
- * piece entry's date.
- */
-export function isPieceEntryCovered(
-  entry: PieceEntryLike,
-  payments: WagePaymentLike[],
-): boolean {
-  for (const p of payments) {
-    if (p.deletedAt !== null) continue;
-    if (p.type !== "WAGE") continue;
-    if (isDateInPeriod(entry.date, p.periodStart, p.periodEnd)) return true;
-  }
-  return false;
-}
-
-/**
- * @deprecated Phase 18 period-overlap aggregator. Replaced by
- * `computeOwnerBalance(employee.ledgerEntries)` from `@/lib/ledger`.
- * Kept for one phase; drop in 21c.
- *
- * Reduce per-employee piece entries + wage payments to a single
- * outstanding-wages bundle. Pure function — no DB. Used by the
- * aggregator below and by tests.
- */
-export function computeOutstandingWages(
-  entries: PieceEntryLike[],
-  payments: WagePaymentLike[],
-): {
-  unpaidEntries: PieceEntryLike[];
-  totalPieces: number;
-  totalAmount: bigint;
-  earliestUnpaidDate: Date | null;
-} {
-  const unpaidEntries: PieceEntryLike[] = [];
-  let totalPieces = 0;
-  let totalAmount = 0n;
-  let earliestUnpaidDate: Date | null = null;
-
-  for (const e of entries) {
-    if (e.deletedAt !== null) continue;
-    if (isPieceEntryCovered(e, payments)) continue;
-    unpaidEntries.push(e);
-    totalPieces += e.count;
-    totalAmount += e.totalAmount;
-    if (earliestUnpaidDate === null || e.date < earliestUnpaidDate) {
-      earliestUnpaidDate = e.date;
-    }
-  }
-
-  return { unpaidEntries, totalPieces, totalAmount, earliestUnpaidDate };
-}
 
 /**
  * True iff there's a non-deleted SALARY-type payment whose

@@ -279,6 +279,31 @@ describe("softDeleteEmployee", () => {
 
     expect(prisma.employee.update).not.toHaveBeenCalled();
   });
+
+  // Phase 21c.2 cascade fix: soft-deleting an employee must also soft-
+  // delete their active ledger_entries (PIECE_ENTRY / WAGE_PAYMENT
+  // TRANSACTION_LINKED rows + MANUAL_PAYMENT karigar entries). Without
+  // this, ledger rows orphan their employee and silently leak into
+  // the karigar box total. Mirrors the Phase 21a softDeleteSale
+  // cascade pattern.
+  it("CASCADE — soft-delete propagates to active ledger entries (employeeId match)", async () => {
+    vi.mocked(prisma.employee.update).mockResolvedValue(
+      makeEmployee({ deletedAt: new Date() }),
+    );
+
+    await softDeleteEmployee("emp-1");
+
+    expect(prisma.ledgerEntry.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { employeeId: "emp-1", deletedAt: null },
+      }),
+    );
+    const call = vi.mocked(prisma.ledgerEntry.updateMany).mock.calls[0][0];
+    expect(call.data).toMatchObject({
+      deletedAt: expect.any(Date),
+      deletedById: expect.any(String),
+    });
+  });
 });
 
 // =====================================================================

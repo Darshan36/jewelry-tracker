@@ -293,6 +293,10 @@ enum PaymentType {
   REFUND
 }
 
+// Phase 21c.2: WALK-IN-ONLY since 21c. Party-linked sales record
+// payments on the LedgerEntry table (Phase 21a). The walk-in-only
+// invariant is enforced by `createSalePayment` at the action layer
+// (`if (sale.partyId !== null) return error`).
 model SalePayment {
   id        String      @id @default(cuid())
   saleId    String
@@ -365,6 +369,7 @@ model PurchaseLineItem {
   @@map("purchase_line_items")
 }
 
+// Phase 21c.2: WALK-IN-ONLY since 21c. See SalePayment header.
 model PurchasePayment {
   id         String      @id @default(cuid())
   purchaseId String
@@ -439,6 +444,7 @@ model CastingLineItem {
   @@map("casting_line_items")
 }
 
+// Phase 21c.2: WALK-IN-ONLY since 21c. See SalePayment header.
 model CastingPayment {
   id             String       @id @default(cuid())
   castingEntryId String
@@ -496,6 +502,7 @@ model PlatingLineItem {
   @@map("plating_line_items")
 }
 
+// Phase 21c.2: WALK-IN-ONLY since 21c. See SalePayment header.
 model PlatingPayment {
   id             String       @id @default(cuid())
   platingEntryId String
