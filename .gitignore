@@ -63,6 +63,15 @@ scripts/_walkthrough*out/
 # never commit.
 scripts/_*.mjs
 
+# Dot-prefixed scratch scripts (rehearsals, diagnose runs, cleanup tools,
+# screenshots from interactive sessions). Same rationale as scripts/_*
+# above — may contain prod data at runtime, one-off-investigation
+# artifacts, secrets when run. Phase 21c.2 added this — git add -A
+# accidentally swept them in when convention had been "don't add manually".
+scripts/.*.mjs
+scripts/.*.mts
+scripts/.*.png
+
 # Local DB dumps — contain bcrypt password hashes and other secrets that
 # must never reach git history. Local safety artifacts only.
 /backups/

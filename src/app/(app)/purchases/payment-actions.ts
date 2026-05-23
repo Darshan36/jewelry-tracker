@@ -81,7 +81,7 @@ export async function createPurchasePayment(input: PurchasePaymentInput) {
       ok: false as const,
       errors: {
         purchaseId: [
-          "Party-linked purchases record payments on the party ledger. Use /payables instead.",
+          "Party-linked purchases record payments on the party ledger. Use /ledger instead.",
         ],
       },
     };

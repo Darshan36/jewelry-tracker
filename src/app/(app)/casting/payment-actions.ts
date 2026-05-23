@@ -64,7 +64,7 @@ export async function createCastingPayment(input: CastingPaymentInput) {
       ok: false as const,
       errors: {
         castingEntryId: [
-          "Party-linked casting entries record payments on the party ledger. Use /payables instead.",
+          "Party-linked casting entries record payments on the party ledger. Use /ledger instead.",
         ],
       },
     };

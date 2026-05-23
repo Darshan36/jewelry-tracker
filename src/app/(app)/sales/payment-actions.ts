@@ -79,7 +79,7 @@ export async function createSalePayment(input: SalePaymentInput) {
       ok: false as const,
       errors: {
         saleId: [
-          "Party-linked sales record payments on the party ledger. Use /receivables instead.",
+          "Party-linked sales record payments on the party ledger. Use /ledger instead.",
         ],
       },
     };

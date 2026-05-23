@@ -64,7 +64,7 @@ export async function createPlatingPayment(input: PlatingPaymentInput) {
       ok: false as const,
       errors: {
         platingEntryId: [
-          "Party-linked plating entries record payments on the party ledger. Use /payables instead.",
+          "Party-linked plating entries record payments on the party ledger. Use /ledger instead.",
         ],
       },
     };

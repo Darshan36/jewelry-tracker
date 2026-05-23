@@ -1,60 +1,17 @@
-// Role-access matrix for Payables/Receivables (Phase 17b).
+// Role-access matrix.
 //
 // Pure functions — no DB, no auth. Server components call these after
 // reading the session role; the page-level guard then redirects on
 // false. See proxy.ts for the URL-level enforcement (defense-in-depth
 // alongside this UI-layer check).
+//
+// Phase 21c.2: canViewPayables / canViewReceivables / canViewCompleted
+// / effectivePayableScope were REMOVED with the routes they gated.
+// /payables, /receivables, /completed all consolidated into /ledger
+// (21c.1) + dashboard category boxes (21c.1.1); see canViewLedger
+// below for the unified-page gate.
 
 import type { Role } from "@/generated/prisma";
-
-import type { PayableScope } from "./outstanding-balances";
-
-/**
- * Whether a role can view payables of a given scope.
- *
- * Scope mapping:
- *   - `purchase` → only Purchases-source payables.
- *   - `casting_plating` → CastingEntry + PlatingEntry payables.
- *   - `all` → both above combined.
- *
- * Matrix:
- *   - ADMIN: any scope.
- *   - PURCHASE_DEPT: `purchase` only (not `casting_plating`, not `all`).
- *   - CASTING_PLATING_MGMT: `casting_plating` only.
- *   - LABOUR_MGMT: none.
- *
- * Note `all` is the ADMIN-only superset; non-ADMIN roles must request
- * their specific scope. Use `effectivePayableScope(role)` to derive the
- * scope a role should default to when opening /payables.
- */
-export function canViewPayables(role: Role, scope: PayableScope): boolean {
-  if (role === "ADMIN") return true;
-  if (role === "PURCHASE_DEPT") return scope === "purchase";
-  if (role === "CASTING_PLATING_MGMT") return scope === "casting_plating";
-  return false; // LABOUR_MGMT and any unknown roles
-}
-
-/**
- * The default scope a role should use when opening the /payables page.
- * Returns `null` if the role has no access at all (LABOUR_MGMT).
- */
-export function effectivePayableScope(role: Role): PayableScope | null {
-  if (role === "ADMIN") return "all";
-  if (role === "PURCHASE_DEPT") return "purchase";
-  if (role === "CASTING_PLATING_MGMT") return "casting_plating";
-  return null;
-}
-
-/**
- * Whether a role can view the /receivables page.
- *
- * Only ADMIN. Receivables (= outstanding sales) is a customer-facing
- * book; other roles don't have a business need for it under the current
- * organisation shape. Revisit if a sales-facing role is added later.
- */
-export function canViewReceivables(role: Role): boolean {
-  return role === "ADMIN";
-}
 
 // Phase 18 — Labour management gates.
 //
@@ -81,19 +38,7 @@ export function canManageLabour(role: Role): boolean {
   return role === "ADMIN" || role === "LABOUR_MGMT";
 }
 
-// Phase 19 — Completed transactions view.
-//
-// `/completed` is an aggregated view across all entity types (Sales,
-// Purchases, Casting, Plating, Payroll). It's an owner-level surface
-// — the operational roles (PURCHASE_DEPT, LABOUR_MGMT,
-// CASTING_PLATING_MGMT) work the in-flight workflow on their entity
-// pages, not the historical record. ADMIN-only matches the same
-// reasoning as /receivables.
-
-/** Whether a role can view the /completed page. */
-export function canViewCompleted(role: Role): boolean {
-  return role === "ADMIN";
-}
+// Phase 19 + 21c.2: canViewCompleted REMOVED (route retired in 21c.2).
 
 /** Whether a role can view the /reports page (Phase 15 placeholder). */
 export function canViewReports(role: Role): boolean {

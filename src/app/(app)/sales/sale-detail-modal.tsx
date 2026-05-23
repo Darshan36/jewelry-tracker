@@ -303,7 +303,7 @@ function PartyLedgerPointer({ partyId }: { partyId: string }) {
         Payments
       </p>
       <Link
-        href={`/receivables/${partyId}`}
+        href={`/ledger/party/${partyId}`}
         className="inline-flex items-center gap-1.5 text-sm text-on-surface hover:underline"
       >
         <span>Tracked on this customer&apos;s ledger</span>

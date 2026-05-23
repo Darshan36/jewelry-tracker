@@ -3,14 +3,17 @@
 // Each transactional mutation (create/update/soft-delete on the entry
 // itself OR its payment/return children) touches multiple page caches:
 //   - the entity's own list page (/sales, /purchases, /casting, /plating)
-//   - the payables (purchase/casting/plating) or receivables (sales)
-//     party rollup, whose live numbers come from these same rows
-//   - /completed, the ADMIN-only settled-history view, which filters by
-//     derived status (computed from payments + returns)
-//   - /dashboard, whose per-source payables/receivables cards and
-//     monthly aggregates are computed from these rows
+//   - /ledger (the unified party + karigar home page since 21c.1)
+//   - /dashboard (per-role; the per-category ledger boxes since 21c.1.1
+//     read from the same listLedgerHome source, and dashboard tx-count /
+//     monthly-aggregate cards reflect entry counts)
 //
-// Before this helper landed, action files only called
+// Phase 21c.2: /completed, /payables, /receivables routes REMOVED;
+// their content lives on /ledger + dashboard category boxes. The
+// revalidatePath lines for those routes are gone — revalidating a
+// deleted route is harmless but pointless.
+//
+// Before this helper existed, action files only called
 // `revalidatePath("/<entity>")`. Adding a casting entry left the
 // dashboard's "Casting Payables" card stale; same shape for sales /
 // purchases / plating. See the polish bug-fix where the user reported
@@ -25,28 +28,24 @@ import { revalidatePath } from "next/cache";
 
 export function revalidateSaleViews() {
   revalidatePath("/sales");
-  revalidatePath("/receivables");
-  revalidatePath("/completed");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
 }
 
 export function revalidatePurchaseViews() {
   revalidatePath("/purchases");
-  revalidatePath("/payables");
-  revalidatePath("/completed");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
 }
 
 export function revalidateCastingViews() {
   revalidatePath("/casting");
-  revalidatePath("/payables");
-  revalidatePath("/completed");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
 }
 
 export function revalidatePlatingViews() {
   revalidatePath("/plating");
-  revalidatePath("/payables");
-  revalidatePath("/completed");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
 }

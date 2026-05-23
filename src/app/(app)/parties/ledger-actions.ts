@@ -135,11 +135,9 @@ export async function createLedgerPayment(
 
   // Revalidate every surface that displays party balances or ledger
   // statements.
-  revalidatePath("/payables");
-  revalidatePath("/receivables");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
-  revalidatePath(`/payables/${party.id}`);
-  revalidatePath(`/receivables/${party.id}`);
+  revalidatePath(`/ledger/party/${party.id}`);
 
   return { ok: true, entryId: created.id };
 }
@@ -208,11 +206,9 @@ export async function softDeleteLedgerEntry(
     },
   });
 
-  revalidatePath("/payables");
-  revalidatePath("/receivables");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
-  revalidatePath(`/payables/${entry.party.id}`);
-  revalidatePath(`/receivables/${entry.party.id}`);
+  revalidatePath(`/ledger/party/${entry.party.id}`);
 
   return { ok: true, entryId: entry.id };
 }
@@ -308,11 +304,9 @@ export async function updateLedgerPayment(
     });
   });
 
-  revalidatePath("/payables");
-  revalidatePath("/receivables");
+  revalidatePath("/ledger");
   revalidatePath("/dashboard");
-  revalidatePath(`/payables/${entry.party.id}`);
-  revalidatePath(`/receivables/${entry.party.id}`);
+  revalidatePath(`/ledger/party/${entry.party.id}`);
 
   return { ok: true, entryId: entry.id };
 }

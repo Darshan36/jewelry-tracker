@@ -20,16 +20,14 @@ const ROUTE_ROLES: Record<string, Role[]> = {
   "/casting": ["ADMIN", "CASTING_PLATING_MGMT"],
   "/plating": ["ADMIN", "CASTING_PLATING_MGMT"],
   "/vendors": ["ADMIN", "CASTING_PLATING_MGMT"],
-  // Phase 17b: Payables visible to ADMIN, PURCHASE_DEPT, CASTING_PLATING_MGMT
-  // (each role's page server-component re-filters by effective scope —
-  // PURCHASE_DEPT can't see casting payables and vice versa even at this
-  // route level). LABOUR_MGMT has no payables to view.
-  "/payables": ["ADMIN", "PURCHASE_DEPT", "CASTING_PLATING_MGMT"],
-  // Receivables is ADMIN-only — customer-facing book.
-  "/receivables": ["ADMIN"],
-  // Phase 19: Completed (aggregated cross-entity history) is ADMIN-only.
+  // Phase 21c.2: /payables, /receivables, /completed RETIRED.
+  // Their content moved to /ledger (21c.1) + dashboard category boxes
+  // (21c.1.1). Routes removed; sidebar items removed; this proxy entry
+  // gone — anyone hitting /payables/[anything] now gets the standard
+  // Next.js 404 (no proxy gate to match, falls through to nonexistent
+  // page).
+  //
   // /reports is preemptively gated for Phase 15 (still a sidebar placeholder).
-  "/completed": ["ADMIN"],
   "/reports": ["ADMIN"],
   // Phase 21c.1: Unified ledger home — every role sees a role-scoped
   // slice (boxes + owner list). Per-box / per-owner gating lives in

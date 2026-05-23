@@ -324,11 +324,11 @@ describe("updateLedgerPayment", () => {
       amount: 100,
       description: null,
     });
-    expect(revalidatePath).toHaveBeenCalledWith("/payables");
-    expect(revalidatePath).toHaveBeenCalledWith("/receivables");
+    expect(revalidatePath).toHaveBeenCalledWith("/ledger");
+    expect(revalidatePath).toHaveBeenCalledWith("/ledger");
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
-    expect(revalidatePath).toHaveBeenCalledWith("/payables/party-1");
-    expect(revalidatePath).toHaveBeenCalledWith("/receivables/party-1");
+    expect(revalidatePath).toHaveBeenCalledWith("/ledger/party/party-1");
+    expect(revalidatePath).toHaveBeenCalledWith("/ledger/party/party-1");
   });
 
   it("converts rupees → paise (Math.round) at the Prisma boundary", async () => {
