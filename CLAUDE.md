@@ -550,6 +550,52 @@ The single-layer-for-reads + double-layer-for-writes asymmetry is intentional. A
 
 **Lesson — fail-safe vs fail-closed asymmetry is a load-bearing security pattern**: the jwt callback's fail-safe-on-DB-error means a DB blip doesn't log everyone out; the guard's fail-closed-on-DB-error means a DB blip doesn't allow stale-token writes. Both behaviors are correct because they run in different contexts (every-request vs writes-only). Document the asymmetry in file headers + pin both with unit tests AND live rehearsal — the asymmetry is easy to "fix" by accident (someone making them consistent in either direction would re-introduce one of the two failure modes).
 
+### Phase 21c.2 — Cleanup finale (closes the LEDGER ARC)
+
+Last phase of the 21a → 21c arc. Internal cleanup only — no new user-facing features. Three groups landed in order to keep the risk shape safe (code cleanup + financial cascade fix first, prod data cleanup second, removal-heavy route deletions last).
+
+**GROUP A — code + financial:**
+- **Cascade fix on 4 soft-delete actions** — `softDeleteCustomer` / `softDeleteSupplier` / `softDeleteVendor` / `softDeleteEmployee`. Each now wraps in `prisma.$transaction(async (tx) => { tx.<owner>.update + tx.ledgerEntry.updateMany })`, mirroring the Phase 21a `softDeleteSale` cascade shape (commit `2bcf16e`). Sets `deletedAt` + `deletedById` audit on cascaded ledger entries; the `{ partyId|employeeId: id, deletedAt: null }` filter clause respects already-soft-deleted rows (doesn't re-stamp or clobber their original audit). This is the financial item — orphan ledger rows previously corrupted balance computations.
+- **Deprecated helpers dropped**: `computePartyBalance` @deprecated alias removed (5 callers in `outstanding-balances.ts` renamed to `computeOwnerBalance`). `isDateInPeriod` / `isPieceEntryCovered` / `computeOutstandingWages` deleted from `labour-balances.ts` along with their `PieceEntryLike` / `WagePaymentLike` types (zero non-internal callers; the helpers only consumed each other). `isMonthSalaryPaid` + `SalaryPaymentLike` preserved (FIXED-salary monthly-reminder rail unchanged).
+- **Walk-in `*Payment` formalization**: the guard `if (parent.partyId !== null) return error` already existed in all 4 `create*Payment` actions (Phase 21a). 21c.2 formalizes the comment ("**WALK-IN-ONLY since 21c**, load-bearing invariant") + adds a one-line model comment on all 4 `*Payment` Prisma models.
+
+**GROUP B — prod orphan cleanup:**
+- 2 orphan party-ledger rows soft-deleted via guarded script `scripts/_cleanup-prod-p21c-orphan-ledger-rows.mjs --execute --i-confirm`. Both on party `cmpgxaylw000204l8tbxfn86k` ("darshann"), both MANUAL_PAYMENT DECREASE (₹10,000 + ₹1,000 = ₹11,000 of orphan credit-balance entries). `deletedById` audit recorded to actor. Re-run `--identify` confirms 0 active orphans remain. **Executed after Group A live so no race window for new orphans to form.**
+
+**GROUP C — route removal + straggler repointing:**
+- **Retired `/completed`** (Phase 19's tabbed history): 11 files deleted including `src/lib/completed-queries.ts` + `src/components/payment-detail-modal.tsx` (exclusively used by /completed's payroll tab — no other consumers per the 21c diagnose re-grep).
+- **Removed `/payables` + `/receivables`** (Phase 17b → 21c.1 consolidation): 8 files deleted. Their content lives on `/ledger` (21c.1) + dashboard category boxes (21c.1.1).
+- **Sidebar + proxy + role-access cleanup**: `canViewCompleted` / `canViewPayables` / `canViewReceivables` / `effectivePayableScope` all deleted from `role-access.ts` along with their tests. `revalidate-transaction-views.ts` no longer revalidates the dropped routes.
+- **Straggler repointing** (4 detail-modal links + 3 callsite pairs in `parties/ledger-actions.ts` + 4 user-facing error strings): all `/payables/[partyId]` and `/receivables/[partyId]` references repointed to `/ledger/party/[partyId]`. `revalidatePath` pairs collapsed to single `/ledger` + `/ledger/party/${id}` calls. RE-GREP clean post-removal — no live src/ code references the dropped routes.
+- **Preserved** (still consumed by /ledger surfaces): `listWalkInPayables` + `listWalkInReceivables` (ledger walk-in section); `getPayablesForParty` (the unified `/ledger/party/[id]` page reuses it — math is identical, the route moved + the helper name stays); `PayableScope` type; `outstanding-balances.ts` itself.
+
+**Verification:**
+- `tsc --noEmit` clean (required `.next/` clear post-deletion — stale generated types cached pointers to deleted pages).
+- **1689 → 1630 tests PASS** (net −59: 17 deleted test files + 4 role-access dropped-helper describe blocks; 4 cascade tests retained).
+- **Neon rehearsal 14/14 PASS** (Group A cascade): party cascade (7) + employee cascade (3) + BEFORE/AFTER orphan-formation proof (2) + `computeOwnerBalance` regression for both owner kinds (2). The pre-deleted-entry case proves the cascade respects `deletedAt IS NULL` filter (won't re-stamp).
+- **Prod walkthrough 25/25 PASS** on Group C commit `9cf6cf4` (deployment `dpl_AMJAhwVWwihDRBHwoKt7hwtmBoXN`), marker `__phase21c2_walk_1779549570851`. /ledger fully works (boxes + tabs + filtering); dashboard 4 boxes link to /ledger?tab=<slug> (sales/purchase/casting-plating/karigar) and clicking deep-links to the correct active tab; /sales page HTML contains zero /payables or /receivables hrefs (stragglers cleanly repointed); /completed + /payables + /receivables all return **status 404** (route gone, no page exists); sidebar excludes all 3, retains "Ledger"; 0 active orphans confirmed live; PURCHASE_DEPT scoped-role no-leak (1 box, no tab bar, /payables 404s); **21.fix auth regression-clean** (deactivated test user kicked to /auth/login on next request).
+
+**🏁 LEDGER ARC COMPLETE** — the 7-phase sequence closed:
+1. **21a** — Party ledger model (per-bill `*Payment` → `LedgerEntry`)
+2. **21a.1** — Ledger corrections (edit/delete MANUAL_PAYMENT, chip cleanup, credit visibility)
+3. **21b** — Karigar (Employee) owner on `LedgerEntry` (Option A data layer)
+4. **21b.1** — Karigar advances as direct ledger entries (always-available-surface pattern)
+5. **21c.1** — Unified `/ledger` home + dashboard consolidation + per-karigar khata
+6. **21c.1.1** — Category tabs + `?tab=` deep-link + dashboard per-category boxes (drift-proof)
+7. **21c.2** — Cleanup finale (cascade fix, deprecated drop, walk-in formalization, retire routes)
+
+Plus the mid-arc **21.fix** (stale-JWT security fix) which proved the deploy discipline for future every-request-touching changes.
+
+All ledger surfaces now read from a single `listLedgerHome` source; single-table `LedgerEntry` model holds party + karigar balances; cascade fix removes the last orphan-class bug; deprecated period-overlap helpers gone; routes consolidated; auth-fix holds across the cleanup.
+
+**Two minor optionals remain as logged follow-ups** (not arc-blocking):
+- `/ledger` tab→URL sync (clicking a tab doesn't update the URL — useful for browser back/forward + bookmark preservation, ~30 min if requested)
+- Dual-role-party CTA direction picker (the inferred direction defaults to `payable` for dual-role parties — cosmetic label only, write is direction-agnostic; revisit if a real dual-role party makes the default read wrong)
+
+**Lesson — bridge-burn order**: code cleanup + financial cascade fix FIRST (safe, easily reverted), prod data cleanup SECOND (one-time, audited), removal-heavy route deletions LAST. If Group A or B had surfaced a regression, the routes would still exist as fallback. They didn't, but the staging discipline meant the worst case wasn't "everything broken." Same heuristic applies to any future cleanup phase that mixes code refactor + data migration + route removal.
+
+**Lesson — `git add -A` is dangerous for ad-hoc commits**: this phase accidentally swept in `scripts/.` prefixed scratch artifacts (rehearsal scripts, prod-cleanup scripts, screenshots) because the existing .gitignore only matched `scripts/_*.mjs`, not `scripts/.*.{mjs,mts,png}`. Caught and backed out before push; .gitignore hardened. Defaulting to explicit `git add <file1> <file2>` (or `git status --short | grep -v ignored` first) is safer for any commit that's not a single isolated change.
+
 ## 8. Out of Scope (do not build)
 
 - GST / tax calculation logic
@@ -569,7 +615,7 @@ Hosted on Vercel; production fed from `main`. **Operational reference lives in [
 - **Production database:** Supabase project `cseqdcrfnvgsalsyhjsz` (Mumbai, `ap-south-1`). Independent from dev. Schemas synchronized via `prisma migrate deploy`, never via data copy.
 - **Auth gate:** Auth.js JWT cookie sessions only. Vercel's project-level SSO Deployment Protection is disabled (app does its own auth). Re-enable only if you also wire up a staff bypass.
 - **Lazy Prisma + Auth diagnostic wrapper are load-bearing**: see §2 tech stack + §6 lazy-init Proxy convention. Do NOT revert either.
-- **Direct user inserts to the production `users` table must specify `role` explicitly** (no DB default). Production currently has 4 users: 1 ADMIN (the owner) + 3 test accounts (one per non-admin role — see `docs/HANDOFF.md`). Test account passwords are in admin's password manager. New users go in via the ADMIN-only `/users` UI (Phase 16) or Supabase MCP.
+- **Direct user inserts to the production `users` table must specify `role` explicitly** (no DB default). Production currently has 8 active users: 2 ADMIN (dev admin `c.darshan.somaiya369@gmail.com` + workshop owner `kirtithakkar@shreecreation.com`), 3 real-user non-admin accounts (`kunjthakkar805@gmail.com`, `patwakuldeep10@gmail.com`, `test@shreecreation.com`), and 3 Phase 16 test accounts (`test-purchase@`, `test-labour@`, `test-casting@shreecreation.test`). Test account passwords are in admin's password manager. New users go in via the ADMIN-only `/users` UI (Phase 16) or Supabase MCP.
 
 ---
 
