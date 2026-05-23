@@ -83,6 +83,48 @@ export type LedgerBox = {
   anchor: string;
 };
 
+// ---- URL slug ↔ tab key mapping (Phase 21c.1.1) ----------------------
+//
+// The /ledger page accepts `?tab=<slug>` for deep-linking from the
+// dashboard. Slugs are user-friendly (`sales`, `purchase`,
+// `casting-plating`, `karigar`); internal tab keys mirror the box keys
+// (`receivables`, `purchase_payables`, ...). Keep both mappings here so
+// the parser (ledger page server component) and the encoder (dashboard
+// box links) speak the same vocabulary.
+
+export const LEDGER_TAB_SLUG_BY_BOX: Record<LedgerBoxKey, string> = {
+  receivables: "sales",
+  purchase_payables: "purchase",
+  casting_plating_payables: "casting-plating",
+  karigar: "karigar",
+};
+
+const LEDGER_BOX_BY_SLUG: Record<string, LedgerBoxKey> = Object.fromEntries(
+  (Object.entries(LEDGER_TAB_SLUG_BY_BOX) as [LedgerBoxKey, string][]).map(
+    ([key, slug]) => [slug, key],
+  ),
+);
+
+/**
+ * Parse a `?tab=` URL slug into the internal tab vocabulary. Missing or
+ * invalid → `"all"` (the default unified-list tab). Used by the /ledger
+ * page server component to derive `initialTab` from `searchParams`.
+ */
+export function parseLedgerTabSlug(raw: string | string[] | undefined): "all" | LedgerBoxKey {
+  const slug = Array.isArray(raw) ? raw[0] : raw;
+  if (!slug) return "all";
+  return LEDGER_BOX_BY_SLUG[slug] ?? "all";
+}
+
+/**
+ * Build a /ledger URL pre-targeted to a box's tab. Used by the dashboard
+ * per-category clickable boxes (Phase 21c.1.1) and any other deep-link
+ * surface in the app.
+ */
+export function ledgerHrefForBox(key: LedgerBoxKey): string {
+  return `/ledger?tab=${LEDGER_TAB_SLUG_BY_BOX[key]}`;
+}
+
 export type LedgerOwnerKind = "party" | "karigar";
 
 export type LedgerOwnerRow = {
@@ -92,10 +134,30 @@ export type LedgerOwnerRow = {
   name: string;
   phone: string | null;
   /** Raw signed balance (paise, Number). Negative = credit balance
-   * (party prepaid, OR karigar holds advance). UI labels the sign. */
+   * (party prepaid, OR karigar holds advance). UI labels the sign.
+   *
+   * For ADMIN: full party balance (all sources + MANUAL_PAYMENT).
+   * For scoped roles: balance equals the role's single slice.
+   *
+   * Used by the "All" tab on /ledger. Per-category tabs read `slices`. */
   balance: number;
   /** Per-row href to the owner's khata view. */
   href: string;
+  /**
+   * Phase 21c.1.1 — per-category balance slices for the /ledger tab
+   * filter. A category appears in this map iff the owner contributes to
+   * that box (party slices: only when non-zero, matching box count rule;
+   * karigar slice: always present, even at zero balance, to match the
+   * always-available-surface pattern — zero karigars stay visible under
+   * the Karigar tab).
+   *
+   * INVARIANT (matches Phase 21c.1's drift-bug-class fix):
+   *   `Σ owners.map(o => o.slices[<key>] ?? 0)` over the role's visible
+   *   owners EQUALS the matching box's `total`. Tab and box read the
+   *   same numbers because they're computed in the same loop below —
+   *   slices are the per-owner contribution to the box accumulator.
+   */
+  slices: Partial<Record<LedgerBoxKey, number>>;
 };
 
 export type LedgerHomeData = {
@@ -163,105 +225,68 @@ export async function listLedgerHome(role: Role): Promise<LedgerHomeData> {
 
   const [parties, karigars] = await Promise.all([fetchParties, fetchKarigar]);
 
-  // ---- Boxes ----
-  const boxes: LedgerBox[] = [];
+  // ---- Boxes + owners — single pass, slices feed both -----------------
+  //
+  // Phase 21c.1.1: restructured from 4 per-box loops + 2 per-owner loops
+  // into a single per-owner loop that computes each category's slice
+  // ONCE. The slice value is pushed both into the owner row's `slices`
+  // map AND into the matching box accumulator. This guarantees the
+  // tab-total reconciliation invariant: `Σ owners[].slices[k]` ≡
+  // `boxes[k].total`, by construction.
+  //
+  // Slice rules:
+  //   - Party slices set ONLY when non-zero (matches the box count rule
+  //     — a party contributes to a box iff their slice ≠ 0).
+  //   - Karigar slice set for EVERY karigar including zero (matches the
+  //     always-available-surface pattern — zero karigars still appear
+  //     under the Karigar tab so "Record entry" stays reachable).
+  //
+  // Why receivables INCLUDES MANUAL_PAYMENT but purchase/casting/plating
+  // EXCLUDE it: this is the existing Phase 21a / 21c.1 box semantics.
+  // Receivables is ADMIN-only and includes manual party-level payments
+  // against sales; payable scopes are activity-only views designed for
+  // PURCHASE_DEPT / CASTING_PLATING_MGMT.
 
-  if (canRoleSeeBox(role, "receivables")) {
-    let total = 0n;
-    let count = 0;
-    for (const p of parties) {
-      // Receivables balance — sale + sale_return activity + MANUAL_PAYMENT
-      // entries (ADMIN-only context).
-      const balance = computeOwnerBalance(
+  const boxAccumulators: Partial<Record<LedgerBoxKey, { total: bigint; count: number }>> = {};
+  function accumulate(key: LedgerBoxKey, value: bigint) {
+    const acc = boxAccumulators[key] ?? { total: 0n, count: 0 };
+    acc.total += value;
+    if (value !== 0n) acc.count += 1;
+    boxAccumulators[key] = acc;
+  }
+
+  const owners: LedgerOwnerRow[] = [];
+
+  // --- Per-party slices + owner rows ---
+  for (const p of parties) {
+    const slices: Partial<Record<LedgerBoxKey, number>> = {};
+
+    if (canRoleSeeBox(role, "receivables")) {
+      const recv = computeOwnerBalance(
         p.ledgerEntries.filter(
           (e) =>
             e.entryType === "MANUAL_PAYMENT" ||
             (e.sourceType !== null && RECEIVABLE_SOURCES.includes(e.sourceType)),
         ),
       );
-      if (balance !== 0n) {
-        total += balance;
-        count += 1;
-      }
+      accumulate("receivables", recv);
+      if (recv !== 0n) slices.receivables = Number(recv);
     }
-    boxes.push({
-      key: "receivables",
-      label: "Receivables",
-      total: Number(total),
-      count,
-      anchor: "#owners",
-    });
-  }
 
-  if (canRoleSeeBox(role, "purchase_payables")) {
-    let total = 0n;
-    let count = 0;
-    for (const p of parties) {
-      // Scoped (activity only) — exclude MANUAL_PAYMENT to mirror
-      // listPayables('purchase') semantics for scoped roles.
-      const balance = computeScopedBalance(p.ledgerEntries, PURCHASE_SOURCES);
-      if (balance !== 0n) {
-        total += balance;
-        count += 1;
-      }
+    if (canRoleSeeBox(role, "purchase_payables")) {
+      const purch = computeScopedBalance(p.ledgerEntries, PURCHASE_SOURCES);
+      accumulate("purchase_payables", purch);
+      if (purch !== 0n) slices.purchase_payables = Number(purch);
     }
-    boxes.push({
-      key: "purchase_payables",
-      label: "Purchase payables",
-      total: Number(total),
-      count,
-      anchor: "#owners",
-    });
-  }
 
-  if (canRoleSeeBox(role, "casting_plating_payables")) {
-    let total = 0n;
-    let count = 0;
-    for (const p of parties) {
-      const balance = computeScopedBalance(
-        p.ledgerEntries,
-        CASTING_PLATING_SOURCES,
-      );
-      if (balance !== 0n) {
-        total += balance;
-        count += 1;
-      }
+    if (canRoleSeeBox(role, "casting_plating_payables")) {
+      const cp = computeScopedBalance(p.ledgerEntries, CASTING_PLATING_SOURCES);
+      accumulate("casting_plating_payables", cp);
+      if (cp !== 0n) slices.casting_plating_payables = Number(cp);
     }
-    boxes.push({
-      key: "casting_plating_payables",
-      label: "Casting/Plating payables",
-      total: Number(total),
-      count,
-      anchor: "#owners",
-    });
-  }
 
-  if (canRoleSeeBox(role, "karigar")) {
-    let total = 0n;
-    let count = 0;
-    for (const k of karigars) {
-      const balance = computeOwnerBalance(k.ledgerEntries);
-      if (balance !== 0n) {
-        total += balance;
-        count += 1;
-      }
-    }
-    boxes.push({
-      key: "karigar",
-      label: "Karigar wages",
-      total: Number(total),
-      count,
-      anchor: "#owners",
-    });
-  }
-
-  // ---- Owners (parties + karigar, role-scoped) ----
-  const owners: LedgerOwnerRow[] = [];
-
-  for (const p of parties) {
-    // Per-role balance projection — ADMIN sees full signed balance
-    // (includes MANUAL_PAYMENT). Scoped roles see activity-only on their
-    // slice (matches the box semantics so list ↔ box totals reconcile).
+    // Per-role owner-list balance — ADMIN sees full net (incl.
+    // MANUAL_PAYMENT); scoped roles see their single slice.
     let balance: bigint;
     if (role === "ADMIN") {
       balance = computeOwnerBalance(p.ledgerEntries);
@@ -281,15 +306,18 @@ export async function listLedgerHome(role: Role): Promise<LedgerHomeData> {
       phone: p.phone,
       balance: Number(balance),
       href: `/ledger/party/${p.id}`,
+      slices,
     });
   }
 
+  // --- Per-karigar slice + owner row ---
   for (const k of karigars) {
     const balance = computeOwnerBalance(k.ledgerEntries);
-    // Include EVERY active LABOUR karigar (even zero balance) so the
-    // "Record entry" affordance on their khata page is reachable from
-    // the home page without scrolling /labour. Same shape as the 21b.1
-    // KarigarLedgerSection on /labour ("always-available surface").
+    if (canRoleSeeBox(role, "karigar")) {
+      accumulate("karigar", balance);
+    }
+    // Karigar slice ALWAYS set (incl. zero) — always-available-surface
+    // pattern. The Karigar tab includes zero-balance karigars.
     owners.push({
       kind: "karigar",
       id: k.id,
@@ -297,6 +325,35 @@ export async function listLedgerHome(role: Role): Promise<LedgerHomeData> {
       phone: k.phone,
       balance: Number(balance),
       href: `/ledger/karigar/${k.id}`,
+      slices: canRoleSeeBox(role, "karigar")
+        ? { karigar: Number(balance) }
+        : {},
+    });
+  }
+
+  // --- Boxes from accumulators, in canonical order ---
+  const BOX_ORDER: LedgerBoxKey[] = [
+    "receivables",
+    "purchase_payables",
+    "casting_plating_payables",
+    "karigar",
+  ];
+  const BOX_LABEL: Record<LedgerBoxKey, string> = {
+    receivables: "Receivables",
+    purchase_payables: "Purchase payables",
+    casting_plating_payables: "Casting/Plating payables",
+    karigar: "Karigar wages",
+  };
+  const boxes: LedgerBox[] = [];
+  for (const key of BOX_ORDER) {
+    if (!canRoleSeeBox(role, key)) continue;
+    const acc = boxAccumulators[key] ?? { total: 0n, count: 0 };
+    boxes.push({
+      key,
+      label: BOX_LABEL[key],
+      total: Number(acc.total),
+      count: acc.count,
+      anchor: "#owners",
     });
   }
 

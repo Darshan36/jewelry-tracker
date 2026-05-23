@@ -5,9 +5,12 @@ import { canViewLedger } from "@/lib/role-access";
 import {
   listLedgerHome,
   listLedgerHomeWalkIns,
+  parseLedgerTabSlug,
 } from "@/lib/ledger-home";
 
 import { LedgerClient } from "./ledger-client";
+
+type SearchParams = Promise<{ tab?: string | string[] }>;
 
 // Phase 21c.1 — Unified ledger home page.
 //
@@ -26,12 +29,24 @@ import { LedgerClient } from "./ledger-client";
 // — every mutation routes through the owner's khata page (party or
 // karigar) which uses the existing 21a / 21a.1 / 21b.1 actions.
 
-export default async function LedgerPage() {
+export default async function LedgerPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/auth/login");
 
   const role = session.user.role;
   if (!canViewLedger(role)) redirect("/dashboard");
+
+  // Phase 21c.1.1 — deep-link entry point. Dashboard category boxes
+  // navigate to /ledger?tab=<slug>; the client pre-selects that tab on
+  // mount. Invalid / missing slug → "all" (the unified-list default).
+  // Scoped roles only ever see one tab anyway (their box) → the param
+  // is benign for them, the tab bar isn't even rendered.
+  const { tab: rawTab } = await searchParams;
+  const initialTab = parseLedgerTabSlug(rawTab);
 
   const [home, walkIns] = await Promise.all([
     listLedgerHome(role),
@@ -56,6 +71,7 @@ export default async function LedgerPage() {
         owners={home.owners}
         walkInPayables={walkIns.payables}
         walkInReceivables={walkIns.receivables}
+        initialTab={initialTab}
       />
     </div>
   );

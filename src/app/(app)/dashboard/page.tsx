@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BookOpen } from "lucide-react";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, todayIsoIST } from "@/lib/format";
-import { listLedgerHome, type LedgerBox } from "@/lib/ledger-home";
+import { listLedgerHome } from "@/lib/ledger-home";
 import {
   countPieceEntriesForIstDay,
   getLabourSummary,
 } from "@/lib/labour-balances";
-import type { Role } from "@/generated/prisma";
+
+import { LedgerBoxesGrid } from "./ledger-boxes-grid";
 
 // Phase 21c.1 — Role-aware dashboard, consolidated.
 //
@@ -80,61 +80,11 @@ function Card({
   );
 }
 
-// Single role-scoped Go-to-Ledger card. Shows the net signed total
-// across every box this role can see, plus a compact per-box breakdown
-// line. Click → /ledger.
-function GoToLedgerCard({ boxes, role: _role }: { boxes: LedgerBox[]; role: Role }) {
-  const total = boxes.reduce((s, b) => s + b.total, 0);
-  const ownersTotal = boxes.reduce((s, b) => s + b.count, 0);
-  const isCredit = total < 0;
-  const isZero = total === 0;
-  const display = formatCurrency(Math.abs(total));
-
-  const breakdown = boxes
-    .filter((b) => b.count > 0)
-    .map((b) => `${b.label}: ${b.total < 0 ? "−" : ""}${formatCurrency(Math.abs(b.total))}`)
-    .join(" · ");
-
-  return (
-    <Link
-      href="/ledger"
-      data-testid="dashboard-ledger-card"
-      className="block p-6 bg-surface-container border border-outline-variant hover:bg-surface-container-high transition-colors"
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <BookOpen className="size-3.5 text-on-surface-variant" />
-        <p className="text-xs uppercase tracking-wider text-on-surface-variant">
-          Ledger (net)
-        </p>
-      </div>
-      <p
-        className={`font-display text-2xl font-semibold tabular-nums ${
-          isZero
-            ? "text-on-surface-variant"
-            : isCredit
-              ? "text-secondary"
-              : "text-on-surface"
-        }`}
-      >
-        {isCredit ? "−" : ""}
-        {display}
-      </p>
-      <p className="text-xs text-on-surface-variant mt-1">
-        {ownersTotal === 0
-          ? "All accounts settled"
-          : `${ownersTotal} ${ownersTotal === 1 ? "owner" : "owners"} open${isCredit ? " · net credit" : ""}`}
-      </p>
-      {breakdown && (
-        <p
-          data-testid="dashboard-ledger-breakdown"
-          className="text-[11px] text-on-surface-variant mt-2 leading-relaxed"
-        >
-          {breakdown}
-        </p>
-      )}
-    </Link>
-  );
-}
+// Phase 21c.1.1 — per-category clickable dashboard boxes.
+// Implementation extracted to `./ledger-boxes-grid.tsx` so it's
+// unit-testable. See the file header for the DRIFT-PROOF SAME-SOURCE
+// invariant — both this dashboard render site and the /ledger render
+// site read the same `home.boxes` from one `listLedgerHome(role)` call.
 
 // ---------- per-role dashboards ----------
 
@@ -188,7 +138,17 @@ async function AdminDashboard({ name }: { name: string }) {
           value={formatCurrency(Number(purchasesAgg._sum.total ?? 0n))}
           hint={`${purchasesAgg._count._all} transactions`}
         />
-        <GoToLedgerCard boxes={home.boxes} role="ADMIN" />
+      </div>
+
+      {/* Phase 21c.1.1 — per-category ledger boxes, drift-proof same source */}
+      <h2 className="font-display text-sm uppercase tracking-widest text-on-surface-variant mb-3">
+        Ledger
+      </h2>
+      <div
+        data-testid="dashboard-ledger-boxes"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6"
+      >
+        <LedgerBoxesGrid boxes={home.boxes} />
       </div>
 
       <LabourSection summary={labour} />
@@ -266,14 +226,23 @@ async function PurchaseDashboard({ name }: { name: string }) {
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Purchases overview" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
         <Card label="Suppliers" value={String(supplierCount)} />
         <Card
           label="Purchases (this month)"
           value={formatCurrency(Number(purchasesAgg._sum.total ?? 0n))}
           hint={`${purchasesAgg._count._all} transactions`}
         />
-        <GoToLedgerCard boxes={home.boxes} role="PURCHASE_DEPT" />
+      </div>
+
+      <h2 className="font-display text-sm uppercase tracking-widest text-on-surface-variant mb-3">
+        Ledger
+      </h2>
+      <div
+        data-testid="dashboard-ledger-boxes"
+        className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4"
+      >
+        <LedgerBoxesGrid boxes={home.boxes} />
       </div>
     </div>
   );
@@ -295,7 +264,7 @@ async function LabourDashboard({ name }: { name: string }) {
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Employees overview" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
         <Card
           label="Employees"
           value={`${fixed + labour}`}
@@ -306,7 +275,16 @@ async function LabourDashboard({ name }: { name: string }) {
           value={formatCurrency(Number(salaryAgg._sum.monthlySalary ?? 0n))}
           hint="Sum of fixed-salary commitments"
         />
-        <GoToLedgerCard boxes={home.boxes} role="LABOUR_MGMT" />
+      </div>
+
+      <h2 className="font-display text-sm uppercase tracking-widest text-on-surface-variant mb-3">
+        Ledger
+      </h2>
+      <div
+        data-testid="dashboard-ledger-boxes"
+        className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6"
+      >
+        <LedgerBoxesGrid boxes={home.boxes} />
       </div>
 
       <LabourSection summary={labourSummary} todayCount={todayCount} />
@@ -340,7 +318,7 @@ async function CastingPlatingDashboard({ name }: { name: string }) {
   return (
     <div className="p-10">
       <PageHeader name={name} subtitle="Casting & Plating" />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-6">
         <Card
           label="Casting (this month)"
           value={formatCurrency(Number(castingAgg._sum.total ?? 0n))}
@@ -352,7 +330,16 @@ async function CastingPlatingDashboard({ name }: { name: string }) {
           hint={`${platingAgg._count._all} entries`}
         />
         <Card label="Vendors" value={String(vendorCount)} />
-        <GoToLedgerCard boxes={home.boxes} role="CASTING_PLATING_MGMT" />
+      </div>
+
+      <h2 className="font-display text-sm uppercase tracking-widest text-on-surface-variant mb-3">
+        Ledger
+      </h2>
+      <div
+        data-testid="dashboard-ledger-boxes"
+        className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4"
+      >
+        <LedgerBoxesGrid boxes={home.boxes} />
       </div>
     </div>
   );

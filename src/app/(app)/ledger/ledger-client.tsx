@@ -21,7 +21,11 @@ import { useRouter } from "next/navigation";
 import { DollarSign, Paperclip, Search } from "lucide-react";
 
 import { formatCurrency } from "@/lib/format";
-import type { LedgerBox, LedgerOwnerRow } from "@/lib/ledger-home";
+import type {
+  LedgerBox,
+  LedgerBoxKey,
+  LedgerOwnerRow,
+} from "@/lib/ledger-home";
 import type {
   WalkInPayable,
   WalkInReceivable,
@@ -42,6 +46,14 @@ type Props = {
   owners: LedgerOwnerRow[];
   walkInPayables: WalkInPayable[];
   walkInReceivables: WalkInReceivable[];
+  /**
+   * Phase 21c.1.1 — pre-select a category tab on mount (from `?tab=`
+   * URL param parsed by the server page via `parseLedgerTabSlug`). Used
+   * by the dashboard per-category boxes for deep linking. For scoped
+   * roles the tab bar isn't rendered, so the value is harmless even if
+   * a category that's not in their scope is requested.
+   */
+  initialTab?: TabKey;
 };
 
 type WalkInRow =
@@ -106,15 +118,47 @@ function buildWalkInOnSave(row: WalkInRow) {
   };
 }
 
+// Phase 21c.1.1 — category tab keys. "all" = unified list (the original
+// 21c.1 behavior); the per-category keys mirror the box keys exactly,
+// so the tab and its matching box read the same slice (see
+// listLedgerHome's slice-vs-box invariant).
+type TabKey = "all" | LedgerBoxKey;
+
+const TAB_LABEL: Record<TabKey, string> = {
+  all: "All",
+  receivables: "Sales",
+  purchase_payables: "Purchase",
+  casting_plating_payables: "Casting/Plating",
+  karigar: "Karigar",
+};
+
 export function LedgerClient({
   boxes,
   owners,
   walkInPayables,
   walkInReceivables,
+  initialTab = "all",
 }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [walkInPaying, setWalkInPaying] = useState<WalkInRow | null>(null);
+
+  // Tab bar visibility: only when there's more than one category to
+  // disambiguate. ADMIN sees 4 boxes → tabs render. Scoped roles see
+  // 1 box → no tab bar (exactly 21c.1's behavior preserved). Deriving
+  // from box count keeps the rule structural — no role-string checks.
+  const showTabs = boxes.length > 1;
+  const tabsInOrder: TabKey[] = useMemo(
+    () => ["all", ...boxes.map((b): TabKey => b.key)],
+    [boxes],
+  );
+
+  // Effective tab: when the tab bar isn't rendered (scoped role), force
+  // "all" so the single role-scoped owner list always renders regardless
+  // of any `?tab=` param the URL might carry. Spec: "For a scoped role
+  // the param is irrelevant — render their single list regardless."
+  const effectiveTab: TabKey = showTabs ? tab : "all";
 
   // Build the unified walk-in list (typed discriminated union).
   const walkInRows: WalkInRow[] = useMemo(() => {
@@ -130,15 +174,46 @@ export function LedgerClient({
     return out;
   }, [walkInPayables, walkInReceivables]);
 
+  // Tab-projected owners — per-tab slice substituted into `balance` so
+  // the rendered row + credit-badge + sort all key off the displayed
+  // value. Defends the slice ⇄ box invariant: when the user sees the
+  // Sales tab, the visible owner balances ARE the contributions to the
+  // Receivables box total.
+  //
+  // "All" tab is the original 21c.1 view — full party net + every
+  // karigar (incl. zero-balance "Caught up" rows at the tail).
+  // Category tabs filter to owners whose `slices[tab]` is defined and
+  // show that slice as the row balance.
+  const tabProjectedOwners = useMemo(() => {
+    if (effectiveTab === "all") return owners;
+    return owners
+      .filter((o) => o.slices[effectiveTab] !== undefined)
+      .map((o) => ({ ...o, balance: o.slices[effectiveTab] as number }));
+  }, [owners, effectiveTab]);
+
   const filteredOwners = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return owners;
-    return owners.filter((o) => {
-      const name = o.name.toLowerCase();
-      const phone = (o.phone ?? "").toLowerCase();
-      return name.includes(q) || phone.includes(q);
+    const base = q
+      ? tabProjectedOwners.filter((o) => {
+          const name = o.name.toLowerCase();
+          const phone = (o.phone ?? "").toLowerCase();
+          return name.includes(q) || phone.includes(q);
+        })
+      : tabProjectedOwners;
+
+    // Sort: non-zero first by abs(displayed-balance) desc; zero-balance
+    // owners (karigar "Caught up") trail alphabetically. Same shape as
+    // listLedgerHome's All-tab sort, applied to the projected balance.
+    return [...base].sort((a, b) => {
+      const aNonZero = a.balance !== 0 ? 1 : 0;
+      const bNonZero = b.balance !== 0 ? 1 : 0;
+      if (aNonZero !== bNonZero) return bNonZero - aNonZero;
+      if (a.balance === 0 && b.balance === 0) {
+        return a.name.localeCompare(b.name);
+      }
+      return Math.abs(b.balance) - Math.abs(a.balance);
     });
-  }, [owners, query]);
+  }, [tabProjectedOwners, query]);
 
   const filteredWalkIns = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -160,6 +235,26 @@ export function LedgerClient({
         >
           {boxes.map((b) => (
             <LedgerBoxCard key={b.key} box={b} />
+          ))}
+        </div>
+      )}
+
+      {/* ---- Tabs (ADMIN-shape only — see showTabs derivation) ---- */}
+      {showTabs && (
+        <div
+          data-testid="ledger-tab-bar"
+          className="flex flex-wrap items-center gap-2 mb-4"
+          role="radiogroup"
+          aria-label="Filter owner list by category"
+        >
+          {tabsInOrder.map((t) => (
+            <FilterPill
+              key={t}
+              tabKey={t}
+              label={TAB_LABEL[t]}
+              active={tab === t}
+              onClick={() => setTab(t)}
+            />
           ))}
         </div>
       )}
@@ -194,7 +289,9 @@ export function LedgerClient({
             <p className="text-on-surface-variant text-sm">
               {owners.length === 0
                 ? "No owners in scope yet."
-                : "No owners match your filter."}
+                : tabProjectedOwners.length === 0
+                  ? `No owners under ${TAB_LABEL[effectiveTab]} yet.`
+                  : "No owners match your filter."}
             </p>
           </div>
         ) : (
@@ -332,6 +429,41 @@ export function LedgerClient({
         />
       )}
     </>
+  );
+}
+
+// Phase 21c.1.1 — category tab pill. Mirrors the FilterPill pattern in
+// src/app/(app)/employees/employees-table.tsx (role=radio, h-8 px-3
+// uppercase, bg-primary when active) so the two filter surfaces feel
+// uniform across the app.
+function FilterPill({
+  tabKey,
+  label,
+  active,
+  onClick,
+}: {
+  tabKey: TabKey;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      data-testid="ledger-tab"
+      data-tab-key={tabKey}
+      data-active={active ? "true" : "false"}
+      onClick={onClick}
+      className={`h-8 px-3 text-xs font-display uppercase tracking-wider transition-colors ${
+        active
+          ? "bg-primary text-on-primary"
+          : "bg-surface-container-high text-on-surface hover:bg-surface-container"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

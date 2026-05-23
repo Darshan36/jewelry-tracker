@@ -28,8 +28,10 @@ import {
 } from "@/lib/outstanding-balances";
 
 import {
+  ledgerHrefForBox,
   listLedgerHome,
   listLedgerHomeWalkIns,
+  parseLedgerTabSlug,
   type LedgerBoxKey,
 } from "./ledger-home";
 
@@ -340,6 +342,245 @@ describe("listLedgerHome — owner list", () => {
 
     const r = await listLedgerHome("PURCHASE_DEPT");
     expect(r.owners[0].balance).toBe(50000); // scoped, no manual-payment subtract
+  });
+});
+
+// --- URL slug ↔ box key (Phase 21c.1.1) ----------------------------------
+
+describe("parseLedgerTabSlug — URL deep-link from dashboard", () => {
+  it("missing param → 'all'", () => {
+    expect(parseLedgerTabSlug(undefined)).toBe("all");
+    expect(parseLedgerTabSlug("")).toBe("all");
+  });
+  it("invalid slug → 'all' (defensive)", () => {
+    expect(parseLedgerTabSlug("nonsense")).toBe("all");
+    expect(parseLedgerTabSlug("RECEIVABLES")).toBe("all"); // case-sensitive
+  });
+  it("each valid slug maps to its box key", () => {
+    expect(parseLedgerTabSlug("sales")).toBe("receivables");
+    expect(parseLedgerTabSlug("purchase")).toBe("purchase_payables");
+    expect(parseLedgerTabSlug("casting-plating")).toBe("casting_plating_payables");
+    expect(parseLedgerTabSlug("karigar")).toBe("karigar");
+  });
+  it("array form (Next.js searchParams can be string|string[]) uses first value", () => {
+    expect(parseLedgerTabSlug(["sales", "ignored"])).toBe("receivables");
+    expect(parseLedgerTabSlug([])).toBe("all");
+  });
+});
+
+describe("ledgerHrefForBox — dashboard → /ledger encoder", () => {
+  it("encodes each box key as /ledger?tab=<slug>", () => {
+    expect(ledgerHrefForBox("receivables")).toBe("/ledger?tab=sales");
+    expect(ledgerHrefForBox("purchase_payables")).toBe("/ledger?tab=purchase");
+    expect(ledgerHrefForBox("casting_plating_payables")).toBe("/ledger?tab=casting-plating");
+    expect(ledgerHrefForBox("karigar")).toBe("/ledger?tab=karigar");
+  });
+  it("round-trip: parseLedgerTabSlug(slug(k)) === k for every box key", () => {
+    const keys: LedgerBoxKey[] = [
+      "receivables",
+      "purchase_payables",
+      "casting_plating_payables",
+      "karigar",
+    ];
+    for (const k of keys) {
+      const slug = ledgerHrefForBox(k).replace("/ledger?tab=", "");
+      expect(parseLedgerTabSlug(slug)).toBe(k);
+    }
+  });
+});
+
+// --- Per-owner slices (Phase 21c.1.1) ----------------------------------
+
+describe("listLedgerHome — per-owner slices (tab filter source data)", () => {
+  it("pure customer party gets ONLY receivables slice (party slice non-zero rule)", async () => {
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "cust-1" } as any,
+    ]);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "cust-1", name: "Customer" }),
+        isCustomer: true,
+        isSupplier: false,
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 30000n, sourceType: "SALE" }),
+          makeLedgerEntry({ direction: "DECREASE", amount: 10000n, entryType: "MANUAL_PAYMENT", sourceType: null }),
+        ],
+      } as any,
+    ]);
+    vi.mocked(prisma.employee.findMany).mockResolvedValueOnce([]);
+
+    const r = await listLedgerHome("ADMIN");
+    const owner = r.owners.find((o) => o.id === "cust-1")!;
+    expect(owner.slices.receivables).toBe(20000); // 30k sale - 10k payment
+    expect(owner.slices.purchase_payables).toBeUndefined();
+    expect(owner.slices.casting_plating_payables).toBeUndefined();
+  });
+
+  it("dual-role party (customer + supplier) gets BOTH slices with per-category values", async () => {
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "dual-1" } as any,
+    ]);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "dual-1", name: "Dual" }),
+        isCustomer: true,
+        isSupplier: true,
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 10000n, sourceType: "SALE" }),
+          makeLedgerEntry({ direction: "INCREASE", amount: 8000n, sourceType: "PURCHASE" }),
+        ],
+      } as any,
+    ]);
+    vi.mocked(prisma.employee.findMany).mockResolvedValueOnce([]);
+
+    const r = await listLedgerHome("ADMIN");
+    const owner = r.owners.find((o) => o.id === "dual-1")!;
+    expect(owner.slices.receivables).toBe(10000);
+    expect(owner.slices.purchase_payables).toBe(8000);
+    expect(owner.slices.casting_plating_payables).toBeUndefined();
+    // Full balance is the unified-tab "All" value, not the sum of slices.
+    expect(owner.balance).toBe(18000);
+  });
+
+  it("karigar slice ALWAYS set, even at zero balance (always-available-surface)", async () => {
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([]);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([]);
+    vi.mocked(prisma.employee.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeKarigar({ id: "k-owed" }),
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 5000n, sourceType: "PIECE_ENTRY" }),
+        ],
+      } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...makeKarigar({ id: "k-zero", name: "Zero" }), ledgerEntries: [] } as any,
+    ]);
+
+    const r = await listLedgerHome("ADMIN");
+    const owed = r.owners.find((o) => o.id === "k-owed")!;
+    const zero = r.owners.find((o) => o.id === "k-zero")!;
+    expect(owed.slices.karigar).toBe(5000);
+    expect(zero.slices.karigar).toBe(0); // present + defined, value 0
+    // Karigar owners do NOT get party-category slices.
+    expect(owed.slices.receivables).toBeUndefined();
+    expect(zero.slices.purchase_payables).toBeUndefined();
+  });
+
+  it("HIGHEST PRIORITY — tab/box reconciliation invariant: Σ slices[k] === boxes[k].total", async () => {
+    // Fixture: pure customer (+20,000 receivables), pure supplier (+50,000
+    // purchase), dual-role (+10,000 receivable + +8,000 purchase),
+    // casting vendor (+70,000), karigar (+4,000), zero karigar (0).
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "cust-b" } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "sup-a" } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "dual-e" } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "cp-d" } as any,
+    ]);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "cust-b" }),
+        isCustomer: true,
+        isSupplier: false,
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 30000n, sourceType: "SALE" }),
+          makeLedgerEntry({ direction: "DECREASE", amount: 10000n, entryType: "MANUAL_PAYMENT", sourceType: null }),
+        ],
+      } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "sup-a" }),
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 50000n, sourceType: "PURCHASE" }),
+        ],
+      } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "dual-e" }),
+        isCustomer: true,
+        isSupplier: true,
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 10000n, sourceType: "SALE" }),
+          makeLedgerEntry({ direction: "INCREASE", amount: 8000n, sourceType: "PURCHASE" }),
+        ],
+      } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "cp-d" }),
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 70000n, sourceType: "CASTING" }),
+        ],
+      } as any,
+    ]);
+    vi.mocked(prisma.employee.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeKarigar({ id: "k1" }),
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 4000n, sourceType: "PIECE_ENTRY" }),
+        ],
+      } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...makeKarigar({ id: "k-zero" }), ledgerEntries: [] } as any,
+    ]);
+
+    const r = await listLedgerHome("ADMIN");
+    const byKey = Object.fromEntries(r.boxes.map((b) => [b.key, b]));
+
+    // For each box, sum the slice value across owners that have it.
+    for (const key of ["receivables", "purchase_payables", "casting_plating_payables", "karigar"] as const) {
+      const sliceSum = r.owners.reduce((s, o) => s + (o.slices[key] ?? 0), 0);
+      expect(sliceSum).toBe(byKey[key].total);
+    }
+  });
+
+  it("scoped role (PURCHASE_DEPT) gets ONLY purchase_payables slice on visible owners", async () => {
+    vi.mocked(prisma.ledgerEntry.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { partyId: "sup" } as any,
+    ]);
+    vi.mocked(prisma.party.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeParty({ id: "sup" }),
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 50000n, sourceType: "PURCHASE" }),
+        ],
+      } as any,
+    ]);
+
+    const r = await listLedgerHome("PURCHASE_DEPT");
+    expect(r.owners).toHaveLength(1);
+    expect(r.owners[0].slices.purchase_payables).toBe(50000);
+    expect(r.owners[0].slices.receivables).toBeUndefined();
+    expect(r.owners[0].slices.casting_plating_payables).toBeUndefined();
+    expect(r.owners[0].slices.karigar).toBeUndefined();
+  });
+
+  it("LABOUR_MGMT karigar gets ONLY karigar slice", async () => {
+    vi.mocked(prisma.employee.findMany).mockResolvedValueOnce([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...makeKarigar({ id: "k1" }),
+        ledgerEntries: [
+          makeLedgerEntry({ direction: "INCREASE", amount: 5000n, sourceType: "PIECE_ENTRY" }),
+        ],
+      } as any,
+    ]);
+
+    const r = await listLedgerHome("LABOUR_MGMT");
+    expect(r.owners[0].slices.karigar).toBe(5000);
+    expect(r.owners[0].slices.receivables).toBeUndefined();
+    expect(r.owners[0].slices.purchase_payables).toBeUndefined();
   });
 });
 
