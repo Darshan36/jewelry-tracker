@@ -430,6 +430,10 @@ function QuickActions({
   onPay: (() => void) | undefined;
   onBill: () => void;
 }) {
+  // Phase 22.1 — visible text labels (not title="" only). Always-visible in
+  // the desktop row, but on a no-hover touch tablet the title tooltip never
+  // appears, leaving icon-only mystery controls. Labels read clearer on
+  // desktop too. (Mobile <768px renders the labelled mobile-card buttons.)
   return (
     <div
       className="flex items-center gap-1"
@@ -440,20 +444,20 @@ function QuickActions({
           type="button"
           onClick={onPay}
           aria-label="Add payment"
-          title="Add payment"
-          className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
         >
           <DollarSign className="size-4" />
+          <span>Pay</span>
         </button>
       )}
       <button
         type="button"
         onClick={onBill}
         aria-label="Manage bill"
-        title="Manage bill"
-        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
       >
         <Paperclip className="size-4" />
+        <span>Bill</span>
       </button>
     </div>
   );

@@ -170,7 +170,7 @@ describe("KarigarLedgerDetail — MANUAL_PAYMENT vs TRANSACTION_LINKED rows", ()
     expect(screen.queryByTestId("ledger-readonly-hint")).not.toBeInTheDocument();
   });
 
-  it("PIECE_ENTRY (TRANSACTION_LINKED) row shows 'via source' + 'Pieces' chip", () => {
+  it("PIECE_ENTRY (TRANSACTION_LINKED) row shows a VISIBLE 'Edit on the piece entry' explainer + 'Pieces' chip", () => {
     render(
       <KarigarLedgerDetail
         employee={employee}
@@ -178,7 +178,11 @@ describe("KarigarLedgerDetail — MANUAL_PAYMENT vs TRANSACTION_LINKED rows", ()
         entries={[makeEntry({ sourceType: "PIECE_ENTRY" })]}
       />,
     );
-    expect(screen.getByTestId("ledger-readonly-hint")).toBeInTheDocument();
+    const hint = screen.getByTestId("ledger-readonly-hint");
+    // Phase 22.1 — visible, source-aware explainer (was cryptic "via source"
+    // + a hover-only title="" that never appeared on touch).
+    expect(hint).toHaveTextContent(/edit on the piece entry/i);
+    expect(hint).not.toHaveAttribute("title");
     expect(screen.getByTestId("source-chip")).toHaveTextContent(/pieces/i);
     expect(screen.queryByTestId("ledger-edit-button")).not.toBeInTheDocument();
   });
@@ -201,7 +205,9 @@ describe("KarigarLedgerDetail — MANUAL_PAYMENT vs TRANSACTION_LINKED rows", ()
         ]}
       />,
     );
-    expect(screen.getByTestId("ledger-readonly-hint")).toBeInTheDocument();
+    const hint = screen.getByTestId("ledger-readonly-hint");
+    expect(hint).toHaveTextContent(/edit on the wage payment/i);
+    expect(hint).not.toHaveAttribute("title");
     expect(screen.getByTestId("source-chip")).toHaveTextContent(/wage/i);
   });
 });

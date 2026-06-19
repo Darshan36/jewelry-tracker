@@ -253,6 +253,19 @@ describe("CastingTable — delete confirmation", () => {
   });
 });
 
+// Phase 22.1 — desktop QuickActions carry VISIBLE text labels (icon-only +
+// hover-only title is illegible on no-hover touch tablets).
+describe("CastingTable — QuickActions have visible labels (Phase 22.1)", () => {
+  it("renders visible Pay / Bill labels and drops the title attribute", () => {
+    render(<CastingTable entries={[makeEntry({ id: "c-lbl", partyId: null })]} />);
+    expect(screen.getByText("Pay")).toBeInTheDocument();
+    expect(screen.getByText("Bill")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /add payment/i }),
+    ).not.toHaveAttribute("title");
+  });
+});
+
 // Phase 21a.1 — status chip is walk-in-only on casting too.
 describe("CastingTable — status chip is walk-in-only (Phase 21a.1)", () => {
   it("renders the chip for a walk-in entry", () => {

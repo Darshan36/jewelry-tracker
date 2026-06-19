@@ -16,7 +16,15 @@ vi.mock("./actions", () => ({
   reactivateUser: vi.fn(),
 }));
 
+// Phase 22.1 — ResponsiveTable chooses desktop vs mobile via useIsMobile().
+// Default to desktop (false) so the existing row-based tests are unaffected;
+// the mobile-card test flips it to true.
+vi.mock("@/lib/use-is-mobile", () => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
 import { UsersTable } from "./users-table";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import type { UserForClient } from "./types";
 
 function makeUser(overrides: Partial<UserForClient> = {}): UserForClient {
@@ -48,6 +56,8 @@ function mixedUsers(): UserForClient[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default to the desktop branch unless a test opts into mobile.
+  vi.mocked(useIsMobile).mockReturnValue(false);
 });
 
 describe("UsersTable — rendering", () => {
@@ -88,15 +98,16 @@ describe("UsersTable — rendering", () => {
 });
 
 describe("UsersTable — self-protection UI (G1)", () => {
-  it("Deactivate button is DISABLED on the current user's row", () => {
+  it("Deactivate is DISABLED on your own row, with a VISIBLE reason (not a hover-only title) — Phase 22.1", () => {
     render(<UsersTable users={mixedUsers()} currentUserId="admin-1" />);
     const selfDeactivate = screen.getByTestId("deactivate-user-admin-1");
     expect(selfDeactivate).toBeDisabled();
-    // Title attribute carries the user-facing explanation.
-    expect(selfDeactivate).toHaveAttribute(
-      "title",
-      "You cannot deactivate your own account",
-    );
+    // Phase 22.1 — the reason is VISIBLE text now; the old title="" never
+    // appeared on touch.
+    expect(selfDeactivate).not.toHaveAttribute("title");
+    const hint = screen.getByTestId("deactivate-self-hint-admin-1");
+    expect(hint).toBeInTheDocument();
+    expect(hint).toHaveTextContent(/can't deactivate yourself/i);
   });
 
   it("Deactivate button is enabled on OTHER active users", () => {
@@ -109,6 +120,43 @@ describe("UsersTable — self-protection UI (G1)", () => {
     render(<UsersTable users={mixedUsers()} currentUserId="admin-1" />);
     expect(screen.getByTestId("reactivate-user-deactivated")).toBeInTheDocument();
     expect(screen.queryByTestId("deactivate-user-deactivated")).toBeNull();
+  });
+});
+
+// Phase 22.1 — this table has NO row-tap → modal fallback, so the row actions
+// must be reachable without hover on every device.
+describe("UsersTable — touch reachability (Phase 22.1)", () => {
+  it("desktop row actions are NOT behind a hover-reveal (no opacity-0 group-hover gate)", () => {
+    render(<UsersTable users={mixedUsers()} currentUserId="admin-1" />);
+    const editBtn = screen.getByTestId("edit-user-p-1");
+    const container = editBtn.parentElement;
+    // The old cluster used "opacity-0 group-hover:opacity-100", invisible and
+    // unreachable on a no-hover touch tablet. Guard against re-introducing it.
+    expect(container?.className ?? "").not.toContain("opacity-0");
+    expect(container?.className ?? "").not.toContain("group-hover");
+  });
+
+  it("mobile cards surface Edit / Reset / Deactivate / Reactivate actions (no hover, no separate modal needed)", () => {
+    vi.mocked(useIsMobile).mockReturnValue(true);
+    render(<UsersTable users={mixedUsers()} currentUserId="admin-1" />);
+
+    // Mobile branch renders cards, not desktop rows.
+    expect(screen.getByTestId("user-mobile-card-p-1")).toBeInTheDocument();
+
+    // Other active user (Pat): edit + reset + deactivate all present + usable.
+    expect(screen.getByTestId("edit-user-p-1")).toBeInTheDocument();
+    expect(screen.getByTestId("reset-password-p-1")).toBeInTheDocument();
+    expect(screen.getByTestId("deactivate-user-p-1")).not.toBeDisabled();
+
+    // Deactivated user: Reactivate is now reachable on mobile (previously the
+    // mobile card had no actions at all).
+    expect(screen.getByTestId("reactivate-user-deactivated")).toBeInTheDocument();
+
+    // Self row: Deactivate disabled + visible reason.
+    expect(screen.getByTestId("deactivate-user-admin-1")).toBeDisabled();
+    expect(
+      screen.getByTestId("deactivate-self-hint-admin-1"),
+    ).toHaveTextContent(/can't deactivate yourself/i);
   });
 });
 

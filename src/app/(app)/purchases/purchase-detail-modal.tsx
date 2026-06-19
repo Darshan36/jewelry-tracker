@@ -21,7 +21,9 @@
 // adaptation in Phase 11 straightforward.
 
 import Link from "next/link";
-import { ArrowRight, Link as LinkIcon } from "lucide-react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Link as LinkIcon, Loader2, Trash2 } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -34,6 +36,7 @@ import { PhotoGallery } from "@/components/photo-gallery";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
 
+import { softDeletePurchase } from "./actions";
 import type { PurchaseForClient } from "./purchase-helpers";
 
 type Props = {
@@ -43,10 +46,31 @@ type Props = {
 };
 
 export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
+  const router = useRouter();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, startDelete] = useTransition();
+
   if (!purchase) return null;
 
+  // Phase 22.1 — Delete lives INSIDE the detail modal so it is reachable on
+  // every device. It previously lived only on the desktop row's hover-reveal
+  // action cluster (opacity-0 group-hover), which never fires on touch.
+  const purchaseId = purchase.id;
+  function handleClose(next: boolean) {
+    if (!next) setConfirmingDelete(false);
+    onOpenChange(next);
+  }
+  function handleDelete() {
+    startDelete(async () => {
+      await softDeletePurchase(purchaseId);
+      setConfirmingDelete(false);
+      onOpenChange(false);
+      router.refresh();
+    });
+  }
+
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+    <ResponsiveDialog open={open} onOpenChange={handleClose}>
       <ResponsiveDialogContent
         desktopClassName="md:max-w-[600px] md:p-6"
         className="bg-surface-container border-outline-variant p-6 gap-0"
@@ -186,10 +210,48 @@ export function PurchaseDetailModal({ open, onOpenChange, purchase }: Props) {
           )}
         </div>
 
-        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-end">
+        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-between gap-3 flex-wrap">
+          {/* Phase 22.1 — Delete (always-visible, not hover-reveal) so a
+              phone/tablet user reaching this modal via row-tap can delete the
+              purchase. Two-step confirm mirrors the desktop row's confirm. */}
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-error">
+                Delete?
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isDeleting}
+                className="h-9 px-3 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                data-testid={`modal-confirm-delete-purchase-${purchaseId}`}
+                className="h-9 min-w-[80px] px-3 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors inline-flex items-center justify-center gap-1.5"
+              >
+                {isDeleting ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              data-testid={`modal-delete-purchase-${purchaseId}`}
+              className="h-9 px-3 inline-flex items-center gap-1.5 text-error border border-error/40 font-display text-sm font-medium uppercase tracking-wider hover:bg-error/10 transition-colors"
+            >
+              <Trash2 className="size-4" />
+              Delete
+            </button>
+          )}
+
           <Link
-            href={`/purchases/${purchase.id}/edit`}
-            onClick={() => onOpenChange(false)}
+            href={`/purchases/${purchaseId}/edit`}
+            onClick={() => handleClose(false)}
             className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors flex items-center"
           >
             Edit

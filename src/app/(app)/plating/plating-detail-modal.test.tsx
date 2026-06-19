@@ -1,14 +1,17 @@
 // Smoke tests for PlatingDetailModal — Phase 10.6 read-only conversion.
 //
-// Detail modal is now read-only. These tests pin the Phase 10.6 contract:
-//   - ZERO mutation buttons (no Add Payment / Replace Attachment / Delete inside).
+// Detail modal is read-only for line items / payments / attachment. These
+// tests pin the contract:
+//   - No inline Add Payment / Replace Attachment buttons (those stay on the row);
+//     Phase 22.1 added a Delete action to the modal (reachable on touch).
 //   - Edit link routes to /plating/[id]/edit.
 //   - Materials table renders with formatKg + ratePerKg/kg + lineTotal.
 //   - Payments history renders read-only (no × delete affordance).
 //   - REFUND-type payments render with money-IN inversion (text-secondary, "+" prefix).
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
@@ -16,8 +19,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/(app)/attachments/actions", () => ({
   getAttachmentViewUrl: vi.fn(),
 }));
+// Phase 22.1 — the detail modal now owns a Delete action; mock the server action.
+vi.mock("./actions", () => ({
+  softDeletePlatingEntry: vi.fn(),
+}));
 
 import { PlatingDetailModal } from "./plating-detail-modal";
+import { softDeletePlatingEntry } from "./actions";
 import type { PlatingEntryForClient } from "./plating-helpers";
 
 function makeEntry(
@@ -86,7 +94,7 @@ describe("PlatingDetailModal — Phase 10.6 read-only contract", () => {
     expect(editLink).toHaveAttribute("href", "/plating/c-42/edit");
   });
 
-  it("has ZERO mutation buttons inside (no Add Payment / Replace / Delete)", () => {
+  it("has no inline Add Payment / Replace buttons (those stay on the row), but DOES expose Delete (Phase 22.1)", () => {
     render(
       <PlatingDetailModal open onOpenChange={vi.fn()} entry={makeEntry()} />,
     );
@@ -96,9 +104,34 @@ describe("PlatingDetailModal — Phase 10.6 read-only contract", () => {
     expect(
       screen.queryByRole("button", { name: /replace/i }),
     ).not.toBeInTheDocument();
+    // Phase 22.1 — Delete moved INTO the modal so it is reachable on touch.
     expect(
-      screen.queryByRole("button", { name: /^delete$/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /^delete$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("Delete is always-visible (no hover gate) and confirms before calling softDeletePlatingEntry (Phase 22.1)", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <PlatingDetailModal
+        open
+        onOpenChange={onOpenChange}
+        entry={makeEntry({ id: "p-del" })}
+      />,
+    );
+
+    const del = screen.getByTestId("modal-delete-plating-p-del");
+    expect(del).toBeVisible();
+
+    await user.click(del);
+    expect(softDeletePlatingEntry).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("modal-confirm-delete-plating-p-del"));
+    await waitFor(() => {
+      expect(softDeletePlatingEntry).toHaveBeenCalledWith("p-del");
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("renders 'No payments recorded yet' when payments array is empty", () => {

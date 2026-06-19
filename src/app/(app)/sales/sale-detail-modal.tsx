@@ -21,7 +21,9 @@
 // adaptation in Phase 11 straightforward.
 
 import Link from "next/link";
-import { ArrowRight, Link as LinkIcon, Printer } from "lucide-react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Link as LinkIcon, Loader2, Printer, Trash2 } from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -34,6 +36,7 @@ import { PhotoGallery } from "@/components/photo-gallery";
 import { TransactionStatusChip } from "@/components/transaction-status-chip";
 import { formatCurrency, formatDate } from "@/lib/format";
 
+import { softDeleteSale } from "./actions";
 import type { SaleForClient } from "./sale-helpers";
 
 type Props = {
@@ -43,10 +46,32 @@ type Props = {
 };
 
 export function SaleDetailModal({ open, onOpenChange, sale }: Props) {
+  const router = useRouter();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, startDelete] = useTransition();
+
   if (!sale) return null;
 
+  // Phase 22.1 — Delete lives INSIDE the detail modal so it is reachable on
+  // every device. It previously lived only on the desktop row's hover-reveal
+  // action cluster (opacity-0 group-hover), which never fires on touch —
+  // leaving no way to delete a sale from a phone or a no-hover tablet.
+  const saleId = sale.id;
+  function handleClose(next: boolean) {
+    if (!next) setConfirmingDelete(false);
+    onOpenChange(next);
+  }
+  function handleDelete() {
+    startDelete(async () => {
+      await softDeleteSale(saleId);
+      setConfirmingDelete(false);
+      onOpenChange(false);
+      router.refresh();
+    });
+  }
+
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+    <ResponsiveDialog open={open} onOpenChange={handleClose}>
       <ResponsiveDialogContent
         desktopClassName="md:max-w-[600px] md:p-6"
         className="bg-surface-container border-outline-variant p-6 gap-0"
@@ -192,28 +217,67 @@ export function SaleDetailModal({ open, onOpenChange, sale }: Props) {
         </div>
 
         <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-between gap-3 flex-wrap">
-          {/* Phase 20: Print bill — opens the printable receipt for
-              this sale in a new tab. Distinct from the row-level
-              "Manage invoice attachment" action (Paperclip), which is
-              about the uploaded invoice document — Printer + the
-              word "Print" carry the distinction. */}
-          <a
-            href={`/sales/${sale.id}/bill`}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid={`print-bill-modal-${sale.id}`}
-            className="h-9 px-4 border border-outline-variant text-on-surface font-display text-sm font-medium uppercase tracking-wider hover:bg-surface-container-high transition-colors inline-flex items-center gap-2"
-          >
-            <Printer className="size-4" />
-            Print bill
-          </a>
-          <Link
-            href={`/sales/${sale.id}/edit`}
-            onClick={() => onOpenChange(false)}
-            className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors flex items-center"
-          >
-            Edit
-          </Link>
+          {/* Phase 22.1 — Delete (always-visible button, not a hover-reveal)
+              so a phone/tablet user reaching this modal via row-tap can
+              delete the sale. Two-step confirm mirrors the desktop row's
+              inline confirm. */}
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-error">
+                Delete?
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isDeleting}
+                className="h-9 px-3 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                data-testid={`modal-confirm-delete-sale-${saleId}`}
+                className="h-9 min-w-[80px] px-3 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors inline-flex items-center justify-center gap-1.5"
+              >
+                {isDeleting ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              data-testid={`modal-delete-sale-${saleId}`}
+              className="h-9 px-3 inline-flex items-center gap-1.5 text-error border border-error/40 font-display text-sm font-medium uppercase tracking-wider hover:bg-error/10 transition-colors"
+            >
+              <Trash2 className="size-4" />
+              Delete
+            </button>
+          )}
+
+          <div className="flex items-center gap-3">
+            {/* Phase 20: Print bill — opens the printable receipt in a new
+                tab. Distinct from "Manage invoice attachment" (Paperclip)
+                via icon + the word "Print". */}
+            <a
+              href={`/sales/${saleId}/bill`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`print-bill-modal-${saleId}`}
+              className="h-9 px-4 border border-outline-variant text-on-surface font-display text-sm font-medium uppercase tracking-wider hover:bg-surface-container-high transition-colors inline-flex items-center gap-2"
+            >
+              <Printer className="size-4" />
+              Print bill
+            </a>
+            <Link
+              href={`/sales/${saleId}/edit`}
+              onClick={() => handleClose(false)}
+              className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors flex items-center"
+            >
+              Edit
+            </Link>
+          </div>
         </div>
       </ResponsiveDialogContent>
     </ResponsiveDialog>

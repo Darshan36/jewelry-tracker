@@ -297,6 +297,20 @@ describe("PurchasesTable — delete confirmation", () => {
   });
 });
 
+// Phase 22.1 — desktop QuickActions carry VISIBLE text labels (icon-only +
+// hover-only title is illegible on no-hover touch tablets).
+describe("PurchasesTable — QuickActions have visible labels (Phase 22.1)", () => {
+  it("renders visible Pay / Bill / Return labels and drops the title attribute", () => {
+    render(<PurchasesTable purchases={[makePurchase({ id: "p-lbl", partyId: null })]} />);
+    expect(screen.getByText("Pay")).toBeInTheDocument();
+    expect(screen.getByText("Bill")).toBeInTheDocument();
+    expect(screen.getByText("Return")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /add payment/i }),
+    ).not.toHaveAttribute("title");
+  });
+});
+
 // Phase 21a.1 — status chip is walk-in-only on purchases too.
 describe("PurchasesTable — status chip is walk-in-only (Phase 21a.1)", () => {
   it("renders the chip for a walk-in purchase", () => {

@@ -155,7 +155,7 @@ describe("PartyLedgerDetail — MANUAL_PAYMENT vs TRANSACTION_LINKED rows (21a.1
     expect(screen.queryByTestId("ledger-readonly-hint")).not.toBeInTheDocument();
   });
 
-  it("TRANSACTION_LINKED row shows 'via source' hint, NO edit/delete", () => {
+  it("TRANSACTION_LINKED row shows a VISIBLE source-explainer (not a hover-only title), NO edit/delete", () => {
     render(
       <PartyLedgerDetail
         party={makeParty()}
@@ -166,7 +166,11 @@ describe("PartyLedgerDetail — MANUAL_PAYMENT vs TRANSACTION_LINKED rows (21a.1
         direction="payable"
       />,
     );
-    expect(screen.getByTestId("ledger-readonly-hint")).toBeInTheDocument();
+    const hint = screen.getByTestId("ledger-readonly-hint");
+    // Phase 22.1 — explainer is VISIBLE text (was the cryptic "via source"
+    // plus a hover-only title="" that never appeared on touch).
+    expect(hint).toHaveTextContent(/edit on the source bill/i);
+    expect(hint).not.toHaveAttribute("title");
     expect(screen.queryByTestId("ledger-edit-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("ledger-delete-button")).not.toBeInTheDocument();
   });

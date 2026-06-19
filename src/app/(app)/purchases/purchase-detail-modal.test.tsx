@@ -5,7 +5,8 @@
 // directed tests of the new Photos section's render gate (photoCount > 0).
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
@@ -21,7 +22,13 @@ vi.mock("@/app/(app)/attachments/actions", () => ({
   softDeleteAttachment: vi.fn(),
 }));
 
+// Phase 22.1 — the detail modal now owns a Delete action; mock the server action.
+vi.mock("./actions", () => ({
+  softDeletePurchase: vi.fn(),
+}));
+
 import { PurchaseDetailModal } from "./purchase-detail-modal";
+import { softDeletePurchase } from "./actions";
 import type { PurchaseForClient } from "./purchase-helpers";
 
 function makePurchase(
@@ -118,5 +125,33 @@ describe("PurchaseDetailModal — photos render gate (Phase 12a)", () => {
       );
       expect(gallery).toBeInTheDocument();
     });
+  });
+});
+
+// Phase 22.1 — Delete is reachable from the detail modal on every device
+// (was only on the desktop row's hover-reveal cluster, unreachable on touch).
+describe("PurchaseDetailModal — Delete affordance (Phase 22.1)", () => {
+  it("renders an always-visible Delete button (no hover gate) that confirms then calls softDeletePurchase", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <PurchaseDetailModal
+        open={true}
+        onOpenChange={onOpenChange}
+        purchase={makePurchase({ id: "pur-del" })}
+      />,
+    );
+
+    const del = screen.getByTestId("modal-delete-purchase-pur-del");
+    expect(del).toBeVisible();
+
+    await user.click(del);
+    expect(softDeletePurchase).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("modal-confirm-delete-purchase-pur-del"));
+    await waitFor(() => {
+      expect(softDeletePurchase).toHaveBeenCalledWith("pur-del");
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

@@ -20,8 +20,15 @@
 // the Sales detail-modal's ReturnsList has no analogue here.
 
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowRight, ExternalLink, Link as LinkIcon, Loader2 } from "lucide-react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  ArrowRight,
+  ExternalLink,
+  Link as LinkIcon,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 
 import {
   ResponsiveDialog,
@@ -35,6 +42,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { formatKg } from "@/lib/weight-helpers";
 import { getAttachmentViewUrl } from "@/app/(app)/attachments/actions";
 
+import { softDeletePlatingEntry } from "./actions";
 import type { PlatingEntryForClient } from "./plating-helpers";
 
 type Props = {
@@ -44,11 +52,31 @@ type Props = {
 };
 
 export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
+  const router = useRouter();
   const [billOpening, setBillOpening] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, startDelete] = useTransition();
 
   if (!entry) return null;
 
   const subtotal = entry.lineItems.reduce((s, l) => s + l.lineTotal, 0);
+
+  // Phase 22.1 — Delete lives INSIDE the detail modal so it is reachable on
+  // every device. It previously lived only on the desktop row's hover-reveal
+  // action cluster (opacity-0 group-hover), which never fires on touch.
+  const entryId = entry.id;
+  function handleClose(next: boolean) {
+    if (!next) setConfirmingDelete(false);
+    onOpenChange(next);
+  }
+  function handleDelete() {
+    startDelete(async () => {
+      await softDeletePlatingEntry(entryId);
+      setConfirmingDelete(false);
+      onOpenChange(false);
+      router.refresh();
+    });
+  }
 
   const openBill = async () => {
     if (!entry.bill) return;
@@ -64,7 +92,7 @@ export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
   };
 
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+    <ResponsiveDialog open={open} onOpenChange={handleClose}>
       <ResponsiveDialogContent
         desktopClassName="md:max-w-[820px] md:p-6"
         className="bg-surface-container border-outline-variant p-6 gap-0"
@@ -204,10 +232,48 @@ export function PlatingDetailModal({ open, onOpenChange, entry }: Props) {
           )}
         </div>
 
-        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-end">
+        <div className="mt-6 -mx-6 -mb-6 px-6 py-4 border-t border-outline-variant flex items-center justify-between gap-3 flex-wrap">
+          {/* Phase 22.1 — Delete (always-visible, not hover-reveal) so a
+              phone/tablet user reaching this modal via row-tap can delete the
+              plating entry. Two-step confirm mirrors the desktop row. */}
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-error">
+                Delete?
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isDeleting}
+                className="h-9 px-3 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                data-testid={`modal-confirm-delete-plating-${entryId}`}
+                className="h-9 min-w-[80px] px-3 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors inline-flex items-center justify-center gap-1.5"
+              >
+                {isDeleting ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              data-testid={`modal-delete-plating-${entryId}`}
+              className="h-9 px-3 inline-flex items-center gap-1.5 text-error border border-error/40 font-display text-sm font-medium uppercase tracking-wider hover:bg-error/10 transition-colors"
+            >
+              <Trash2 className="size-4" />
+              Delete
+            </button>
+          )}
+
           <Link
-            href={`/plating/${entry.id}/edit`}
-            onClick={() => onOpenChange(false)}
+            href={`/plating/${entryId}/edit`}
+            onClick={() => handleClose(false)}
             className="h-9 px-4 bg-secondary-container text-on-secondary-container font-display text-sm font-medium uppercase tracking-wider hover:bg-secondary-container/90 transition-colors flex items-center"
           >
             Edit

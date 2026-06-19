@@ -352,12 +352,17 @@ function KarigarStatement({
                       </span>
                     )
                   ) : (
+                    // Phase 22.1 — self-explanatory, source-aware visible label.
+                    // Was the cryptic "via source" + a hover-only title="" that
+                    // never appeared on touch. Names the originating record so a
+                    // phone/tablet user knows where to edit this read-only row.
                     <span
                       className="text-[10px] text-on-surface-variant italic"
-                      title="Edit or delete via the source piece entry or wage payment"
                       data-testid="ledger-readonly-hint"
                     >
-                      via source
+                      {e.sourceType === "WAGE_PAYMENT"
+                        ? "Edit on the wage payment"
+                        : "Edit on the piece entry"}
                     </span>
                   )}
                 </td>

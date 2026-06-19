@@ -129,10 +129,30 @@ describe("SalesTable — Print bill trigger (Phase 20)", () => {
     expect(attachBtn.tagName).toBe("BUTTON");
   });
 
-  it("Print bill title attribute reads 'Print bill'", () => {
+  it("Print bill is labelled 'Print bill' via aria-label + visible text, not a hover-only title (Phase 22.1)", () => {
     render(<SalesTable sales={[makeSale({ id: "sale-x" })]} />);
     const printAnchor = screen.getByTestId("print-bill-sale-x");
-    expect(printAnchor).toHaveAttribute("title", "Print bill");
+    // Phase 22.1 — title="" dropped (it never shows on touch); the accessible
+    // name comes from aria-label and the button carries a visible "Print" label.
+    expect(printAnchor).not.toHaveAttribute("title");
+    expect(printAnchor).toHaveAttribute("aria-label", "Print bill");
+    expect(printAnchor).toHaveTextContent("Print");
+  });
+});
+
+// Phase 22.1 — desktop QuickActions carry VISIBLE text labels (not icon-only
+// + hover-only title). On a no-hover touch tablet the title tooltip never
+// appears; the labels keep the controls legible. The action still works on tap.
+describe("SalesTable — QuickActions have visible labels (Phase 22.1)", () => {
+  it("renders visible Pay / Attach / Print / Return labels and drops the title attribute", () => {
+    render(<SalesTable sales={[makeSale({ id: "s-lbl", partyId: null })]} />);
+    expect(screen.getByText("Pay")).toBeInTheDocument();
+    expect(screen.getByText("Attach")).toBeInTheDocument();
+    expect(screen.getByText("Print")).toBeInTheDocument();
+    expect(screen.getByText("Return")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /add payment/i }),
+    ).not.toHaveAttribute("title");
   });
 });
 

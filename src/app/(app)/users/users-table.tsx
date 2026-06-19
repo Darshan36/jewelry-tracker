@@ -1,14 +1,17 @@
 "use client";
 
-// Phase 16 — Users management table.
+// Phase 16 — Users management table. Phase 22.1 — touch reachability.
 //
-// Per-row action buttons (Edit / Reset password / Deactivate or
-// Reactivate). Search across name + email. Mobile cards reuse the
-// Phase 11.2 master-data card layout (no inline actions on mobile —
-// edits go through the row tap → form modal flow).
+// Per-row actions (Edit / Reset password / Deactivate or Reactivate) render
+// via the shared UserActionControls component in two layouts: icon buttons on
+// the desktop row, labelled buttons on the mobile card. They are ALWAYS
+// VISIBLE (no hover-reveal): this table has no row-tap → modal fallback, so a
+// hover-gated cluster was unreachable on no-hover touch tablets, and the mobile
+// card previously had no actions at all. Search across name + email.
 //
 // Self-protection UI mirrors the server guards:
-//   - Own row's Deactivate button is disabled with a tooltip-style title.
+//   - Own row's Deactivate button is disabled, with a VISIBLE inline reason
+//     (Phase 22.1 — was a hover-only title="" that never showed on touch).
 //   - Own row in the form modal's role dropdown is disabled (handled
 //     in UserFormModal).
 // The action layer still rejects if anything sneaks past the UI guard.
@@ -129,7 +132,8 @@ export function UsersTable({ users, currentUserId }: Props) {
         header: "",
         enableSorting: false,
         cell: ({ row }) => (
-          <ActionCell
+          <UserActionControls
+            layout="row"
             user={row.original}
             isSelf={row.original.id === currentUserId}
             isConfirming={confirmingId === row.original.id}
@@ -289,7 +293,17 @@ export function UsersTable({ users, currentUserId }: Props) {
                   key={row.id}
                   user={row.original}
                   isSelf={row.original.id === currentUserId}
-                  onClick={() => setEditingUser(row.original)}
+                  isConfirming={confirmingId === row.original.id}
+                  isPending={isPending}
+                  onEdit={() => setEditingUser(row.original)}
+                  onReset={() => setResettingUser(row.original)}
+                  onRequestDeactivate={() => {
+                    setActionError(null);
+                    setConfirmingId(row.original.id);
+                  }}
+                  onCancelDeactivate={() => setConfirmingId(null)}
+                  onConfirmDeactivate={() => handleDeactivate(row.original.id)}
+                  onReactivate={() => handleReactivate(row.original.id)}
                 />
               ))}
             </>
@@ -364,41 +378,6 @@ function UserRow({ row }: { row: Row<UserForClient> }) {
 function UserMobileCard({
   user,
   isSelf,
-  onClick,
-}: {
-  user: UserForClient;
-  isSelf: boolean;
-  onClick: () => void;
-}) {
-  const inactive = user.deletedAt !== null;
-  return (
-    <MobileCard
-      clickable
-      onClick={onClick}
-      data-testid={`user-mobile-card-${user.id}`}
-    >
-      <MobileCardHeader>
-        <MobileCardTitle>
-          {user.name}
-          {isSelf && (
-            <span className="ml-2 text-xs text-on-surface-variant">(you)</span>
-          )}
-        </MobileCardTitle>
-        <StatusChip active={!inactive} />
-      </MobileCardHeader>
-      <div className="text-sm text-on-surface-variant break-all">
-        {user.email}
-      </div>
-      <div className="mt-1">
-        <RoleChip role={user.role} />
-      </div>
-    </MobileCard>
-  );
-}
-
-function ActionCell({
-  user,
-  isSelf,
   isConfirming,
   isPending,
   onEdit,
@@ -420,11 +399,85 @@ function ActionCell({
   onReactivate: () => void;
 }) {
   const inactive = user.deletedAt !== null;
+  // Phase 22.1 — mobile cards now carry explicit, labelled action buttons.
+  // Previously the only mobile action was a card-tap → edit form, so Reset
+  // password / Deactivate / Reactivate had NO touch path at all on phones.
+  return (
+    <MobileCard data-testid={`user-mobile-card-${user.id}`}>
+      <MobileCardHeader>
+        <MobileCardTitle>
+          {user.name}
+          {isSelf && (
+            <span className="ml-2 text-xs text-on-surface-variant">(you)</span>
+          )}
+        </MobileCardTitle>
+        <StatusChip active={!inactive} />
+      </MobileCardHeader>
+      <div className="text-sm text-on-surface-variant break-all">
+        {user.email}
+      </div>
+      <div className="mt-1">
+        <RoleChip role={user.role} />
+      </div>
+      <UserActionControls
+        layout="card"
+        user={user}
+        isSelf={isSelf}
+        isConfirming={isConfirming}
+        isPending={isPending}
+        onEdit={onEdit}
+        onReset={onReset}
+        onRequestDeactivate={onRequestDeactivate}
+        onCancelDeactivate={onCancelDeactivate}
+        onConfirmDeactivate={onConfirmDeactivate}
+        onReactivate={onReactivate}
+      />
+    </MobileCard>
+  );
+}
 
+function UserActionControls({
+  user,
+  isSelf,
+  isConfirming,
+  isPending,
+  layout,
+  onEdit,
+  onReset,
+  onRequestDeactivate,
+  onCancelDeactivate,
+  onConfirmDeactivate,
+  onReactivate,
+}: {
+  user: UserForClient;
+  isSelf: boolean;
+  isConfirming: boolean;
+  isPending: boolean;
+  layout: "row" | "card";
+  onEdit: () => void;
+  onReset: () => void;
+  onRequestDeactivate: () => void;
+  onCancelDeactivate: () => void;
+  onConfirmDeactivate: () => void;
+  onReactivate: () => void;
+}) {
+  const inactive = user.deletedAt !== null;
+  const card = layout === "card";
+
+  // Phase 22.1 — actions are ALWAYS VISIBLE. The desktop row was previously
+  // opacity-0 group-hover, which never fires on a no-hover touch tablet, and
+  // this table has NO row-tap → modal fallback — so every admin action
+  // (Edit / Reset / Deactivate / Reactivate) was unreachable on touch tablets.
+  // Same control set renders on desktop (icons) and mobile cards (labelled
+  // buttons) via the `layout` flag.
   if (isConfirming) {
     return (
       <div
-        className="flex items-center justify-end gap-2"
+        className={
+          card
+            ? "flex flex-wrap items-center gap-2 pt-3 border-t border-outline-variant/40"
+            : "flex items-center justify-end gap-2"
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <span className="text-xs uppercase tracking-wider text-error">
@@ -434,7 +487,11 @@ function ActionCell({
           type="button"
           onClick={onCancelDeactivate}
           disabled={isPending}
-          className="px-2 py-1 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
+          className={
+            card
+              ? "min-h-[44px] px-3 text-xs uppercase tracking-wider border border-outline-variant text-on-surface-variant hover:text-on-surface transition-colors"
+              : "px-2 py-1 text-xs uppercase tracking-wider text-on-surface-variant hover:text-on-surface transition-colors"
+          }
         >
           Cancel
         </button>
@@ -442,41 +499,51 @@ function ActionCell({
           type="button"
           onClick={onConfirmDeactivate}
           disabled={isPending}
-          className="min-w-[100px] h-7 px-2 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors flex items-center justify-center gap-1.5"
           data-testid={`confirm-deactivate-${user.id}`}
+          className={
+            card
+              ? "min-h-[44px] min-w-[120px] px-3 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors inline-flex items-center justify-center gap-1.5"
+              : "min-w-[100px] h-7 px-2 text-xs font-display uppercase tracking-wider bg-error text-on-error hover:bg-error/90 disabled:opacity-70 transition-colors flex items-center justify-center gap-1.5"
+          }
         >
-          {isPending ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : (
-            "Deactivate"
-          )}
+          {isPending ? <Loader2 className="size-3 animate-spin" /> : "Deactivate"}
         </button>
       </div>
     );
   }
 
+  const triggerCls = card
+    ? "flex-1 min-h-[44px] inline-flex items-center justify-center gap-1.5 px-2 text-sm bg-surface-container border border-outline-variant transition-colors"
+    : "p-1.5 inline-flex items-center gap-1 transition-colors";
+
   return (
     <div
-      className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+      className={
+        card
+          ? "flex flex-wrap items-center gap-2 pt-3 border-t border-outline-variant/40"
+          : "flex items-center justify-end gap-1 flex-wrap"
+      }
       onClick={(e) => e.stopPropagation()}
     >
       <button
         type="button"
         onClick={onEdit}
         aria-label="Edit user"
-        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
         data-testid={`edit-user-${user.id}`}
+        className={`${triggerCls} text-on-surface-variant hover:text-on-surface hover:bg-surface-container`}
       >
         <Edit3 className="size-4" />
+        {card && <span>Edit</span>}
       </button>
       <button
         type="button"
         onClick={onReset}
         aria-label="Reset password"
-        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
         data-testid={`reset-password-${user.id}`}
+        className={`${triggerCls} text-on-surface-variant hover:text-on-surface hover:bg-surface-container`}
       >
         <KeyRound className="size-4" />
+        {card && <span>Reset</span>}
       </button>
       {inactive ? (
         <button
@@ -484,28 +551,37 @@ function ActionCell({
           onClick={onReactivate}
           disabled={isPending}
           aria-label="Reactivate user"
-          title="Reactivate user"
-          className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
           data-testid={`reactivate-user-${user.id}`}
+          className={`${triggerCls} text-on-surface-variant hover:text-on-surface hover:bg-surface-container disabled:opacity-50`}
         >
           <RotateCcw className="size-4" />
+          {card && <span>Reactivate</span>}
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={onRequestDeactivate}
-          disabled={isSelf || isPending}
-          aria-label="Deactivate user"
-          title={
-            isSelf
-              ? "You cannot deactivate your own account"
-              : "Deactivate user"
-          }
-          className="p-1.5 text-on-surface-variant hover:text-error hover:bg-surface-container disabled:opacity-30 disabled:hover:text-on-surface-variant disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors"
-          data-testid={`deactivate-user-${user.id}`}
-        >
-          <UserX className="size-4" />
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onRequestDeactivate}
+            disabled={isSelf || isPending}
+            aria-label="Deactivate user"
+            data-testid={`deactivate-user-${user.id}`}
+            className={`${triggerCls} text-on-surface-variant hover:text-error hover:bg-surface-container disabled:opacity-30 disabled:hover:text-on-surface-variant disabled:hover:bg-transparent disabled:cursor-not-allowed`}
+          >
+            <UserX className="size-4" />
+            {card && <span>Deactivate</span>}
+          </button>
+          {isSelf && (
+            // Phase 22.1 — visible self-protection reason (replaces a
+            // hover-only title="" that never appeared on touch). Explains why
+            // Deactivate is disabled on your own row.
+            <span
+              data-testid={`deactivate-self-hint-${user.id}`}
+              className="text-[10px] text-on-surface-variant italic"
+            >
+              Can&apos;t deactivate yourself
+            </span>
+          )}
+        </>
       )}
     </div>
   );

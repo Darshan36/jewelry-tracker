@@ -322,12 +322,15 @@ function LedgerStatement({
                       </span>
                     )
                   ) : (
+                    // Phase 22.1 — self-explanatory visible label. Was the
+                    // cryptic "via source" + a hover-only title="" that never
+                    // appeared on touch, leaving phone/tablet users unable to
+                    // learn why the row is read-only or where to change it.
                     <span
                       className="text-[10px] text-on-surface-variant italic"
-                      title="Edit or delete via the source transaction"
                       data-testid="ledger-readonly-hint"
                     >
-                      via source
+                      Edit on the source bill
                     </span>
                   )}
                 </td>

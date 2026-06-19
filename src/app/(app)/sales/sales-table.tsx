@@ -485,6 +485,11 @@ function QuickActions({
   onBill: () => void;
   onReturn: () => void;
 }) {
+  // Phase 22.1 — visible text labels (not title="" only). These buttons are
+  // always-visible in the desktop row, but on a no-hover touch tablet the
+  // title tooltip never appears, leaving icon-only mystery controls. The
+  // labels read clearer on desktop too. (Mobile <768px renders the labelled
+  // mobile-card buttons instead of this cluster.)
   return (
     <div
       className="flex items-center gap-1"
@@ -495,44 +500,44 @@ function QuickActions({
           type="button"
           onClick={onPay}
           aria-label="Add payment"
-          title="Add payment"
-          className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
         >
           <DollarSign className="size-4" />
+          <span>Pay</span>
         </button>
       )}
       <button
         type="button"
         onClick={onBill}
         aria-label="Manage invoice attachment"
-        title="Manage invoice attachment"
-        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
       >
         <Paperclip className="size-4" />
+        <span>Attach</span>
       </button>
       {/* Phase 20: Print bill — opens a printable receipt in a new
-          tab. Distinct from the Paperclip "Manage invoice attachment"
-          (uploaded invoice document) via icon + label + leading verb. */}
+          tab. Distinct from the Paperclip "Attach" (uploaded invoice
+          document) via icon + label. */}
       <a
         href={`/sales/${saleId}/bill`}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
         aria-label="Print bill"
-        title="Print bill"
         data-testid={`print-bill-${saleId}`}
-        className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
       >
         <Printer className="size-4" />
+        <span>Print</span>
       </a>
       <button
         type="button"
         onClick={onReturn}
         aria-label="Record return"
-        title="Record return"
-        className="p-1.5 text-on-surface-variant hover:text-error hover:bg-surface-container transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-on-surface-variant hover:text-error hover:bg-surface-container transition-colors"
       >
         <Undo2 className="size-4" />
+        <span>Return</span>
       </button>
     </div>
   );
